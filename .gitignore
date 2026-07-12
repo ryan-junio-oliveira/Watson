@@ -1,0 +1,45 @@
+# Ambiente
+.env
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.pytest_cache/
+*.mypy_cache/
+*.dmypy.json
+dmypy.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+
+# Dados / Documentos
+documents/*.pdf
+documents/*.docx
+documents/*.txt
+documents/*.png
+documents/*.jpg
+documents/*.jpeg
+
+# ChromaDB (dados vetoriais locais - pode ser regenerado)
+chroma_db/
+chroma/
+
+# OS
+.DS_Store
+Thumbs.db
