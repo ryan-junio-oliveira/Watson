@@ -24,6 +24,12 @@ def mock_env():
         mock_cfg.chunk_size = 1000
         mock_cfg.chunk_overlap = 200
         mock_cfg.top_k = 5
+        mock_cfg.similarity_threshold = None
+        mock_cfg.use_mmr = False
+        mock_cfg.mmr_fetch_k = 20
+        mock_cfg.mmr_lambda = 0.5
+        mock_cfg.use_reranker = False
+        mock_cfg.reranker_model = "cross-encoder/ms-marco-MiniLM-L-6-v2"
         mock_cfg.index_batch_size = 100
         mock_cfg.db_connection_string = None
         mock_cfg.db_tables = None

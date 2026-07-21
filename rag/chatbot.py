@@ -5,6 +5,7 @@ from langchain_core.documents import Document
 
 from llm.ollama_client import OllamaClient
 from rag.prompt import PromptBuilder
+from rag.reranker import Reranker
 from rag.retriever import Retriever
 
 
@@ -14,21 +15,35 @@ class ChatBot:
         retriever: Retriever,
         prompt_builder: PromptBuilder,
         ollama_client: OllamaClient,
+        reranker: Optional[Reranker] = None,
         logger: Optional[logging.Logger] = None,
     ):
         self.retriever = retriever
         self.prompt_builder = prompt_builder
         self.ollama_client = ollama_client
+        self.reranker = reranker
         self.logger = logger
 
-    def ask(self, question: str) -> str:
+    def _retrieve_and_rerank(self, question: str) -> List[Document]:
         contexts = self.retriever.retrieve(question)
+        if self.reranker and contexts:
+            contexts = self.reranker.rerank(
+                question, contexts, top_k=len(contexts)
+            )
+        return contexts
+
+    def ask(self, question: str) -> str:
+        contexts = self._retrieve_and_rerank(question)
+        if not contexts and self.logger:
+            self.logger.info("No relevant context found, falling back to general knowledge")
         prompt = self.prompt_builder.build(question, contexts)
         answer = self.ollama_client.ask(prompt)
         return answer
 
     def ask_with_context(self, question: str, history_context: str = "") -> str:
-        contexts = self.retriever.retrieve(question)
+        contexts = self._retrieve_and_rerank(question)
+        if not contexts and self.logger:
+            self.logger.info("No relevant context found, falling back to general knowledge")
         prompt = self.prompt_builder.build_with_history(
             question, contexts, history_context
         )
@@ -36,13 +51,13 @@ class ChatBot:
         return answer
 
     def _retrieve_context(self, question: str) -> List[Document]:
-        return self.retriever.retrieve(question)
+        return self._retrieve_and_rerank(question)
 
     def _build_prompt(self, question: str, contexts: List[Document]) -> str:
         return self.prompt_builder.build(question, contexts)
 
     def chat_loop(self) -> None:
-        print("\n=== Agente RAG Local ===")
+        print("\n=== Watson RAG ===")
         print("Digite 'exit' ou 'quit' para sair.\n")
 
         while True:
@@ -64,6 +79,11 @@ class ChatBot:
                     self.logger.info(f"Question: {question}")
 
                 contexts = self._retrieve_context(question)
+                if not contexts and self.logger:
+                    self.logger.info(
+                        "No relevant context found, "
+                        "falling back to general knowledge"
+                    )
                 prompt = self._build_prompt(question, contexts)
                 answer_parts: List[str] = []
 

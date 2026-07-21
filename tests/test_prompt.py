@@ -15,14 +15,14 @@ class TestPromptBuilder:
         assert isinstance(prompt, str)
         assert "Qual a capital?" in prompt
         assert "Contexto relevante." in prompt
-        assert "[Fonte: doc.txt]" in prompt
+        assert "Fonte: doc.txt" in prompt
 
     def test_build_includes_system_prompt(self):
         contexts = [
             Document(page_content="Teste", metadata={"filename": "doc.txt"})
         ]
         prompt = self.builder.build("Pergunta?", contexts)
-        assert "Você é um assistente especializado" in prompt
+        assert "assistente especializado" in prompt
 
     def test_build_with_multiple_contexts(self):
         contexts = [
@@ -32,8 +32,8 @@ class TestPromptBuilder:
         prompt = self.builder.build("Pergunta?", contexts)
         assert "Primeiro documento." in prompt
         assert "Segundo documento." in prompt
-        assert "[Fonte: doc1.txt]" in prompt
-        assert "[Fonte: doc2.txt]" in prompt
+        assert "Fonte: doc1.txt" in prompt
+        assert "Fonte: doc2.txt" in prompt
 
     def test_build_with_history(self):
         contexts = [
@@ -65,3 +65,43 @@ class TestPromptBuilder:
         assert "user: Hi" in prompt2
         assert "Mesmo contexto." in prompt1
         assert "Mesmo contexto." in prompt2
+
+    def test_build_with_relevance_score(self):
+        contexts = [
+            Document(
+                page_content="Conteudo relevante.",
+                metadata={"filename": "doc.txt", "relevance_score": 0.95},
+            )
+        ]
+        prompt = self.builder.build("Pergunta?", contexts)
+        assert "Relevância: 0.95" in prompt
+        assert "Fonte: doc.txt" in prompt
+
+    def test_build_uses_numbered_contexts(self):
+        contexts = [
+            Document(page_content="Primeiro.", metadata={"filename": "a.txt"}),
+            Document(page_content="Segundo.", metadata={"filename": "b.txt"}),
+        ]
+        prompt = self.builder.build("Pergunta?", contexts)
+        assert "[1] Fonte: a.txt" in prompt
+        assert "[2] Fonte: b.txt" in prompt
+
+    def test_build_without_context_uses_fallback(self):
+        prompt = self.builder.build("Pergunta?", [])
+        assert "documentos relevantes" in prompt or "conhecimento geral" in prompt
+        assert "Não foram encontrados documentos" in prompt
+        assert "Pergunta?" in prompt
+
+    def test_build_without_context_and_history_uses_fallback(self):
+        prompt = self.builder.build_with_history(
+            "Pergunta?", [], "user: Oi"
+        )
+        assert "Não foram encontrados documentos" in prompt
+        assert "Histórico da conversa:" in prompt
+        assert "user: Oi" in prompt
+
+    def test_build_with_context_uses_system_prompt(self):
+        contexts = [Document(page_content="Algo.", metadata={"filename": "f.txt"})]
+        prompt = self.builder.build("Pergunta?", contexts)
+        assert "APENAS com base no contexto" in prompt
+        assert "documentos relevantes" not in prompt

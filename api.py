@@ -19,6 +19,7 @@ from ingestion.splitter import DocumentSplitter
 from llm.ollama_client import OllamaClient
 from rag.chatbot import ChatBot
 from rag.prompt import PromptBuilder
+from rag.reranker import Reranker
 from rag.retriever import Retriever
 from utils.logger import setup_logger
 
@@ -89,6 +90,10 @@ def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
         embedding_generator=_embedding_generator,
         chroma_persist_dir=cfg.vector_db_dir,
         top_k=cfg.top_k,
+        similarity_threshold=cfg.similarity_threshold,
+        use_mmr=cfg.use_mmr,
+        mmr_fetch_k=cfg.mmr_fetch_k,
+        mmr_lambda=cfg.mmr_lambda,
         logger=_logger,
     )
     _prompt_builder = PromptBuilder()
@@ -100,10 +105,20 @@ def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
         request_timeout=cfg.ollama_timeout,
         logger=_logger,
     )
+    _reranker = (
+        Reranker(
+            model_name=cfg.reranker_model,
+            device=cfg.embedding_device,
+            logger=_logger,
+        )
+        if cfg.use_reranker
+        else None
+    )
     return ChatBot(
         retriever=_retriever,
         prompt_builder=_prompt_builder,
         ollama_client=_ollama_client,
+        reranker=_reranker,
         logger=_logger,
     )
 

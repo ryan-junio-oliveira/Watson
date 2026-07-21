@@ -38,6 +38,28 @@ class Config:
     top_k: int = field(
         default_factory=lambda: int(os.getenv("TOP_K", "5"))
     )
+    similarity_threshold: Optional[float] = field(
+        default_factory=lambda: (
+            float(v) if (v := os.getenv("SIMILARITY_THRESHOLD")) else None
+        )
+    )
+    use_mmr: bool = field(
+        default_factory=lambda: os.getenv("USE_MMR", "false").lower() == "true"
+    )
+    mmr_fetch_k: int = field(
+        default_factory=lambda: int(os.getenv("MMR_FETCH_K", "20"))
+    )
+    mmr_lambda: float = field(
+        default_factory=lambda: float(os.getenv("MMR_LAMBDA", "0.5"))
+    )
+    use_reranker: bool = field(
+        default_factory=lambda: os.getenv("USE_RERANKER", "false").lower() == "true"
+    )
+    reranker_model: str = field(
+        default_factory=lambda: os.getenv(
+            "RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        )
+    )
     index_batch_size: int = field(
         default_factory=lambda: int(os.getenv("INDEX_BATCH_SIZE", "100"))
     )

@@ -6,6 +6,7 @@ from ingestion.embeddings import EmbeddingGenerator
 from llm.ollama_client import OllamaClient
 from rag.chatbot import ChatBot
 from rag.prompt import PromptBuilder
+from rag.reranker import Reranker
 from rag.retriever import Retriever
 from utils.logger import setup_logger
 
@@ -37,6 +38,10 @@ def main() -> None:
             embedding_generator=embedding_generator,
             chroma_persist_dir=cfg.vector_db_dir,
             top_k=cfg.top_k,
+            similarity_threshold=cfg.similarity_threshold,
+            use_mmr=cfg.use_mmr,
+            mmr_fetch_k=cfg.mmr_fetch_k,
+            mmr_lambda=cfg.mmr_lambda,
             logger=logger,
         )
         prompt_builder = PromptBuilder()
@@ -48,11 +53,21 @@ def main() -> None:
             request_timeout=cfg.ollama_timeout,
             logger=logger,
         )
+        reranker = (
+            Reranker(
+                model_name=cfg.reranker_model,
+                device=cfg.embedding_device,
+                logger=logger,
+            )
+            if cfg.use_reranker
+            else None
+        )
 
         chatbot = ChatBot(
             retriever=retriever,
             prompt_builder=prompt_builder,
             ollama_client=ollama_client,
+            reranker=reranker,
             logger=logger,
         )
         chatbot.chat_loop()
