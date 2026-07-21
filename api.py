@@ -539,3 +539,9 @@ async def _run_clear(clear_docs: bool, clear_vectorstore: bool) -> ClearResponse
     except Exception as e:
         logger.exception(f"Clear error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host=cfg.api_host, port=cfg.api_port)

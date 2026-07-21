@@ -21,3 +21,7 @@ sqlalchemy>=2.0.0
 pymysql>=1.1.0
 python-multipart>=0.0.12
 python-dotenv>=1.0.0
+
+# Build / Deploy
+pyinstaller>=6.0.0
+pywin32>=306; sys_platform == "win32"

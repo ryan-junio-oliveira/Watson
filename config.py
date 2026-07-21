@@ -3,6 +3,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
 
@@ -79,9 +80,12 @@ class Config:
         default_factory=lambda: os.getenv("LOG_FILE", "logs/ai_agent.log")
     )
 
-    db_connection_string: Optional[str] = field(
-        default_factory=lambda: os.getenv("DB_CONNECTION_STRING")
-    )
+    db_host: str = field(default_factory=lambda: os.getenv("DB_HOST", ""))
+    db_port: str = field(default_factory=lambda: os.getenv("DB_PORT", "3306"))
+    db_user: str = field(default_factory=lambda: os.getenv("DB_USER", ""))
+    db_password: str = field(default_factory=lambda: os.getenv("DB_PASSWORD", ""))
+    db_name: str = field(default_factory=lambda: os.getenv("DB_NAME", ""))
+    db_connection_string: Optional[str] = field(default=None)
     db_tables: Optional[List[str]] = field(default=None)
 
     api_host: str = field(
@@ -92,6 +96,16 @@ class Config:
     )
 
     def __post_init__(self):
+        raw = os.getenv("DB_CONNECTION_STRING")
+        if raw:
+            self.db_connection_string = raw
+        elif self.db_user and self.db_host and self.db_name:
+            encoded_password = quote_plus(self.db_password)
+            self.db_connection_string = (
+                f"mysql+pymysql://{self.db_user}:{encoded_password}"
+                f"@{self.db_host}:{self.db_port}/{self.db_name}"
+            )
+
         tables_env = os.getenv("DB_TABLES")
         if tables_env:
             try:

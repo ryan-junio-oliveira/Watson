@@ -9,13 +9,17 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.egg-info/
-dist/
-build/
 *.egg
 .pytest_cache/
 *.mypy_cache/
 *.dmypy.json
 dmypy.json
+
+# Build / PyInstaller
+dist/
+build/
+*.spec.bak
+watson.log
 
 # IDE
 .vscode/
@@ -35,9 +39,6 @@ documents/
 database/chroma/
 chroma_db/
 chroma/
-
-# Logs
-logs/
 
 # OS
 .DS_Store
