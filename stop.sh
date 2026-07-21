@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-API_PORT=$(python3 -c "from config import config; print(config.api_port)" 2>/dev/null || echo "8000")
+API_PORT=$(python3 -c "from config import config; print(config.api_port)" 2>/dev/null || echo "9000")
 
 echo "============================================"
 echo "        PARANDO WATSON RAG"

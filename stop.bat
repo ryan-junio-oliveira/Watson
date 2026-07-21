@@ -6,7 +6,7 @@ for /f "tokens=1,2" %%a in ('python -c "from config import config; print(config.
     set API_HOST=%%a
     set API_PORT=%%b
 )
-if "%API_PORT%"=="" set API_PORT=8000
+if "%API_PORT%"=="" set API_PORT=9000
 
 echo ============================================
 echo        PARANDO WATSON RAG

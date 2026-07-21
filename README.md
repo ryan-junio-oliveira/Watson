@@ -62,7 +62,7 @@ Oferece **dois modos de operação**:
 │  └─────────────────────────────────────────────────────┘       │
 │                                                                 │
 │  ┌─────────────────┐              ┌─────────────────────────┐   │
-│  │  app.py (CLI)   │              │  api.py (FastAPI :8000) │   │
+│  │  app.py (CLI)   │              │  api.py (FastAPI :9000) │   │
 │  │  Terminal chat   │              │  REST + Swagger /docs  │   │
 │  └─────────────────┘              └─────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
@@ -160,7 +160,7 @@ cp .env.example .env
 | `LOG_LEVEL` | `INFO` | Nível de logging (DEBUG, INFO, WARNING, ERROR) |
 | `LOG_FILE` | `logs/ai_agent.log` | Caminho do arquivo de log |
 | `API_HOST` | `0.0.0.0` | Host do servidor API |
-| `API_PORT` | `8000` | Porta do servidor API |
+| `API_PORT` | `9000` | Porta do servidor API |
 | `DB_CONNECTION_STRING` | — | String de conexão MySQL (`mysql+pymysql://user:pass@host:3306/db`) |
 | `DB_TABLES` | — | Lista JSON de tabelas para indexar (`["licenses","clients"]`) |
 
@@ -187,18 +187,18 @@ Comportamento:
 Servidor REST FastAPI para integração com sistemas externos.
 
 ```bash
-uvicorn api:app --host 0.0.0.0 --port 8000
+uvicorn api:app --host 0.0.0.0 --port 9000
 ```
 
 Com reload automático (desenvolvimento):
 
 ```bash
-uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+uvicorn api:app --host 0.0.0.0 --port 9000 --reload
 ```
 
 Acesso à documentação interativa:
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+- Swagger UI: http://localhost:9000/docs
+- ReDoc: http://localhost:9000/redoc
 
 ### 3. Indexação via CLI (`index.py`)
 
@@ -315,7 +315,7 @@ Indexa **apenas o banco de dados MySQL**. Requer `DB_CONNECTION_STRING` configur
 Faz upload de um arquivo para o diretório de documentos. Após o upload, execute `/api/index/documents` para indexá-lo.
 
 ```bash
-curl -X POST http://localhost:8000/api/documents/upload \
+curl -X POST http://localhost:9000/api/documents/upload \
   -F "file=@contrato.pdf"
 ```
 
@@ -396,36 +396,36 @@ Se o banco vetorial estiver vazio (nunca indexou nada), as respostas indicarão 
 python index.py
 
 # Ou via API (com servidor rodando)
-curl -X POST http://localhost:8000/api/index/documents
+curl -X POST http://localhost:9000/api/index/documents
 ```
 
 ### Teste via API
 
-Com o servidor rodando (`uvicorn api:app --host 0.0.0.0 --port 8000`):
+Com o servidor rodando (`uvicorn api:app --host 0.0.0.0 --port 9000`):
 
 ```bash
 # 1. Health check
-curl http://localhost:8000/api/health
+curl http://localhost:9000/api/health
 
 # 2. Listar modelos disponíveis
-curl http://localhost:8000/api/models
+curl http://localhost:9000/api/models
 
 # 3. Indexar documentos
-curl -X POST http://localhost:8000/api/index/documents
+curl -X POST http://localhost:9000/api/index/documents
 
 # 4. Indexar banco de dados (se configurado)
-curl -X POST http://localhost:8000/api/index/database
+curl -X POST http://localhost:9000/api/index/database
 
 # 5. Indexar tudo
-curl -X POST http://localhost:8000/api/index
+curl -X POST http://localhost:9000/api/index
 
 # 6. Fazer uma pergunta
-curl -X POST http://localhost:8000/api/chat \
+curl -X POST http://localhost:9000/api/chat \
   -H "Content-Type: application/json" \
   -d '{"question": "Quantas licenças ativas existem?"}'
 
 # 7. Perguntar com histórico
-curl -X POST http://localhost:8000/api/chat \
+curl -X POST http://localhost:9000/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "question": "E quantas estão bloqueadas?",
@@ -436,25 +436,25 @@ curl -X POST http://localhost:8000/api/chat \
   }'
 
 # 8. Upload de documento
-curl -X POST http://localhost:8000/api/documents/upload \
+curl -X POST http://localhost:9000/api/documents/upload \
   -F "file=@documentos/manual.pdf"
 
 # 9. Limpar tudo
-curl -X POST http://localhost:8000/api/clear
+curl -X POST http://localhost:9000/api/clear
 ```
 
 Para formatar a resposta como JSON legível:
 
 ```bash
-curl -s http://localhost:8000/api/chat \
+curl -s http://localhost:9000/api/chat \
   -H "Content-Type: application/json" \
   -d '{"question": "Qual o total de clientes?"}' \
   | python -m json.tool
 ```
 
 Acesse a documentação interativa no navegador:
-- http://localhost:8000/docs (Swagger UI)
-- http://localhost:8000/redoc (ReDoc)
+- http://localhost:9000/docs (Swagger UI)
+- http://localhost:9000/redoc (ReDoc)
 
 ---
 
@@ -465,7 +465,7 @@ Acesse a documentação interativa no navegador:
 ```python
 import requests
 
-API_URL = "http://localhost:8000"
+API_URL = "http://localhost:9000"
 
 # Health check
 health = requests.get(f"{API_URL}/api/health")
@@ -505,7 +505,7 @@ print(res.json())
 ### Node.js
 
 ```javascript
-const API_URL = 'http://localhost:8000';
+const API_URL = 'http://localhost:9000';
 
 // Health check
 const health = await fetch(`${API_URL}/api/health`);
@@ -537,7 +537,7 @@ console.log(await uploadRes.json());
 ```php
 use Illuminate\Support\Facades\Http;
 
-$apiUrl = 'http://localhost:8000';
+$apiUrl = 'http://localhost:9000';
 
 // Fazer pergunta
 $response = Http::post("$apiUrl/api/chat", [
@@ -559,20 +559,20 @@ Http::post("$apiUrl/api/index");
 
 ```bash
 # Pergunta simples
-curl -s http://localhost:8000/api/chat \
+curl -s http://localhost:9000/api/chat \
   -H "Content-Type: application/json" \
   -d '{"question": "Qual o total de instalações?"}' \
   | jq .answer
 
 # Upload
-curl -s -X POST http://localhost:8000/api/documents/upload \
+curl -s -X POST http://localhost:9000/api/documents/upload \
   -F "file=@documento.pdf" | jq .
 
 # Indexar documents
-curl -s -X POST http://localhost:8000/api/index | jq .
+curl -s -X POST http://localhost:9000/api/index | jq .
 
 # Health check
-curl -s http://localhost:8000/api/health | jq .
+curl -s http://localhost:9000/api/health | jq .
 ```
 
 ### Agendamento (cron)
@@ -581,13 +581,13 @@ Para manter os vetores sempre atualizados:
 
 ```bash
 # Reindexar documentos e banco a cada hora
-0 * * * * curl -X POST http://localhost:8000/api/index
+0 * * * * curl -X POST http://localhost:9000/api/index
 
 # Reindexar apenas o banco a cada 30 minutos
-*/30 * * * * curl -X POST http://localhost:8000/api/index/database
+*/30 * * * * curl -X POST http://localhost:9000/api/index/database
 
 # Reindexar apenas documentos toda madrugada
-0 3 * * * curl -X POST http://localhost:8000/api/index/documents
+0 3 * * * curl -X POST http://localhost:9000/api/index/documents
 
 # Indexação via CLI (sem servidor)
 0 * * * * cd /caminho/watson && /caminho/.venv/bin/python index.py

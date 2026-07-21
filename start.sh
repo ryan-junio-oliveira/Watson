@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-read -r API_HOST API_PORT <<< "$(python3 -c "from config import config; print(config.api_host, config.api_port)" 2>/dev/null || echo "0.0.0.0 8000")"
+read -r API_HOST API_PORT <<< "$(python3 -c "from config import config; print(config.api_host, config.api_port)" 2>/dev/null || echo "0.0.0.0 9000")"
 
 show_menu() {
     clear

@@ -88,7 +88,7 @@ class Config:
         default_factory=lambda: os.getenv("API_HOST", "0.0.0.0")
     )
     api_port: int = field(
-        default_factory=lambda: int(os.getenv("API_PORT", "8000"))
+        default_factory=lambda: int(os.getenv("API_PORT", "9000"))
     )
 
     def __post_init__(self):
