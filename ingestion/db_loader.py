@@ -4,6 +4,8 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
 
+from sqlalchemy import text as sa_text
+
 from ingestion.loader import LoadedDocument
 
 
@@ -17,6 +19,9 @@ class DatabaseLoader:
         "two_factor",
         "remember_token",
     }
+
+    # Cache for table names to avoid repeated inspections
+    _table_cache: Dict[str, List[str]] = {}
 
     def __init__(
         self,
@@ -35,9 +40,28 @@ class DatabaseLoader:
                 return True
         return False
 
+    def _sanitize_table_name(self, table_name: str, available_tables: Set[str]) -> Optional[str]:
+        """Validates a table name against available tables to prevent SQL injection."""
+        name = table_name.strip().strip('`"')
+        if name in available_tables:
+            return name
+        # Try with backticks
+        if f"`{name}`" in available_tables:
+            return f"`{name}`"
+        return None
+
+    def _quote_identifier(self, name: str) -> str:
+        """Safely quotes a SQL identifier using backticks."""
+        # Remove any existing backticks and strip
+        clean = name.strip().strip('`')
+        # Only allow alphanumeric and underscores
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', clean):
+            raise ValueError(f"Invalid SQL identifier: {clean}")
+        return f"`{clean}`"
+
     def load(self) -> List[LoadedDocument]:
         try:
-            from sqlalchemy import create_engine, inspect, text
+            from sqlalchemy import create_engine, inspect
         except ImportError:
             raise ImportError(
                 "sqlalchemy is required for database loading. "
@@ -56,14 +80,21 @@ class DatabaseLoader:
                 requested = None
 
             if requested:
-                invalid = [t for t in requested if t not in available_tables]
-                if invalid:
-                    self._log_error(
-                        f"Tables not found in database: {invalid}. "
-                        f"Available: {sorted(available_tables)}"
-                    )
+                # Validate each requested table against available tables
+                validated_tables = []
+                for t in requested:
+                    valid = self._sanitize_table_name(t, available_tables)
+                    if valid:
+                        validated_tables.append(valid)
+                    else:
+                        self._log_error(
+                            f"Table '{t}' not found in database. "
+                            f"Available: {sorted(available_tables)}"
+                        )
+                if not validated_tables:
+                    self._log_error("No valid tables found to load")
                     return documents
-                table_names = requested
+                table_names = validated_tables
             else:
                 table_names = sorted(available_tables)
 
@@ -93,8 +124,12 @@ class DatabaseLoader:
                         )
                         continue
 
+                    # Use quoted, validated table name
+                    quoted_table = self._quote_identifier(table_name)
+                    query = sa_text(f"SELECT * FROM {quoted_table}")
+
                     with engine.connect() as conn:
-                        result = conn.execute(text(f"SELECT * FROM {table_name}"))
+                        result = conn.execute(query)
                         rows = result.fetchall()
 
                     self._log_info(

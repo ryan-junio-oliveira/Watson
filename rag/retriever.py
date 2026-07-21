@@ -40,7 +40,31 @@ class Retriever:
         return self._vector_store
 
     def retrieve(self, query: str) -> List[Document]:
-        vector_store = self._get_vector_store()
+        try:
+            vector_store = self._get_vector_store()
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(
+                    f"Could not open vector store (possibly empty): {e}"
+                )
+            return []
+
+        try:
+            # Check if collection exists and has data
+            collection = vector_store._collection
+            count = collection.count()
+            if count == 0:
+                if self.logger:
+                    self.logger.info(
+                        "Vector store collection is empty, no documents to retrieve"
+                    )
+                return []
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(
+                    f"Could not verify collection status: {e}"
+                )
+            return []
 
         if self.use_mmr:
             results = vector_store.max_marginal_relevance_search(

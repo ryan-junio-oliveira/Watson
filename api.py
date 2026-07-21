@@ -1,11 +1,14 @@
 import logging
 import re
 import sys
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import List, Optional
+from typing import AsyncGenerator, List, Optional
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, status
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
@@ -177,7 +180,7 @@ app = FastAPI(
     - **Upload**: Envie novos documentos para indexação
     - **Saúde**: Monitore o status da API e componentes
     """,
-    version="1.0.0",
+    version="1.1.0",
     contact={
         "name": "Watson Team",
         "url": "http://localhost:9000",
@@ -190,6 +193,24 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+# CORS configuration - allow all origins in development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    """Adds a unique request_id to each request for tracing."""
+    request.state.request_id = str(uuid.uuid4())[:8]
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request.state.request_id
+    return response
+
 
 @app.get(
     "/api/health",
@@ -199,13 +220,27 @@ app = FastAPI(
     response_description="Status atual da API e seus componentes",
     responses={
         200: {"description": "API funcionando normalmente", "model": HealthResponse},
+        503: {"description": "Ollama ou dependências indisponíveis", "model": ErrorResponse},
     },
 )
 async def health():
-    """Retorna o status da API, incluindo diretórios configurados e modelo Ollama."""
-    global cfg
+    """Retorna o status da API e verifica se o Ollama está acessível."""
+    global cfg, ollama_client
+    ollama_status = "unknown"
+    try:
+        local_client = ollama_client or OllamaClient(
+            model=cfg.ollama_model,
+            base_url=cfg.ollama_base_url,
+            request_timeout=5,
+        )
+        local_client.list_models()
+        ollama_status = "ok"
+    except Exception:
+        ollama_status = "unavailable"
+
+    overall = "ok" if ollama_status == "ok" else "degraded"
     return HealthResponse(
-        status="ok",
+        status=overall,
         documents_dir=cfg.documents_dir,
         chroma_dir=cfg.vector_db_dir,
         db_configured=bool(cfg.db_connection_string),
@@ -254,12 +289,13 @@ async def list_models():
         503: {"description": "Chatbot não foi inicializado", "model": ErrorResponse},
     },
 )
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, req: Request):
     """Envia uma pergunta para o Watson e obtém uma resposta baseada nos documentos indexados.
 
     Opcionalmente, envie `history` com o histórico da conversa para manter contexto.
     """
     global chatbot, logger
+    request_id = getattr(req.state, "request_id", "unknown")
 
     if not chatbot:
         raise HTTPException(status_code=503, detail="Chatbot not initialized")
@@ -279,10 +315,78 @@ async def chat(request: ChatRequest):
         else:
             answer = chatbot.ask(question)
 
+        logger.info(f"[{request_id}] Chat completed: {len(answer)} chars")
         return ChatResponse(answer=answer)
     except Exception as e:
-        logger.exception(f"Chat error: {e}")
+        logger.exception(f"[{request_id}] Chat error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    "/api/chat/stream",
+    tags=["Chat"],
+    summary="Fazer uma pergunta ao Watson com resposta em streaming (SSE)",
+    response_description="Stream da resposta gerada pelo modelo LLM",
+    responses={
+        200: {"description": "Stream de tokens da resposta"},
+        400: {"description": "Pergunta inválida ou vazia", "model": ErrorResponse},
+        503: {"description": "Chatbot não foi inicializado", "model": ErrorResponse},
+    },
+)
+async def chat_stream(request: ChatRequest, req: Request):
+    """Envia uma pergunta e recebe a resposta em tempo real via Server-Sent Events (SSE).
+
+    Cada chunk da resposta é enviado como um evento SSE no formato:
+    `data: {"token": "texto_parcial"}\n\n`
+    O stream é finalizado com: `data: [DONE]\n\n`
+    """
+    global chatbot, logger
+    request_id = getattr(req.state, "request_id", "unknown")
+
+    if not chatbot:
+        raise HTTPException(status_code=503, detail="Chatbot not initialized")
+
+    question = request.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Question cannot be empty")
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        try:
+            if request.history:
+                context = ""
+                for msg in request.history:
+                    role = msg.get("role", "user")
+                    content = msg.get("content", "")
+                    context += f"{role}: {content}\n"
+                prompt = chatbot.prompt_builder.build_with_history(
+                    question, chatbot._retrieve_and_rerank(question), context
+                )
+            else:
+                contexts = chatbot._retrieve_and_rerank(question)
+                prompt = chatbot.prompt_builder.build(question, contexts)
+
+            full_answer: List[str] = []
+            for token in chatbot.ollama_client.ask_stream(prompt):
+                full_answer.append(token)
+                yield f"data: {token}\n\n"
+
+            yield "data: [DONE]\n\n"
+            logger.info(
+                f"[{request_id}] Stream completed: {len(''.join(full_answer))} chars"
+            )
+        except Exception as e:
+            logger.exception(f"[{request_id}] Stream error: {e}")
+            yield f"data: [ERROR] {str(e)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post(

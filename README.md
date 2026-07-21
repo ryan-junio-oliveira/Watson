@@ -55,13 +55,36 @@ Pergunta -> Embedding -> ChromaDB (top-k) -> Prompt Builder -> Ollama -> Respost
 
 | Endpoint | Metodo | Descricao |
 |---|---|---|
-| `/api/health` | GET | Status da API |
+| `/api/health` | GET | Status da API + verificação de conexão com Ollama |
+| `/api/models` | GET | Lista modelos disponíveis no Ollama |
 | `/api/chat` | POST | Perguntas e respostas com RAG |
+| `/api/chat/stream` | POST | Chat com resposta em **streaming (SSE)** |
 | `/api/index` | POST | Indexa documentos + banco |
 | `/api/index/documents` | POST | Indexa apenas documentos |
 | `/api/index/database` | POST | Indexa apenas banco MySQL |
 | `/api/documents/upload` | POST | Upload de arquivo |
 | `/api/clear` | POST | Limpa tudo (docs + vetores) |
+| `/api/clear/documents` | POST | Limpa apenas documentos |
+| `/api/clear/vectorstore` | POST | Limpa apenas banco vetorial |
+
+---
+
+## Recursos da API
+
+### Streaming (SSE)
+O endpoint `/api/chat/stream` retorna a resposta do LLM **token por token** via Server-Sent Events, permitindo que o cliente exiba a resposta em tempo real.
+
+```bash
+curl -X POST http://localhost:9000/api/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Quais servidores estão cadastrados?"}'
+```
+
+### Request Tracing
+Toda requisição recebe um header `X-Request-ID` único para correlação de logs e debugging.
+
+### CORS
+CORS habilitado para todas origens (configurável via código).
 
 ---
 
@@ -97,4 +120,3 @@ Watson/
 
 ```bash
 pytest tests/ -v
-```

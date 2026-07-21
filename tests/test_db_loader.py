@@ -100,7 +100,11 @@ class TestDatabaseLoader:
         with patch("sqlalchemy.inspect", return_value=mock_inspector):
             loader.load()
 
-        mock_logger.error.assert_called_once()
+        # Should log error for invalid table and for no valid tables
+        assert mock_logger.error.call_count >= 1
+        # Verify the specific error message about table not found
+        error_args = mock_logger.error.call_args_list[0][0][0]
+        assert "not found" in error_args or "No valid tables" in error_args
 
     def test_row_to_document(self, loader):
         doc = loader._row_to_document(
