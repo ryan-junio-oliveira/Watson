@@ -47,6 +47,9 @@ class Config:
     vector_db_dir: str = field(
         default_factory=lambda: os.getenv("VECTOR_DB_DIR", "database/chroma")
     )
+    embedding_device: str = field(
+        default_factory=lambda: os.getenv("EMBEDDING_DEVICE", "cpu")
+    )
     log_level: str = field(
         default_factory=lambda: os.getenv("LOG_LEVEL", "INFO")
     )

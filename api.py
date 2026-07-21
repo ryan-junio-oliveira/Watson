@@ -1,4 +1,5 @@
 import logging
+import re
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -6,6 +7,8 @@ from typing import List, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
+
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 
 from config import Config, config as app_config
 from ingestion.db_loader import DatabaseLoader
@@ -81,7 +84,7 @@ cfg: Config = None
 
 
 def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
-    _embedding_generator = EmbeddingGenerator(model_name=cfg.embedding_model)
+    _embedding_generator = EmbeddingGenerator(model_name=cfg.embedding_model, device=cfg.embedding_device)
     _retriever = Retriever(
         embedding_generator=_embedding_generator,
         chroma_persist_dir=cfg.vector_db_dir,
@@ -106,7 +109,7 @@ def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
 
 
 def build_indexer(cfg: Config, _logger: logging.Logger):
-    _embedding_generator = EmbeddingGenerator(model_name=cfg.embedding_model)
+    _embedding_generator = EmbeddingGenerator(model_name=cfg.embedding_model, device=cfg.embedding_device)
     _splitter = DocumentSplitter(
         chunk_size=cfg.chunk_size,
         chunk_overlap=cfg.chunk_overlap,
@@ -409,16 +412,33 @@ async def upload_document(file: UploadFile = File(..., description="Arquivo a se
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
 
+    filename = re.sub(r'[^\w\.\-]', '_', Path(file.filename).name)
+    if not filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
     docs_dir = Path(cfg.documents_dir)
     docs_dir.mkdir(parents=True, exist_ok=True)
 
-    filepath = docs_dir / file.filename
+    filepath = docs_dir / filename
+
+    if filepath.exists():
+        raise HTTPException(
+            status_code=409,
+            detail=f"File '{filename}' already exists",
+        )
 
     try:
         content = await file.read()
+        if len(content) > MAX_UPLOAD_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large ({len(content)} bytes). Maximum is {MAX_UPLOAD_SIZE} bytes.",
+            )
         filepath.write_bytes(content)
-        logger.info(f"Uploaded document: {file.filename} ({len(content)} bytes)")
-        return DocUploadResponse(status="ok", filename=file.filename, size=len(content))
+        logger.info(f"Uploaded document: {filename} ({len(content)} bytes)")
+        return DocUploadResponse(status="ok", filename=filename, size=len(content))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Upload error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -165,13 +165,6 @@ class DocumentIndexer:
 
         return total_chunks
 
-    def _needs_hash_check(
-        self, doc: LoadedDocument, existing: Optional[Dict]
-    ) -> bool:
-        return existing is None or (
-            existing.get("modified_at") != doc.modified_at
-        )
-
     def _compute_file_hash(self, filepath: str, content: str = "") -> str:
         hasher = hashlib.sha256()
         if filepath.startswith("db://") or not Path(filepath).exists():
@@ -208,11 +201,11 @@ class DocumentIndexer:
         return removed
 
     def clear_documents(self, documents_dir: str) -> int:
-        """Remove todos os arquivos do diretório de documentos."""
+        """Remove todos os arquivos do diretório de documentos (recursivamente)."""
         removed = 0
         docs_path = Path(documents_dir)
         if docs_path.exists():
-            for item in docs_path.iterdir():
+            for item in docs_path.rglob("*"):
                 if item.is_file():
                     item.unlink()
                     removed += 1

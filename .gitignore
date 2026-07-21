@@ -29,16 +29,15 @@ logs/
 *.log
 
 # Dados / Documentos
-documents/*.pdf
-documents/*.docx
-documents/*.txt
-documents/*.png
-documents/*.jpg
-documents/*.jpeg
+documents/
 
 # ChromaDB (dados vetoriais locais - pode ser regenerado)
+database/chroma/
 chroma_db/
 chroma/
+
+# Logs
+logs/
 
 # OS
 .DS_Store

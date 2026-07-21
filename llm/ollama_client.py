@@ -7,7 +7,7 @@ import ollama
 class OllamaClient:
     def __init__(
         self,
-        model: str = "qwen3:4b",
+        model: str = "qwen3:8b",
         base_url: str = "http://localhost:11434",
         temperature: float = 0.1,
         max_tokens: int = 2048,

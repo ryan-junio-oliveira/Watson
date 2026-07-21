@@ -50,10 +50,22 @@ class DatabaseLoader:
             engine = create_engine(self.connection_string)
             inspector = inspect(engine)
 
+            available_tables = set(inspector.get_table_names())
             requested = self.tables
             if requested and "*" in requested:
                 requested = None
-            table_names = requested or inspector.get_table_names()
+
+            if requested:
+                invalid = [t for t in requested if t not in available_tables]
+                if invalid:
+                    self._log_error(
+                        f"Tables not found in database: {invalid}. "
+                        f"Available: {sorted(available_tables)}"
+                    )
+                    return documents
+                table_names = requested
+            else:
+                table_names = sorted(available_tables)
 
             if not table_names:
                 self._log_info("No tables found in database")

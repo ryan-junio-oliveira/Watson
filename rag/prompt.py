@@ -17,34 +17,22 @@ class PromptBuilder:
         "6. Se necessário, mencione o documento de origem."
     )
 
-    def build(self, question: str, contexts: List[Document]) -> str:
+    def _build_base(self, question: str, contexts: List[Document]) -> str:
         context_text = "\n\n---\n\n".join(
             f"[Fonte: {doc.metadata.get('filename', 'desconhecida')}]\n"
             f"{doc.page_content}"
             for doc in contexts
         )
+        return f"{self.SYSTEM_PROMPT}\n\nContexto:\n{context_text}\n\n"
 
-        return (
-            f"{self.SYSTEM_PROMPT}\n\n"
-            f"Contexto:\n{context_text}\n\n"
-            f"Pergunta: {question}\n\n"
-            f"Resposta:"
-        )
+    def build(self, question: str, contexts: List[Document]) -> str:
+        return f"{self._build_base(question, contexts)}Pergunta: {question}\n\nResposta:"
 
     def build_with_history(
         self, question: str, contexts: List[Document], history_context: str = ""
     ) -> str:
-        context_text = "\n\n---\n\n".join(
-            f"[Fonte: {doc.metadata.get('filename', 'desconhecida')}]\n"
-            f"{doc.page_content}"
-            for doc in contexts
-        )
-
-        prompt = f"{self.SYSTEM_PROMPT}\n\n"
-        prompt += f"Contexto:\n{context_text}\n\n"
-
+        prompt = self._build_base(question, contexts)
         if history_context:
             prompt += f"Histórico da conversa:\n{history_context}\n\n"
-
         prompt += f"Pergunta: {question}\n\nResposta:"
         return prompt

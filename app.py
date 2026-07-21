@@ -29,7 +29,8 @@ def main() -> None:
 
     try:
         embedding_generator = EmbeddingGenerator(
-            model_name=cfg.embedding_model
+            model_name=cfg.embedding_model,
+            device=cfg.embedding_device,
         )
 
         retriever = Retriever(
