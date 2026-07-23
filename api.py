@@ -1,6 +1,5 @@
 import logging
 import re
-import sys
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
