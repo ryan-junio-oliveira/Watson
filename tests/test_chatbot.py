@@ -3,7 +3,8 @@ from unittest.mock import MagicMock
 import pytest
 from langchain_core.documents import Document
 
-from rag.chatbot import ChatBot, ChatResult
+from rag.chatbot import ChatBot
+from rag.response import AgentResponse, Mode
 
 
 class TestChatBot:
@@ -41,9 +42,9 @@ class TestChatBot:
             ollama_client=mock_ollama_client,
         )
 
-    def test_ask_returns_chat_result(self, chatbot):
+    def test_ask_returns_agent_response(self, chatbot):
         result = chatbot.ask("Qual a capital do Brasil?")
-        assert isinstance(result, ChatResult)
+        assert isinstance(result, AgentResponse)
         assert isinstance(result.answer, str)
         assert isinstance(result.confidence, float)
         assert isinstance(result.verdict, str)
@@ -57,7 +58,7 @@ class TestChatBot:
             ollama_client=mock_ollama_client,
         )
         result = chatbot.ask("Pergunta sem contexto")
-        assert isinstance(result, ChatResult)
+        assert isinstance(result, AgentResponse)
 
     def test_chat_loop_exit(self, chatbot, monkeypatch):
         monkeypatch.setattr("builtins.input", lambda _: "exit")
@@ -82,7 +83,7 @@ class TestChatBot:
         assert len(tokens) > 0
         assert all(isinstance(t, str) for t in tokens)
 
-    def test_ask_stream_returns_chat_result(self, chatbot):
+    def test_ask_stream_returns_agent_response(self, chatbot):
         gen = chatbot.ask_stream("Pergunta?")
         tokens = []
         try:
@@ -90,5 +91,61 @@ class TestChatBot:
                 tokens.append(next(gen))
         except StopIteration as e:
             result = e.value
-        assert isinstance(result, ChatResult)
+        assert isinstance(result, AgentResponse)
         assert result.answer == "".join(tokens)
+
+    def test_ask_knowledge_mode_skips_evidence(self, mock_prompt_builder, mock_ollama_client):
+        retriever = MagicMock()
+        chatbot = ChatBot(
+            retriever=retriever,
+            prompt_builder=mock_prompt_builder,
+            ollama_client=mock_ollama_client,
+        )
+        result = chatbot.ask("Pergunta?", mode=Mode.knowledge)
+        retriever.retrieve.assert_not_called()
+        assert isinstance(result, AgentResponse)
+        assert "mode" in result.metadata
+        assert result.metadata["mode"] == "knowledge"
+
+    def test_ask_rag_mode(self, chatbot):
+        result = chatbot.ask("Pergunta?", mode=Mode.rag)
+        assert isinstance(result, AgentResponse)
+
+    def test_ask_all_mode(self, chatbot):
+        result = chatbot.ask("Pergunta?", mode=Mode.all)
+        assert isinstance(result, AgentResponse)
+
+    def test_ask_stream_knowledge_mode(self, chatbot):
+        gen = chatbot.ask_stream("Pergunta?", mode=Mode.knowledge)
+        tokens = []
+        try:
+            while True:
+                tokens.append(next(gen))
+        except StopIteration as e:
+            result = e.value
+        assert isinstance(result, AgentResponse)
+        assert result.metadata.get("mode") == "knowledge"
+
+    def test_ask_stream_survives_llm_timeout(self, mock_retriever, mock_prompt_builder):
+        client = MagicMock()
+        def failing_stream(*args, **kwargs):
+            yield "token1 "
+            raise TimeoutError("LLM timed out")
+        client.ask_stream = failing_stream
+        client.ask.return_value = "fallback"
+        client._strip_thinking.return_value = "fallback"
+        chatbot = ChatBot(
+            retriever=mock_retriever,
+            prompt_builder=mock_prompt_builder,
+            ollama_client=client,
+        )
+        gen = chatbot.ask_stream("Pergunta?")
+        tokens = []
+        try:
+            while True:
+                tokens.append(next(gen))
+        except StopIteration as e:
+            result = e.value
+        assert isinstance(result, AgentResponse)
+        assert "token1 " in result.answer
+        assert any("erro no streaming" in i.lower() for i in result.issues)

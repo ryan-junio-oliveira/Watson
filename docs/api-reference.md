@@ -2,7 +2,19 @@
 
 Servidor FastAPI padrao na porta `9000`. Documentacao interativa disponivel em `/docs` (Swagger) e `/redoc`.
 
-**Versao atual:** 1.1.0
+**Versao atual:** 2.0.0
+
+---
+
+## Arquitetura da Resposta
+
+Todas as respostas da API seguem um contrato estavel e previsivel, separando **apresentacao** do **pipeline interno**:
+
+```
+Pipeline de IA → AgentResponse (interno) → ResponseFormatter → JSON estavel
+```
+
+Diagnosticos internos (validacao, logs do planner, erros de parsing) **nunca** sao expostos na resposta.
 
 ---
 
@@ -61,7 +73,7 @@ Em caso de falha de conexao com Ollama, retorna apenas o modelo configurado como
 
 ### `POST /api/chat`
 
-Endpoint principal de perguntas e respostas com RAG.
+Endpoint principal de perguntas e respostas.
 
 **Body:**
 ```json
@@ -80,11 +92,46 @@ Endpoint principal de perguntas e respostas com RAG.
 | `question` | string | sim | Pergunta em linguagem natural |
 | `history` | array | nao | Historico da conversa para contexto |
 | `model` | string | nao | Modelo Ollama (usa o padrao da config se omitido) |
+| `mode` | string | nao | Fonte de conhecimento: `"auto"` (planner decide), `"knowledge"` (apenas LLM), `"rag"` (documentos indexados), `"web"` (internet), `"all"` (ambos). Padrao: `"auto"`. Em `"rag"`, `"web"` ou `"all"`, o LLM nao pode usar conhecimento proprio se nao encontrar resultados — apenas informa que nao encontrou. |
 
 **Response (200):**
 ```json
 {
-  "answer": "Existem 5 servidores cadastrados no sistema."
+  "success": true,
+  "answer": "Existem 5 servidores cadastrados no sistema.",
+  "confidence": 0.94,
+  "sources": [
+    {
+      "title": "Dicio",
+      "url": "https://www.dicio.com.br/morango/",
+      "provider": "web"
+    }
+  ],
+  "metadata": {
+    "provider": "web",
+    "evidence_count": 3,
+    "execution_time_ms": 814,
+    "verdict": "consistent"
+  }
+}
+```
+
+| Campo | Tipo | Descricao |
+|---|---|---|
+| `success` | bool | `true` para respostas bem-sucedidas |
+| `answer` | string | Texto da resposta gerada |
+| `confidence` | float | Nivel de confianca (0.0 a 1.0) |
+| `sources` | array | Lista de fontes utilizadas (vide modelo `Source`) |
+| `metadata` | object | Metadados da execucao (vide modelo `ChatMetadata`) |
+
+**Response (500 - Erro interno):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "INTERNAL_ERROR",
+    "message": "O servico de busca nao respondeu"
+  }
 }
 ```
 
@@ -92,23 +139,21 @@ Endpoint principal de perguntas e respostas com RAG.
 | Status | Significado |
 |---|---|
 | 400 | Pergunta vazia ou invalida |
+| 500 | Erro interno (formato `ChatErrorResponse`) |
 | 503 | Chatbot nao inicializado |
-| 500 | Erro interno (LLM, ChromaDB, etc.) |
 
 ---
 
 ### `POST /api/chat/stream`
 
-**Novo na v1.1.0** - Endpoint de chat com resposta em **streaming (SSE)**.
+Endpoint de chat com resposta em **streaming (SSE)**.
 
-Envia uma pergunta e recebe a resposta token por token em tempo real via Server-Sent Events.
+Envia uma pergunta e recebe a resposta token por token em tempo real.
 
 **Body** (mesmo formato do `/api/chat`):
 ```json
 {
-  "question": "Quais servidores estao cadastrados?",
-  "history": null,
-  "model": null
+  "question": "Quais servidores estao cadastrados?"
 }
 ```
 
@@ -118,7 +163,15 @@ data: token_1
 data: token_2
 data: token_3
 data: [DONE]
+data: {"confidence": 0.94, "sources": [...], "metadata": {...}}
 ```
+
+Sequencia de eventos:
+1. `data: <texto>\n\n` — tokens individuais da resposta
+2. `data: [DONE]\n\n` — fim do texto da resposta
+3. `data: <JSON>\n\n` — metadados finais (confidence, sources, metadata)
+
+> **Nota:** Eventos de validacao interna (`[VALIDATION]`) **nao** sao mais emitidos a partir da v2.0.0.
 
 **Exemplo com curl:**
 ```bash
@@ -129,15 +182,13 @@ curl -N -X POST http://localhost:9000/api/chat/stream \
 
 **Exemplo com JavaScript:**
 ```javascript
-const eventSource = new EventSource('/api/chat/stream');
-// Nota: use fetch com streaming para POST
 const response = await fetch('/api/chat/stream', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ question: "Quais servidores?" })
 });
 const reader = response.body.getReader();
-// Processar o stream...
+// Processar o stream ate [DONE], depois ler o JSON final
 ```
 
 **Erros:**
@@ -255,14 +306,62 @@ Remove apenas o banco vetorial ChromaDB. Os arquivos de documentos permanecem no
   "history": [
     {"role": "user|assistant", "content": "string"}
   ],
-  "model": "string (opcional)"
+  "model": "string (opcional)",
+  "mode": "auto|knowledge|rag|web|all (opcional, padrao: auto)"
 }
 ```
 
-### ChatResponse
+### ChatSuccessResponse (v2.0.0)
 ```json
 {
-  "answer": "string"
+  "success": true,
+  "answer": "string",
+  "confidence": 0.0 a 1.0,
+  "sources": [
+    {
+      "title": "string",
+      "url": "string",
+      "provider": "string (opcional)"
+    }
+  ],
+  "metadata": {
+    "provider": "string (rag|web|hybrid)",
+    "evidence_count": "integer",
+    "execution_time_ms": "integer",
+    "verdict": "string (consistent|partial|inconsistent|unknown)",
+    "issues": ["string (opcional)"]
+  }
+}
+```
+
+### ChatErrorResponse (v2.0.0)
+```json
+{
+  "success": false,
+  "error": {
+    "code": "string",
+    "message": "string"
+  }
+}
+```
+
+### Source
+```json
+{
+  "title": "string",
+  "url": "string",
+  "provider": "string (opcional)"
+}
+```
+
+### ChatMetadata
+```json
+{
+  "provider": "string (rag|web|hybrid)",
+  "evidence_count": "integer",
+  "execution_time_ms": "integer",
+  "verdict": "string (consistent|partial|inconsistent|unknown)",
+  "issues": ["string (opcional)"]
 }
 ```
 
@@ -287,8 +386,9 @@ Remove apenas o banco vetorial ChromaDB. Os arquivos de documentos permanecem no
 }
 ```
 
-### ErrorResponse
+### ErrorResponse (legado)
 ```json
 {
   "detail": "string"
 }
+```

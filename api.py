@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -7,7 +8,7 @@ from typing import AsyncGenerator, List, Optional
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
@@ -19,10 +20,12 @@ from ingestion.indexer import DocumentIndexer
 from ingestion.loader import DocumentLoader
 from ingestion.splitter import DocumentSplitter
 from llm.ollama_client import OllamaClient
-from rag.chatbot import ChatBot, ChatResult
+from presentation.formatter import ApiFormatter
+from rag.chatbot import ChatBot
 from rag.planner import IntentClassifier
 from rag.prompt import PromptBuilder
 from rag.reranker import Reranker as RagReranker
+from rag.response import AgentResponse, Mode
 from rag.retriever import Retriever
 from rag.validator import ConfidenceScorer, FactValidator
 from search.chunker import Chunker
@@ -43,15 +46,47 @@ class ChatRequest(BaseModel):
         examples=[[{"role": "user", "content": "Olá"}, {"role": "assistant", "content": "Olá! Como posso ajudar?"}]]
     )
     model: Optional[str] = Field(None, description="Modelo Ollama a ser usado", examples=["qwen3:8b"])
+    mode: Mode = Field(
+        Mode.auto,
+        description="Fonte de conhecimento: auto (planner decide), knowledge (apenas LLM), rag (documentos indexados), web (internet), all (ambos)",
+        examples=["auto", "knowledge", "rag", "web", "all"],
+    )
 
 
-class ChatResponse(BaseModel):
+class SourceItem(BaseModel):
+    title: str = Field(..., description="Título da fonte", examples=["Wikipedia"])
+    url: str = Field(..., description="URL da fonte", examples=["https://pt.wikipedia.org/wiki/Exemplo"])
+    provider: Optional[str] = Field(None, description="Provedor da fonte", examples=["web"])
+
+
+class ChatMetadata(BaseModel):
+    provider: Optional[str] = Field(None, description="Provedor da resposta (rag, web, hybrid)", examples=["web"])
+    evidence_count: int = Field(0, description="Quantidade de evidências utilizadas")
+    execution_time_ms: int = Field(0, description="Tempo de execução em milissegundos")
+    verdict: str = Field("unknown", description="Veredito da validação interna (consistent, partial, inconsistent, unknown)")
+    issues: Optional[List[str]] = Field(None, description="Problemas encontrados internamente")
+
+
+class ChatSuccessResponse(BaseModel):
+    success: bool = Field(True, description="Indica se a requisição foi bem-sucedida")
     answer: str = Field(..., description="Resposta gerada pelo Watson", examples=["Existem 5 servidores cadastrados."])
     confidence: float = Field(0.0, description="Nível de confiança na resposta (0.0 a 1.0)")
-    verdict: str = Field("unknown", description="Veredito da validação: consistent | partial | inconsistent | unknown")
-    issues: List[str] = Field(default_factory=list, description="Problemas encontrados na validação")
-    sources: str = Field("", description="Fontes utilizadas para gerar a resposta")
-    evidence_count: int = Field(0, description="Quantidade de evidências utilizadas")
+    sources: List[SourceItem] = Field(default_factory=list, description="Fontes utilizadas para gerar a resposta")
+    metadata: ChatMetadata = Field(default_factory=ChatMetadata, description="Metadados da execução")
+
+
+class ChatErrorDetail(BaseModel):
+    code: str = Field(..., description="Código do erro", examples=["INTERNAL_ERROR"])
+    message: str = Field(..., description="Mensagem de erro", examples=["O serviço não respondeu"])
+
+
+class ChatErrorResponse(BaseModel):
+    success: bool = False
+    error: ChatErrorDetail = Field(..., description="Detalhes do erro")
+
+
+class ErrorResponse(BaseModel):
+    detail: str = Field(..., description="Mensagem de erro")
 
 
 class IndexResponse(BaseModel):
@@ -85,10 +120,6 @@ class ModelListResponse(BaseModel):
     models: List[str] = Field(..., description="Lista de modelos disponíveis no Ollama")
 
 
-class ErrorResponse(BaseModel):
-    detail: str = Field(..., description="Mensagem de erro")
-
-
 logger: logging.Logger = None
 chatbot: ChatBot = None
 embedding_generator: EmbeddingGenerator = None
@@ -97,6 +128,7 @@ indexer: DocumentIndexer = None
 retriever: Retriever = None
 ollama_client: OllamaClient = None
 cfg: Config = None
+api_formatter: ApiFormatter = None
 
 
 def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
@@ -199,7 +231,7 @@ def build_indexer(cfg: Config, _logger: logging.Logger):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global logger, chatbot, embedding_generator, splitter, indexer, retriever, ollama_client, cfg
+    global logger, chatbot, embedding_generator, splitter, indexer, retriever, ollama_client, cfg, api_formatter
 
     cfg = app_config
 
@@ -216,6 +248,7 @@ async def lifespan(app: FastAPI):
 
     chatbot = build_chatbot(cfg, logger)
     embedding_generator, splitter, indexer = build_indexer(cfg, logger)
+    api_formatter = ApiFormatter()
 
     yield
 
@@ -228,13 +261,39 @@ app = FastAPI(
     API de Retrieval-Augmented Generation (RAG) para indexação de documentos e
     consultas inteligentes com modelos LLM via Ollama.
 
+    ## Arquitetura
+    O Watson segue uma arquitetura em camadas:
+    1. **Pipeline de IA** — planejamento, busca, extração, síntese e validação
+    2. **Agente** — produz um `AgentResponse` estruturado (objeto interno)
+    3. **Apresentação** — `ResponseFormatter` converte para o formato adequado (JSON, CLI, etc.)
+
     ## Funcionalidades
-    - **Chat**: Faça perguntas sobre documentos indexados
+    - **Chat**: Faça perguntas sobre documentos indexados e internet
+    - **Streaming**: Receba respostas parciais em tempo real via SSE
     - **Indexação**: Indexe documentos (PDF, TXT, DOCX, etc.) e dados de banco MySQL
     - **Upload**: Envie novos documentos para indexação
     - **Saúde**: Monitore o status da API e componentes
+
+    ## Formato de Resposta
+    Todas as respostas da API seguem um contrato estável:
+    ```json
+    {
+      "success": true,
+      "answer": "texto da resposta",
+      "confidence": 0.94,
+      "sources": [{"title": "...", "url": "...", "provider": "web"}],
+      "metadata": {
+        "provider": "web",
+        "evidence_count": 3,
+        "execution_time_ms": 814,
+        "verdict": "consistent"
+      }
+    }
+    ```
+
+    Diagnósticos internos (validação, logs, planner) **nunca** são expostos na resposta.
     """,
-    version="1.1.0",
+    version="2.0.0",
     contact={
         "name": "Watson Team",
         "url": "http://localhost:9000",
@@ -247,7 +306,6 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# CORS configuration - allow all origins in development
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -259,7 +317,6 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
-    """Adds a unique request_id to each request for tracing."""
     request.state.request_id = str(uuid.uuid4())[:8]
     response = await call_next(request)
     response.headers["X-Request-ID"] = request.state.request_id
@@ -278,7 +335,6 @@ async def add_request_id(request: Request, call_next):
     },
 )
 async def health():
-    """Retorna o status da API e verifica se o Ollama está acessível."""
     global cfg, ollama_client
     ollama_status = "unknown"
     try:
@@ -313,10 +369,6 @@ async def health():
     },
 )
 async def list_models():
-    """Lista todos os modelos disponíveis no servidor Ollama.
-
-    Em caso de falha de conexão, retorna apenas o modelo configurado como fallback.
-    """
     global ollama_client
     try:
         local_client = ollama_client or OllamaClient(
@@ -333,22 +385,19 @@ async def list_models():
 
 @app.post(
     "/api/chat",
-    response_model=ChatResponse,
+    response_model=ChatSuccessResponse,
     tags=["Chat"],
     summary="Fazer uma pergunta ao Watson",
-    response_description="Resposta gerada pelo modelo LLM com base nos documentos indexados",
+    response_description="Resposta gerada com sucesso no formato padronizado",
     responses={
-        200: {"description": "Resposta gerada com sucesso", "model": ChatResponse},
+        200: {"description": "Resposta gerada com sucesso", "model": ChatSuccessResponse},
         400: {"description": "Pergunta inválida ou vazia", "model": ErrorResponse},
+        500: {"description": "Erro interno do servidor", "model": ChatErrorResponse},
         503: {"description": "Chatbot não foi inicializado", "model": ErrorResponse},
     },
 )
 async def chat(request: ChatRequest, req: Request):
-    """Envia uma pergunta para o Watson e obtém uma resposta baseada nos documentos indexados.
-
-    Opcionalmente, envie `history` com o histórico da conversa para manter contexto.
-    """
-    global chatbot, logger
+    global chatbot, logger, api_formatter
     request_id = getattr(req.state, "request_id", "unknown")
 
     if not chatbot:
@@ -365,44 +414,58 @@ async def chat(request: ChatRequest, req: Request):
                 role = msg.get("role", "user")
                 content = msg.get("content", "")
                 context += f"{role}: {content}\n"
-            result = chatbot.ask_with_context(question, context)
+            result = chatbot.ask_with_context(question, context, mode=request.mode)
         else:
-            result = chatbot.ask(question)
+            result = chatbot.ask(question, mode=request.mode)
 
-        logger.info(f"[{request_id}] Chat completed: {len(result.answer)} chars, "
-                    f"confidence={result.confidence:.2f}, verdict={result.verdict}")
-        return ChatResponse(
-            answer=result.answer,
-            confidence=result.confidence,
-            verdict=result.verdict,
-            issues=result.issues,
-            sources=result.sources,
-            evidence_count=result.evidence_count,
+        logger.info(
+            f"[{request_id}] Chat completed: {len(result.answer)} chars, "
+            f"confidence={result.confidence:.2f}, verdict={result.verdict}, "
+            f"time={result.execution_time:.2f}s"
         )
+
+        return api_formatter.format(result)
+
     except Exception as e:
         logger.exception(f"[{request_id}] Chat error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return JSONResponse(
+            status_code=500,
+            content=api_formatter.format_error(
+                code="INTERNAL_ERROR",
+                message=str(e),
+            ),
+        )
 
 
 @app.post(
     "/api/chat/stream",
     tags=["Chat"],
     summary="Fazer uma pergunta ao Watson com resposta em streaming (SSE)",
-    response_description="Stream da resposta gerada pelo modelo LLM",
+    response_description="Stream de eventos SSE com tokens da resposta + metadados finais",
     responses={
-        200: {"description": "Stream de tokens da resposta"},
-        400: {"description": "Pergunta inválida ou vazia", "model": ErrorResponse},
-        503: {"description": "Chatbot não foi inicializado", "model": ErrorResponse},
+        200: {
+            "description": (
+                "Stream de eventos SSE: "
+                "1. data: token_parcial  — tokens da resposta; "
+                "2. data: [DONE] — fim do texto; "
+                "3. data: {...} — metadados finais (confidence, sources, metadata)"
+            ),
+        },
+        400: {"description": "Pergunta inválida ou vazia"},
+        503: {"description": "Chatbot não foi inicializado"},
     },
 )
 async def chat_stream(request: ChatRequest, req: Request):
     """Envia uma pergunta e recebe a resposta em tempo real via Server-Sent Events (SSE).
 
-    Cada chunk da resposta é enviado como um evento SSE no formato:
-    `data: {"token": "texto_parcial"}\n\n`
-    O stream é finalizado com: `data: [DONE]\n\n`
+    O stream segue o formato: tokens → [DONE] → metadados.
+
+    - Tokens individuais: `data: texto\\n\\n`
+    - `[DONE]` sinaliza o fim do texto da resposta
+    - Último evento: JSON com confidence, sources e metadata
+    - Eventos de validação interna **não** são expostos no stream
     """
-    global chatbot, logger
+    global chatbot, logger, api_formatter
     request_id = getattr(req.state, "request_id", "unknown")
 
     if not chatbot:
@@ -422,9 +485,9 @@ async def chat_stream(request: ChatRequest, req: Request):
                     content = msg.get("content", "")
                     context += f"{role}: {content}\n"
             gen = (
-                chatbot.ask_stream_with_history(question, context)
+                chatbot.ask_stream_with_history(question, context, mode=request.mode)
                 if request.history
-                else chatbot.ask_stream(question)
+                else chatbot.ask_stream(question, mode=request.mode)
             )
             try:
                 while True:
@@ -437,14 +500,8 @@ async def chat_stream(request: ChatRequest, req: Request):
 
             if result:
                 import json
-                validation_event = json.dumps({
-                    "confidence": round(result.confidence, 2),
-                    "verdict": result.verdict,
-                    "issues": result.issues,
-                    "sources": result.sources,
-                    "evidence_count": result.evidence_count,
-                })
-                yield f"data: [VALIDATION] {validation_event}\n\n"
+                meta = api_formatter.format_stream_metadata(result)
+                yield f"data: {json.dumps(meta)}\n\n"
 
             logger.info(
                 f"[{request_id}] Stream completed: "
@@ -453,7 +510,7 @@ async def chat_stream(request: ChatRequest, req: Request):
             )
         except Exception as e:
             logger.exception(f"[{request_id}] Stream error: {e}")
-            yield f"data: [ERROR] {str(e)}\n\n"
+            yield "data: [DONE]\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -478,10 +535,6 @@ async def chat_stream(request: ChatRequest, req: Request):
     },
 )
 async def index_all():
-    """Indexa **documentos** e **banco de dados** simultaneamente.
-
-    Apenas arquivos novos ou modificados desde a última indexação são processados.
-    """
     return await _run_index(index_documents=True, index_database=True)
 
 
@@ -497,7 +550,6 @@ async def index_all():
     },
 )
 async def index_documents():
-    """Indexa **apenas documentos** (PDF, TXT, DOCX, etc.) do diretório configurado."""
     return await _run_index(index_documents=True, index_database=False)
 
 
@@ -514,10 +566,6 @@ async def index_documents():
     },
 )
 async def index_database():
-    """Indexa **apenas o banco de dados MySQL** conectado.
-
-    Requer `DB_CONNECTION_STRING` configurado no `.env`.
-    """
     return await _run_index(index_documents=False, index_database=True)
 
 
@@ -599,10 +647,6 @@ async def _run_index(index_documents: bool, index_database: bool) -> IndexRespon
     },
 )
 async def upload_document(file: UploadFile = File(..., description="Arquivo a ser enviado (PDF, TXT, DOCX, etc.)")):
-    """Faz upload de um documento para o diretório de documentos.
-
-    Após o upload, execute `/api/index/documents` para indexá-lo.
-    """
     global logger, cfg
 
     if not file.filename:
@@ -652,10 +696,6 @@ async def upload_document(file: UploadFile = File(..., description="Arquivo a se
     },
 )
 async def clear_all():
-    """Remove **todos** os documentos e limpa o banco vetorial ChromaDB.
-
-    Após executar, será necessário reindexar os documentos com `/api/index/documents`.
-    """
     return await _run_clear(clear_docs=True, clear_vectorstore=True)
 
 
@@ -671,10 +711,6 @@ async def clear_all():
     },
 )
 async def clear_documents():
-    """Remove **apenas os arquivos de documentos** do diretório.
-
-    O banco vetorial permanece intacto (chunks órfãos).
-    """
     return await _run_clear(clear_docs=True, clear_vectorstore=False)
 
 
@@ -690,10 +726,6 @@ async def clear_documents():
     },
 )
 async def clear_vectorstore():
-    """Remove **apenas o banco vetorial ChromaDB**.
-
-    Os arquivos de documentos permanecem no diretório.
-    """
     return await _run_clear(clear_docs=False, clear_vectorstore=True)
 
 

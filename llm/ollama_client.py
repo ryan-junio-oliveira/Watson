@@ -14,7 +14,7 @@ class OllamaClient:
         base_url: str = "http://localhost:11434",
         temperature: float = 0.1,
         max_tokens: int = 2048,
-        request_timeout: int = 120,
+        request_timeout: int = 300,
         logger: Optional[logging.Logger] = None,
         strip_thinking: bool = True,
     ):

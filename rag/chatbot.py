@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass, field
+import time
 from typing import Any, Dict, Generator, List, Optional
 
 from langchain_core.documents import Document
@@ -8,6 +8,7 @@ from llm.ollama_client import OllamaClient
 from rag.evidence import Evidence, EvidenceAggregator, EvidenceNormalizer
 from rag.planner import IntentClassifier, Plan
 from rag.prompt import PromptBuilder
+from rag.response import AgentResponse, Mode
 from rag.retriever import Retriever
 from rag.validator import ConfidenceScorer, FactValidator, ValidationResult
 from search.chunker import Chunker
@@ -17,16 +18,6 @@ from search.fetcher import PageFetcher
 from search.google_provider import GoogleProvider
 from search.provider import SearchProvider, SearchResult
 from search.reranker import Reranker as SearchReranker
-
-
-@dataclass
-class ChatResult:
-    answer: str
-    confidence: float
-    verdict: str
-    issues: List[str] = field(default_factory=list)
-    sources: str = ""
-    evidence_count: int = 0
 
 
 class ChatBot:
@@ -195,9 +186,21 @@ class ChatBot:
         evidence = self._search_reranker.rerank(question, evidence, top_k=5)
         return evidence
 
-    def _collect_evidence(self, question: str, plan: Plan) -> List[Evidence]:
+    @staticmethod
+    def _apply_mode(mode: Mode, plan: Plan) -> Plan:
+        if mode == Mode.rag:
+            return Plan(need_rag=True, need_web=False)
+        if mode == Mode.web:
+            return Plan(need_rag=False, need_web=True)
+        if mode == Mode.all:
+            return Plan(need_rag=True, need_web=True)
+        return plan
+
+    def _collect_evidence(self, question: str, plan: Plan, mode: Mode = Mode.auto) -> List[Evidence]:
         rag_evidence: List[Evidence] = []
         web_evidence: List[Evidence] = []
+
+        plan = self._apply_mode(mode, plan)
 
         if plan.need_rag:
             rag_evidence = self._handle_rag(question)
@@ -220,23 +223,20 @@ class ChatBot:
         )
         return self.aggregator.rank(all_evidence)
 
-    def _no_evidence_result(self) -> ChatResult:
-        return ChatResult(
-            answer=(
-                "Não encontrei informações suficientes nos documentos "
-                "indexados nem na internet para responder a esta pergunta. "
-                "Tente reformular a pergunta ou fornecer mais detalhes."
-            ),
-            confidence=0.0,
-            verdict="inconsistent",
-            issues=["Nenhuma evidência encontrada"],
-            sources="",
-            evidence_count=0,
-        )
-
     def _call_llm(self, prompt: str) -> str:
         answer = self.ollama_client.ask(prompt)
         return self.ollama_client._strip_thinking(answer)
+
+    def _call_llm_stream(self, prompt: str) -> Generator[str, None, str]:
+        full_answer: List[str] = []
+        try:
+            for token in self.ollama_client.ask_stream(prompt):
+                full_answer.append(token)
+                yield token
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Stream interrupted: {e}")
+        return "".join(full_answer)
 
     def _classify(self, question: str) -> Plan:
         if self._intent_classifier:
@@ -260,116 +260,192 @@ class ChatBot:
             overall_verdict="unknown", overall_confidence=0.5
         )
 
-    def _process(self, question: str, history_context: str = "") -> ChatResult:
+    def _build_response(
+        self,
+        answer: str,
+        evidences: List[Evidence],
+        validation: ValidationResult,
+        start_time: float,
+        extra_issues: Optional[List[str]] = None,
+    ) -> AgentResponse:
+        confidence = ConfidenceScorer.calculate(validation, evidences)
+        issues = validation.issues[:]
+        if extra_issues:
+            issues.extend(extra_issues)
+        elapsed = time.time() - start_time
+
+        provider = "rag"
+        if evidences and any(e.source_type == "web" for e in evidences):
+            provider = "web"
+            if any(e.source_type == "rag" for e in evidences):
+                provider = "hybrid"
+
+        return AgentResponse(
+            answer=answer,
+            evidences=evidences,
+            confidence=confidence,
+            verdict=validation.overall_verdict,
+            issues=issues,
+            metadata={
+                "provider": provider,
+                "planner": "enabled" if self._intent_classifier else "disabled",
+            },
+            execution_time=elapsed,
+        )
+
+    def _process(self, question: str, history_context: str = "", mode: Mode = Mode.auto) -> AgentResponse:
+        start = time.time()
+
+        if mode == Mode.knowledge:
+            if self.logger:
+                self.logger.info("Knowledge mode: skipping evidence search")
+            prompt = self.prompt_builder.build(question, mode=mode)
+            answer = self._call_llm(prompt)
+            validation = self._validate(answer, [])
+            resp = self._build_response(answer, [], validation, start)
+            resp.metadata = {"mode": "knowledge", **resp.metadata}
+            return resp
+
         plan = self._classify(question)
-        evidence = self._collect_evidence(question, plan)
+        evidence = self._collect_evidence(question, plan, mode)
 
         if not evidence:
             if self.logger:
                 self.logger.info("No evidence found")
-            return self._no_evidence_result()
+            prompt = self.prompt_builder.build(question, mode=mode)
+            answer = self._call_llm(prompt)
+            validation = self._validate(answer, [])
+            resp = self._build_response(answer, [], validation, start)
+            resp.metadata["fallback"] = "general_knowledge"
+            return resp
 
         prompt = (
-            self.prompt_builder.build_with_history(
-                question, evidence, history_context
-            )
+            self.prompt_builder.build_with_history(question, evidence, history_context, mode=mode)
             if history_context
-            else self.prompt_builder.build(question, evidence)
+            else self.prompt_builder.build(question, evidence, mode=mode)
         )
 
         answer_clean = self._call_llm(prompt)
         validation = self._validate(answer_clean, evidence)
-        confidence = ConfidenceScorer.calculate(validation, evidence)
-        sources = self.aggregator.sources_text(evidence)
+        result = self._build_response(answer_clean, evidence, validation, start)
 
         if self.logger:
+            planner_label = plan.need_web if hasattr(plan, 'need_web') else "N/A"
             self.logger.info(
-                f"ChatResult: confidence={confidence:.2f}, "
-                f"verdict={validation.overall_verdict}, "
-                f"evidence={len(evidence)}, issues={len(validation.issues)}"
-            )
-
-        return ChatResult(
-            answer=answer_clean,
-            confidence=confidence,
-            verdict=validation.overall_verdict,
-            issues=validation.issues,
-            sources=sources,
-            evidence_count=len(evidence),
-        )
-
-    def ask(self, question: str) -> ChatResult:
-        return self._process(question)
-
-    def ask_with_context(
-        self, question: str, history_context: str = ""
-    ) -> ChatResult:
-        return self._process(question, history_context)
-
-    def _stream_evidence(
-        self, question: str, prompt: str, evidence: List[Evidence]
-    ) -> Generator[str, None, ChatResult]:
-        full_answer: List[str] = []
-        for token in self.ollama_client.ask_stream(prompt):
-            full_answer.append(token)
-            yield token
-
-        answer_clean = "".join(full_answer)
-        validation = self._validate(answer_clean, evidence)
-        confidence = ConfidenceScorer.calculate(validation, evidence)
-        sources = self.aggregator.sources_text(evidence)
-
-        result = ChatResult(
-            answer=answer_clean,
-            confidence=confidence,
-            verdict=validation.overall_verdict,
-            issues=validation.issues,
-            sources=sources,
-            evidence_count=len(evidence),
-        )
-
-        if self.logger:
-            self.logger.info(
-                f"Stream result: confidence={confidence:.2f}, "
-                f"verdict={validation.overall_verdict}, "
-                f"evidence={len(evidence)}, issues={len(validation.issues)}"
+                f"AgentResponse: confidence={result.confidence:.2f}, "
+                f"verdict={result.verdict}, "
+                f"evidence={len(evidence)}, "
+                f"time={result.execution_time:.2f}s"
             )
 
         return result
 
+    def ask(self, question: str, mode: Mode = Mode.auto) -> AgentResponse:
+        return self._process(question, mode=mode)
+
+    def ask_with_context(
+        self, question: str, history_context: str = "", mode: Mode = Mode.auto
+    ) -> AgentResponse:
+        return self._process(question, history_context, mode)
+
+    def _stream_evidence(
+        self, question: str, prompt: str, evidence: List[Evidence]
+    ) -> Generator[str, None, AgentResponse]:
+        start = time.time()
+        full_answer: List[str] = []
+        stream_error = ""
+        try:
+            for token in self.ollama_client.ask_stream(prompt):
+                full_answer.append(token)
+                yield token
+        except Exception as e:
+            stream_error = str(e)
+            if self.logger:
+                self.logger.warning(f"Stream interrupted: {stream_error}")
+
+        answer_clean = "".join(full_answer)
+        validation = self._validate(answer_clean, evidence)
+
+        extra_issues = []
+        if stream_error:
+            extra_issues.append(f"Resposta parcial - erro no streaming: {stream_error}")
+
+        result = self._build_response(answer_clean, evidence, validation, start, extra_issues)
+
+        if self.logger:
+            self.logger.info(
+                f"Stream result: confidence={result.confidence:.2f}, "
+                f"verdict={result.verdict}, "
+                f"evidence={len(evidence)}, "
+                f"time={result.execution_time:.2f}s"
+            )
+
+        return result
+
+    def _stream_no_evidence(
+        self, question: str, history_context: str = "", mode: Mode = Mode.auto
+    ) -> Generator[str, None, AgentResponse]:
+        start = time.time()
+        prompt = (
+            self.prompt_builder.build_with_history(question, None, history_context, mode=mode)
+            if history_context
+            else self.prompt_builder.build(question, mode=mode)
+        )
+        full_answer = yield from self._call_llm_stream(prompt)
+        validation = self._validate(full_answer, [])
+        resp = self._build_response(full_answer, [], validation, start)
+        if mode == Mode.knowledge:
+            resp.metadata["mode"] = "knowledge"
+        else:
+            resp.metadata["fallback"] = "general_knowledge"
+        return resp
+
     def ask_stream(
-        self, question: str
-    ) -> Generator[str, None, ChatResult]:
+        self, question: str, mode: Mode = Mode.auto
+    ) -> Generator[str, None, AgentResponse]:
+        if mode == Mode.knowledge:
+            if self.logger:
+                self.logger.info("Knowledge mode: skipping evidence search")
+            return (yield from self._stream_no_evidence(question, mode=mode))
+
         plan = self._classify(question)
-        evidence = self._collect_evidence(question, plan)
+        evidence = self._collect_evidence(question, plan, mode)
 
         if not evidence:
             if self.logger:
-                self.logger.info("No evidence found, returning no-evidence response")
-            return self._no_evidence_result()
+                self.logger.info("No evidence found")
+            return (yield from self._stream_no_evidence(question, mode=mode))
 
-        prompt = self.prompt_builder.build(question, evidence)
+        prompt = self.prompt_builder.build(question, evidence, mode=mode)
         result = yield from self._stream_evidence(question, prompt, evidence)
         return result
 
     def ask_stream_with_history(
-        self, question: str, history_context: str = ""
-    ) -> Generator[str, None, ChatResult]:
+        self, question: str, history_context: str = "", mode: Mode = Mode.auto
+    ) -> Generator[str, None, AgentResponse]:
+        if mode == Mode.knowledge:
+            if self.logger:
+                self.logger.info("Knowledge mode: skipping evidence search")
+            return (yield from self._stream_no_evidence(question, history_context, mode=mode))
+
         plan = self._classify(question)
-        evidence = self._collect_evidence(question, plan)
+        evidence = self._collect_evidence(question, plan, mode)
 
         if not evidence:
             if self.logger:
-                self.logger.info("No evidence found, returning no-evidence response")
-            return self._no_evidence_result()
+                self.logger.info("No evidence found")
+            return (yield from self._stream_no_evidence(question, history_context, mode=mode))
 
         prompt = self.prompt_builder.build_with_history(
-            question, evidence, history_context
+            question, evidence, history_context, mode=mode
         )
         result = yield from self._stream_evidence(question, prompt, evidence)
         return result
 
     def chat_loop(self) -> None:
+        from presentation.formatter import CliFormatter
+        formatter = CliFormatter()
+
         print("\n=== Watson RAG ===")
         print("Digite 'exit' ou 'quit' para sair.\n")
 
@@ -391,28 +467,25 @@ class ChatBot:
                 if self.logger:
                     self.logger.info(f"Question: {question}")
 
-                answer_parts: List[str] = []
                 print()
                 gen = self.ask_stream(question)
+                tokens: List[str] = []
                 try:
                     while True:
                         token = next(gen)
                         print(token, end="", flush=True)
-                        answer_parts.append(token)
+                        tokens.append(token)
                 except StopIteration as e:
                     result = e.value
                 print()
 
                 if result:
-                    print(
-                        f"\n[Confiança: {result.confidence:.0%} | "
-                        f"Veredito: {result.verdict}"
-                        f"{' | Avisos: ' + '; '.join(result.issues) if result.issues else ''}]"
-                    )
+                    print()
+                    print(formatter.format(result))
 
                 if self.logger:
                     self.logger.info(
-                        f"Answer provided ({len(''.join(answer_parts))} chars)"
+                        f"Answer provided ({len(''.join(tokens))} chars)"
                     )
             except Exception as e:
                 error_msg = f"Erro ao processar pergunta: {e}"

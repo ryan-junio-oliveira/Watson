@@ -11,12 +11,34 @@ API_URL = "http://localhost:9000"
 health = requests.get(f"{API_URL}/api/health")
 print(health.json())
 
-# Fazer pergunta
+# Fazer pergunta (auto: planner decide as fontes)
 res = requests.post(f"{API_URL}/api/chat", json={
     "question": "Qual o status do cliente XYZ?",
-    "history": [],
+})
+data = res.json()
+print(data["answer"])
+print(f"Confianca: {data['confidence']:.0%}")
+print(f"Fontes: {[s['title'] for s in data['sources']]}")
+
+# Apenas conhecimento do LLM, sem buscar em fontes
+res = requests.post(f"{API_URL}/api/chat", json={
+    "question": "Quantas letras tem a palavra morango?",
+    "mode": "knowledge",
 })
 print(res.json()["answer"])
+
+# Forcar busca apenas nos documentos indexados
+res = requests.post(f"{API_URL}/api/chat", json={
+    "question": "Qual o status do cliente 2?",
+    "mode": "rag",
+})
+print(res.json()["answer"])
+
+# Forcar busca apenas na internet
+res = requests.post(f"{API_URL}/api/chat", json={
+    "question": "Clima em Sao Paulo hoje?",
+    "mode": "web",
+})
 
 # Fazer pergunta com historico
 res = requests.post(f"{API_URL}/api/chat", json={
@@ -27,6 +49,30 @@ res = requests.post(f"{API_URL}/api/chat", json={
     ],
 })
 print(res.json()["answer"])
+
+# Streaming (SSE)
+import json
+response = requests.post(
+    f"{API_URL}/api/chat/stream",
+    json={"question": "Liste os servidores?"},
+    stream=True,
+)
+buffer = ""
+for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
+    if not chunk:
+        continue
+    buffer += chunk
+    while "\n\n" in buffer:
+        event, buffer = buffer.split("\n\n", 1)
+        if event.startswith("data: "):
+            payload = event[6:]
+            if payload == "[DONE]":
+                break
+            elif payload.startswith("{"):
+                meta = json.loads(payload)
+                print(f"Stream concluido: confianca={meta['confidence']}")
+            else:
+                print(payload, end="", flush=True)
 
 # Upload de documento
 with open("relatorio.pdf", "rb") as f:
@@ -51,14 +97,42 @@ const API_URL = 'http://localhost:9000';
 const health = await fetch(`${API_URL}/api/health`);
 console.log(await health.json());
 
-// Fazer pergunta
+// Fazer pergunta (apenas conhecimento do LLM, sem busca)
 const res = await fetch(`${API_URL}/api/chat`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ question: 'Quantos clientes estao ativos?' }),
+  body: JSON.stringify({ question: 'Quantas letras tem morango?', mode: 'knowledge' }),
 });
 const data = await res.json();
 console.log(data.answer);
+console.log(`Confianca: ${(data.confidence * 100).toFixed(0)}%`);
+
+// Streaming (SSE)
+const streamRes = await fetch(`${API_URL}/api/chat/stream`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ question: 'Liste os servidores?' }),
+});
+const reader = streamRes.body.getReader();
+const decoder = new TextDecoder();
+let buf = '';
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  buf += decoder.decode(value, { stream: true });
+  const parts = buf.split('\n\n');
+  buf = parts.pop() || '';
+  for (const part of parts) {
+    const payload = part.replace(/^data: /, '');
+    if (payload === '[DONE]') continue;
+    try {
+      const meta = JSON.parse(payload);
+      console.log('Stream metadata:', meta);
+    } catch {
+      process.stdout.write(payload);
+    }
+  }
+}
 
 // Upload de documento (com FormData)
 const FormData = require('form-data');
@@ -84,7 +158,9 @@ $response = Http::post("$apiUrl/api/chat", [
     'question' => 'Quais licencas estao expirando este mes?',
     'history' => [],
 ]);
-$answer = $response->json()['answer'];
+$data = $response->json();
+$answer = $data['answer'];
+$confidence = $data['confidence'];
 
 // Upload de documento
 $response = Http::attach(
@@ -98,11 +174,40 @@ Http::post("$apiUrl/api/index");
 ## cURL
 
 ```bash
-# Pergunta simples
+# Pergunta simples (auto: planner decide as fontes)
 curl -s http://localhost:9000/api/chat \
   -H "Content-Type: application/json" \
   -d '{"question": "Qual o total de instalacoes?"}' \
-  | jq .answer
+  | jq '.answer'
+
+# Apenas conhecimento do LLM (sem buscar em indices ou internet)
+curl -s http://localhost:9000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Quantas letras tem morango?", "mode": "knowledge"}' \
+  | jq '.answer'
+
+# Forcar busca apenas nos documentos indexados
+curl -s http://localhost:9000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Status do cliente 2?", "mode": "rag"}' \
+  | jq '{answer, confidence, sources: [.sources[].title]}'
+
+# Forcar busca apenas na internet
+curl -s http://localhost:9000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Clima em SP hoje?", "mode": "web"}' \
+  | jq '.answer'
+
+# Com fontes e metadata
+curl -s http://localhost:9000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Qual o total?"}' \
+  | jq '{answer, confidence, sources: [.sources[].title]}'
+
+# Streaming
+curl -N -X POST http://localhost:9000/api/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Liste os servidores?"}'
 
 # Upload
 curl -s -X POST http://localhost:9000/api/documents/upload \

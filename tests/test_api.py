@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from rag.chatbot import ChatResult
+from rag.response import AgentResponse
 
 import pytest
 from fastapi import status
@@ -18,7 +18,7 @@ def mock_env():
         mock_cfg.log_file = "/tmp/test.log"
         mock_cfg.ollama_model = "test-model"
         mock_cfg.ollama_base_url = "http://localhost:11434"
-        mock_cfg.ollama_timeout = 120
+        mock_cfg.ollama_timeout = 300
         mock_cfg.embedding_model = "all-MiniLM-L6-v2"
         mock_cfg.embedding_device = "cpu"
         mock_cfg.temperature = 0.1
@@ -89,20 +89,47 @@ class TestChatEndpoint:
 
     @patch("api.chatbot")
     def test_chat_returns_answer(self, mock_chatbot, client):
-        mock_chatbot.ask.return_value = ChatResult(
-            answer="Resposta do modelo.", confidence=0.95, verdict="consistent"
+        mock_chatbot.ask.return_value = AgentResponse(
+            answer="Resposta do modelo.",
+            evidences=[],
+            confidence=0.95,
+            verdict="consistent",
         )
         response = client.post("/api/chat", json={"question": "Qual a capital?"})
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
+        assert data["success"] is True
         assert data["answer"] == "Resposta do modelo."
         assert data["confidence"] == 0.95
-        assert data["verdict"] == "consistent"
+
+    @patch("api.chatbot")
+    def test_chat_response_has_sources_and_metadata(self, mock_chatbot, client):
+        from rag.evidence import Evidence
+        mock_chatbot.ask.return_value = AgentResponse(
+            answer="Resposta com fontes.",
+            evidences=[
+                Evidence(title="Fonte1", url="https://exemplo.com", content="...", source="exemplo", provider="web"),
+            ],
+            confidence=0.8,
+            verdict="partial",
+        )
+        response = client.post("/api/chat", json={"question": "Com fontes?"})
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["sources"]) == 1
+        assert data["sources"][0]["title"] == "Fonte1"
+        assert data["sources"][0]["url"] == "https://exemplo.com"
+        assert "metadata" in data
+        assert "evidence_count" in data["metadata"]
+        assert "execution_time_ms" in data["metadata"]
 
     @patch("api.chatbot")
     def test_chat_with_history(self, mock_chatbot, client):
-        mock_chatbot.ask_with_context.return_value = ChatResult(
-            answer="Resposta contextual.", confidence=0.8, verdict="partial"
+        mock_chatbot.ask_with_context.return_value = AgentResponse(
+            answer="Resposta contextual.",
+            evidences=[],
+            confidence=0.8,
+            verdict="partial",
         )
         history = [{"role": "user", "content": "Olá"}]
         response = client.post(
@@ -113,7 +140,41 @@ class TestChatEndpoint:
         data = response.json()
         assert data["answer"] == "Resposta contextual."
         assert data["confidence"] == 0.8
-        assert data["verdict"] == "partial"
+
+    @patch("api.chatbot")
+    def test_chat_with_knowledge_mode(self, mock_chatbot, client):
+        mock_chatbot.ask.return_value = AgentResponse(
+            answer="Resposta da propria inteligencia.",
+            evidences=[],
+            confidence=0.9,
+            verdict="consistent",
+        )
+        response = client.post(
+            "/api/chat",
+            json={"question": "Quantas letras tem morango?", "mode": "knowledge"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["success"] is True
+        assert data["answer"] == "Resposta da propria inteligencia."
+        from rag.response import Mode
+        mock_chatbot.ask.assert_called_with("Quantas letras tem morango?", mode=Mode.knowledge)
+
+    @patch("api.chatbot")
+    def test_chat_stream_with_knowledge_mode(self, mock_chatbot, client):
+        result = AgentResponse(
+            answer="7",
+            evidences=[],
+            confidence=0.9,
+            verdict="consistent",
+        )
+        mock_chatbot.ask_stream.return_value = _stream_gen(["7"], result)
+        response = client.post(
+            "/api/chat/stream",
+            json={"question": "Quantas letras tem morango?", "mode": "knowledge"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert "data: 7" in response.text
 
 
 def _stream_gen(tokens, result):
@@ -124,13 +185,12 @@ def _stream_gen(tokens, result):
 class TestChatStreamEndpoint:
     @patch("api.chatbot")
     def test_chat_stream_returns_sse_events(self, mock_chatbot, client):
-        result = ChatResult(
+        result = AgentResponse(
             answer="Resposta do modelo.",
+            evidences=[],
             confidence=0.95,
             verdict="consistent",
             issues=[],
-            sources="Fonte: exemplo.com",
-            evidence_count=3,
         )
         mock_chatbot.ask_stream.return_value = _stream_gen(
             ["Resposta ", "do ", "modelo."], result
@@ -146,12 +206,30 @@ class TestChatStreamEndpoint:
         assert lines[1] == "data: do "
         assert lines[2] == "data: modelo."
         assert lines[3] == "data: [DONE]"
-        assert lines[4].startswith("data: [VALIDATION]")
+        final = json.loads(lines[4].replace("data: ", "", 1))
+        assert final["confidence"] == 0.95
+
+    @patch("api.chatbot")
+    def test_chat_stream_does_not_emit_validation_event(self, mock_chatbot, client):
+        result = AgentResponse(
+            answer="Resposta.",
+            evidences=[],
+            confidence=0.8,
+            verdict="partial",
+        )
+        mock_chatbot.ask_stream.return_value = _stream_gen(["Resposta."], result)
+        response = client.post(
+            "/api/chat/stream",
+            json={"question": "Teste?"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert "[VALIDATION]" not in response.text
 
     @patch("api.chatbot")
     def test_chat_stream_with_history(self, mock_chatbot, client):
-        result = ChatResult(
+        result = AgentResponse(
             answer="Resposta contextual.",
+            evidences=[],
             confidence=0.8,
             verdict="partial",
         )

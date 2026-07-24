@@ -24,7 +24,7 @@ class Config:
         default_factory=lambda: int(os.getenv("MAX_TOKENS", "2048"))
     )
     ollama_timeout: int = field(
-        default_factory=lambda: int(os.getenv("OLLAMA_TIMEOUT", "120"))
+        default_factory=lambda: int(os.getenv("OLLAMA_TIMEOUT", "300"))
     )
     embedding_model: str = field(
         default_factory=lambda: os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
