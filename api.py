@@ -19,10 +19,18 @@ from ingestion.indexer import DocumentIndexer
 from ingestion.loader import DocumentLoader
 from ingestion.splitter import DocumentSplitter
 from llm.ollama_client import OllamaClient
-from rag.chatbot import ChatBot
+from rag.chatbot import ChatBot, ChatResult
+from rag.planner import IntentClassifier
 from rag.prompt import PromptBuilder
-from rag.reranker import Reranker
+from rag.reranker import Reranker as RagReranker
 from rag.retriever import Retriever
+from rag.validator import ConfidenceScorer, FactValidator
+from search.chunker import Chunker
+from search.cleaner import ContentCleaner
+from search.extractor import ContentExtractor
+from search.fetcher import PageFetcher
+from search.google_provider import GoogleProvider
+from search.reranker import Reranker as SearchReranker
 from utils.logger import setup_logger
 
 
@@ -39,6 +47,11 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     answer: str = Field(..., description="Resposta gerada pelo Watson", examples=["Existem 5 servidores cadastrados."])
+    confidence: float = Field(0.0, description="Nível de confiança na resposta (0.0 a 1.0)")
+    verdict: str = Field("unknown", description="Veredito da validação: consistent | partial | inconsistent | unknown")
+    issues: List[str] = Field(default_factory=list, description="Problemas encontrados na validação")
+    sources: str = Field("", description="Fontes utilizadas para gerar a resposta")
+    evidence_count: int = Field(0, description="Quantidade de evidências utilizadas")
 
 
 class IndexResponse(BaseModel):
@@ -107,8 +120,8 @@ def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
         request_timeout=cfg.ollama_timeout,
         logger=_logger,
     )
-    _reranker = (
-        Reranker(
+    _rag_reranker = (
+        RagReranker(
             model_name=cfg.reranker_model,
             device=cfg.embedding_device,
             logger=_logger,
@@ -116,12 +129,54 @@ def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
         if cfg.use_reranker
         else None
     )
+    _fetcher = PageFetcher(
+        timeout=cfg.fetch_timeout,
+        max_size=cfg.fetch_max_size,
+        max_retries=cfg.fetch_retries,
+        logger=_logger,
+    )
+    _extractor = ContentExtractor(logger=_logger)
+    _cleaner = ContentCleaner(logger=_logger)
+    _chunker = Chunker(
+        chunk_size=cfg.web_chunk_size,
+        chunk_overlap=cfg.web_chunk_overlap,
+        logger=_logger,
+    )
+    _search_reranker = SearchReranker(
+        model_name=cfg.reranker_model,
+        device=cfg.embedding_device,
+        logger=_logger,
+    )
+    _search_provider = GoogleProvider(logger=_logger)
+    _intent_classifier = (
+        IntentClassifier(ollama_client=_ollama_client, logger=_logger)
+        if cfg.enable_planner
+        else None
+    )
+    _fact_validator = (
+        FactValidator(ollama_client=_ollama_client, logger=_logger)
+        if cfg.enable_validator
+        else None
+    )
+    _conf_min = cfg.min_confidence
+    if hasattr(ConfidenceScorer, 'MIN_CONFIDENCE'):
+        ConfidenceScorer.MIN_CONFIDENCE = _conf_min
     return ChatBot(
         retriever=_retriever,
         prompt_builder=_prompt_builder,
         ollama_client=_ollama_client,
-        reranker=_reranker,
+        reranker=_rag_reranker,
+        intent_classifier=_intent_classifier,
+        fact_validator=_fact_validator,
         logger=_logger,
+        fetcher=_fetcher,
+        extractor=_extractor,
+        cleaner=_cleaner,
+        chunker=_chunker,
+        search_reranker=_search_reranker,
+        search_provider=_search_provider,
+        max_pages_per_query=cfg.fetch_max_pages,
+        max_chunks_per_query=cfg.web_search_max_results * 6,
     )
 
 
@@ -310,12 +365,20 @@ async def chat(request: ChatRequest, req: Request):
                 role = msg.get("role", "user")
                 content = msg.get("content", "")
                 context += f"{role}: {content}\n"
-            answer = chatbot.ask_with_context(question, context)
+            result = chatbot.ask_with_context(question, context)
         else:
-            answer = chatbot.ask(question)
+            result = chatbot.ask(question)
 
-        logger.info(f"[{request_id}] Chat completed: {len(answer)} chars")
-        return ChatResponse(answer=answer)
+        logger.info(f"[{request_id}] Chat completed: {len(result.answer)} chars, "
+                    f"confidence={result.confidence:.2f}, verdict={result.verdict}")
+        return ChatResponse(
+            answer=result.answer,
+            confidence=result.confidence,
+            verdict=result.verdict,
+            issues=result.issues,
+            sources=result.sources,
+            evidence_count=result.evidence_count,
+        )
     except Exception as e:
         logger.exception(f"[{request_id}] Chat error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -351,27 +414,42 @@ async def chat_stream(request: ChatRequest, req: Request):
 
     async def event_generator() -> AsyncGenerator[str, None]:
         try:
+            result = None
+            context = ""
             if request.history:
-                context = ""
                 for msg in request.history:
                     role = msg.get("role", "user")
                     content = msg.get("content", "")
                     context += f"{role}: {content}\n"
-                prompt = chatbot.prompt_builder.build_with_history(
-                    question, chatbot._retrieve_and_rerank(question), context
-                )
-            else:
-                contexts = chatbot._retrieve_and_rerank(question)
-                prompt = chatbot.prompt_builder.build(question, contexts)
-
-            full_answer: List[str] = []
-            for token in chatbot.ollama_client.ask_stream(prompt):
-                full_answer.append(token)
-                yield f"data: {token}\n\n"
+            gen = (
+                chatbot.ask_stream_with_history(question, context)
+                if request.history
+                else chatbot.ask_stream(question)
+            )
+            try:
+                while True:
+                    token = next(gen)
+                    yield f"data: {token}\n\n"
+            except StopIteration as e:
+                result = e.value
 
             yield "data: [DONE]\n\n"
+
+            if result:
+                import json
+                validation_event = json.dumps({
+                    "confidence": round(result.confidence, 2),
+                    "verdict": result.verdict,
+                    "issues": result.issues,
+                    "sources": result.sources,
+                    "evidence_count": result.evidence_count,
+                })
+                yield f"data: [VALIDATION] {validation_event}\n\n"
+
             logger.info(
-                f"[{request_id}] Stream completed: {len(''.join(full_answer))} chars"
+                f"[{request_id}] Stream completed: "
+                f"confidence={result.confidence if result else 'N/A'}, "
+                f"verdict={result.verdict if result else 'N/A'}"
             )
         except Exception as e:
             logger.exception(f"[{request_id}] Stream error: {e}")

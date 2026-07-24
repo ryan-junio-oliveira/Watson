@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from rag.chatbot import ChatResult
+
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
@@ -31,6 +33,18 @@ def mock_env():
         mock_cfg.use_reranker = False
         mock_cfg.reranker_model = "cross-encoder/ms-marco-MiniLM-L-6-v2"
         mock_cfg.index_batch_size = 100
+        mock_cfg.enable_web_search = False
+        mock_cfg.web_search_max_results = 5
+        mock_cfg.search_provider = "google"
+        mock_cfg.fetch_timeout = 10
+        mock_cfg.fetch_max_size = 1048576
+        mock_cfg.fetch_max_pages = 3
+        mock_cfg.fetch_retries = 1
+        mock_cfg.web_chunk_size = 1000
+        mock_cfg.web_chunk_overlap = 200
+        mock_cfg.enable_planner = False
+        mock_cfg.enable_validator = False
+        mock_cfg.min_confidence = 0.5
         mock_cfg.db_connection_string = None
         mock_cfg.db_tables = None
         yield mock_cfg
@@ -75,21 +89,99 @@ class TestChatEndpoint:
 
     @patch("api.chatbot")
     def test_chat_returns_answer(self, mock_chatbot, client):
-        mock_chatbot.ask.return_value = "Resposta do modelo."
+        mock_chatbot.ask.return_value = ChatResult(
+            answer="Resposta do modelo.", confidence=0.95, verdict="consistent"
+        )
         response = client.post("/api/chat", json={"question": "Qual a capital?"})
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["answer"] == "Resposta do modelo."
+        data = response.json()
+        assert data["answer"] == "Resposta do modelo."
+        assert data["confidence"] == 0.95
+        assert data["verdict"] == "consistent"
 
     @patch("api.chatbot")
     def test_chat_with_history(self, mock_chatbot, client):
-        mock_chatbot.ask_with_context.return_value = "Resposta contextual."
+        mock_chatbot.ask_with_context.return_value = ChatResult(
+            answer="Resposta contextual.", confidence=0.8, verdict="partial"
+        )
         history = [{"role": "user", "content": "Olá"}]
         response = client.post(
             "/api/chat",
             json={"question": "Lembra de mim?", "history": history},
         )
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["answer"] == "Resposta contextual."
+        data = response.json()
+        assert data["answer"] == "Resposta contextual."
+        assert data["confidence"] == 0.8
+        assert data["verdict"] == "partial"
+
+
+def _stream_gen(tokens, result):
+    yield from tokens
+    return result
+
+
+class TestChatStreamEndpoint:
+    @patch("api.chatbot")
+    def test_chat_stream_returns_sse_events(self, mock_chatbot, client):
+        result = ChatResult(
+            answer="Resposta do modelo.",
+            confidence=0.95,
+            verdict="consistent",
+            issues=[],
+            sources="Fonte: exemplo.com",
+            evidence_count=3,
+        )
+        mock_chatbot.ask_stream.return_value = _stream_gen(
+            ["Resposta ", "do ", "modelo."], result
+        )
+        response = client.post(
+            "/api/chat/stream",
+            json={"question": "Qual a capital?"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.headers["content-type"] == "text/event-stream; charset=utf-8"
+        lines = response.text.strip().split("\n\n")
+        assert lines[0] == "data: Resposta "
+        assert lines[1] == "data: do "
+        assert lines[2] == "data: modelo."
+        assert lines[3] == "data: [DONE]"
+        assert lines[4].startswith("data: [VALIDATION]")
+
+    @patch("api.chatbot")
+    def test_chat_stream_with_history(self, mock_chatbot, client):
+        result = ChatResult(
+            answer="Resposta contextual.",
+            confidence=0.8,
+            verdict="partial",
+        )
+        mock_chatbot.ask_stream_with_history.return_value = _stream_gen(
+            ["Resposta ", "contextual."], result
+        )
+        history = [{"role": "user", "content": "Olá"}]
+        response = client.post(
+            "/api/chat/stream",
+            json={"question": "Lembra de mim?", "history": history},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert "data: [DONE]" in response.text
+
+    @patch("api.chatbot")
+    def test_chat_stream_empty_question(self, mock_chatbot, client):
+        response = client.post("/api/chat/stream", json={"question": ""})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_chat_stream_no_question(self, client):
+        response = client.post("/api/chat/stream", json={})
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    def test_chat_stream_not_initialized(self, client):
+        with patch("api.chatbot", None):
+            response = client.post(
+                "/api/chat/stream",
+                json={"question": "Qual a capital?"},
+            )
+            assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
 
 class TestUploadEndpoint:

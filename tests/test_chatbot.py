@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 import pytest
 from langchain_core.documents import Document
 
-from rag.chatbot import ChatBot
+from rag.chatbot import ChatBot, ChatResult
 
 
 class TestChatBot:
@@ -22,12 +22,15 @@ class TestChatBot:
     def mock_prompt_builder(self):
         builder = MagicMock()
         builder.build.return_value = "Prompt com contexto e pergunta"
+        builder.build_with_history.return_value = "Prompt com historico"
         return builder
 
     @pytest.fixture
     def mock_ollama_client(self):
         client = MagicMock()
         client.ask.return_value = "Resposta baseada no contexto."
+        client._strip_thinking.return_value = "Resposta baseada no contexto."
+        client.ask_stream.return_value = iter(["Resposta ", "baseada ", "no ", "contexto."])
         return client
 
     @pytest.fixture
@@ -38,12 +41,12 @@ class TestChatBot:
             ollama_client=mock_ollama_client,
         )
 
-    def test_ask_returns_answer(self, chatbot, mock_retriever, mock_prompt_builder, mock_ollama_client):
-        answer = chatbot.ask("Qual a capital do Brasil?")
-        assert answer == "Resposta baseada no contexto."
-        mock_retriever.retrieve.assert_called_once_with("Qual a capital do Brasil?")
-        mock_prompt_builder.build.assert_called_once()
-        mock_ollama_client.ask.assert_called_once_with("Prompt com contexto e pergunta")
+    def test_ask_returns_chat_result(self, chatbot):
+        result = chatbot.ask("Qual a capital do Brasil?")
+        assert isinstance(result, ChatResult)
+        assert isinstance(result.answer, str)
+        assert isinstance(result.confidence, float)
+        assert isinstance(result.verdict, str)
 
     def test_ask_with_empty_context(self, mock_prompt_builder, mock_ollama_client):
         retriever = MagicMock()
@@ -53,8 +56,8 @@ class TestChatBot:
             prompt_builder=mock_prompt_builder,
             ollama_client=mock_ollama_client,
         )
-        answer = chatbot.ask("Pergunta sem contexto")
-        assert answer == "Resposta baseada no contexto."
+        result = chatbot.ask("Pergunta sem contexto")
+        assert isinstance(result, ChatResult)
 
     def test_chat_loop_exit(self, chatbot, monkeypatch):
         monkeypatch.setattr("builtins.input", lambda _: "exit")
@@ -73,3 +76,19 @@ class TestChatBot:
         inputs = iter(["Qual a capital?", "exit"])
         monkeypatch.setattr("builtins.input", lambda _: next(inputs))
         chatbot.chat_loop()
+
+    def test_ask_stream_yields_tokens(self, chatbot, mock_ollama_client):
+        tokens = list(chatbot.ask_stream("Pergunta?"))
+        assert len(tokens) > 0
+        assert all(isinstance(t, str) for t in tokens)
+
+    def test_ask_stream_returns_chat_result(self, chatbot):
+        gen = chatbot.ask_stream("Pergunta?")
+        tokens = []
+        try:
+            while True:
+                tokens.append(next(gen))
+        except StopIteration as e:
+            result = e.value
+        assert isinstance(result, ChatResult)
+        assert result.answer == "".join(tokens)

@@ -87,6 +87,43 @@ class Config:
     db_connection_string: Optional[str] = field(default=None)
     db_tables: Optional[List[str]] = field(default=None)
 
+    enable_web_search: bool = field(
+        default_factory=lambda: os.getenv("ENABLE_WEB_SEARCH", "true").lower() == "true"
+    )
+    web_search_max_results: int = field(
+        default_factory=lambda: int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))
+    )
+    search_provider: str = field(
+        default_factory=lambda: os.getenv("SEARCH_PROVIDER", "google")
+    )
+    fetch_timeout: int = field(
+        default_factory=lambda: int(os.getenv("FETCH_TIMEOUT", "10"))
+    )
+    fetch_max_size: int = field(
+        default_factory=lambda: int(os.getenv("FETCH_MAX_SIZE", "1048576"))
+    )
+    fetch_max_pages: int = field(
+        default_factory=lambda: int(os.getenv("FETCH_MAX_PAGES", "3"))
+    )
+    fetch_retries: int = field(
+        default_factory=lambda: int(os.getenv("FETCH_RETRIES", "1"))
+    )
+    web_chunk_size: int = field(
+        default_factory=lambda: int(os.getenv("WEB_CHUNK_SIZE", "1000"))
+    )
+    web_chunk_overlap: int = field(
+        default_factory=lambda: int(os.getenv("WEB_CHUNK_OVERLAP", "200"))
+    )
+    enable_planner: bool = field(
+        default_factory=lambda: os.getenv("ENABLE_PLANNER", "true").lower() == "true"
+    )
+    enable_validator: bool = field(
+        default_factory=lambda: os.getenv("ENABLE_VALIDATOR", "true").lower() == "true"
+    )
+    min_confidence: float = field(
+        default_factory=lambda: float(os.getenv("MIN_CONFIDENCE", "0.5"))
+    )
+
     api_host: str = field(
         default_factory=lambda: os.getenv("API_HOST", "0.0.0.0")
     )

@@ -21,6 +21,9 @@ sqlalchemy>=2.0.0
 pymysql>=1.1.0
 python-multipart>=0.0.12
 python-dotenv>=1.0.0
+googlesearch-python>=1.3.0
+trafilatura>=2.0.0
+ddgs>=9.0.0
 
 # Build / Deploy
 pyinstaller>=6.0.0
