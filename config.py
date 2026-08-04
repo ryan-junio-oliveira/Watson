@@ -117,12 +117,6 @@ class Config:
     enable_planner: bool = field(
         default_factory=lambda: os.getenv("ENABLE_PLANNER", "true").lower() == "true"
     )
-    enable_validator: bool = field(
-        default_factory=lambda: os.getenv("ENABLE_VALIDATOR", "true").lower() == "true"
-    )
-    min_confidence: float = field(
-        default_factory=lambda: float(os.getenv("MIN_CONFIDENCE", "0.5"))
-    )
 
     api_host: str = field(
         default_factory=lambda: os.getenv("API_HOST", "0.0.0.0")

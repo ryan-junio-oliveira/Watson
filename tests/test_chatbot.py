@@ -142,4 +142,3 @@ class TestChatBot:
             result = e.value
         assert isinstance(result, AgentResponse)
         assert "token1 " in result.answer
-        assert any("erro no streaming" in i.lower() for i in result.issues)

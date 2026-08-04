@@ -16,6 +16,12 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
+try:
+    import openpyxl
+    HAS_OPENPYXL = True
+except ImportError:
+    HAS_OPENPYXL = False
+
 
 @dataclass
 class LoadedDocument:
@@ -31,6 +37,7 @@ class DocumentLoader:
     SUPPORTED_EXTENSIONS = {
         ".pdf", ".docx", ".txt", ".md",
         ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif",
+        ".xlsx", ".xls", ".csv",
     }
 
     def __init__(self, logger: Optional[logging.Logger] = None):
@@ -70,6 +77,9 @@ class DocumentLoader:
             ".docx": self._load_docx,
             ".md": self._load_txt,
             ".txt": self._load_txt,
+            ".csv": self._load_csv,
+            ".xlsx": self._load_xlsx,
+            ".xls": self._load_xlsx,
             ".jpg": self._load_image,
             ".jpeg": self._load_image,
             ".png": self._load_image,
@@ -93,6 +103,48 @@ class DocumentLoader:
             modified_at=modified_at,
             file_size=stat.st_size,
         )
+
+    def _load_csv(self, filepath: Path) -> str:
+        text = filepath.read_text(encoding="utf-8", errors="replace")
+        return text
+
+    def _load_xlsx(self, filepath: Path) -> str:
+        if not HAS_OPENPYXL:
+            raise ImportError(
+                "openpyxl is required for Excel files. "
+                "Install it with: pip install openpyxl"
+            )
+
+        wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
+        parts: List[str] = []
+
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            parts.append(f"[Planilha: {sheet_name}]")
+            rows_data: List[str] = []
+
+            headers: List[str] = []
+            for row_idx, row in enumerate(ws.iter_rows(values_only=True)):
+                values = [str(v) if v is not None else "" for v in row]
+                if row_idx == 0:
+                    headers = values
+                    rows_data.append(" | ".join(values))
+                    rows_data.append("-" * len(rows_data[-1]))
+                else:
+                    line_parts: List[str] = []
+                    for i, val in enumerate(values):
+                        label = headers[i] if i < len(headers) else f"Col{i}"
+                        line_parts.append(f"{label}: {val}")
+                    rows_data.append(" | ".join(line_parts))
+
+                if len(rows_data) > 500:
+                    rows_data.append("... (truncado)")
+                    break
+
+            parts.append("\n".join(rows_data))
+
+        wb.close()
+        return "\n\n".join(parts)
 
     def _load_pdf(self, filepath: Path) -> str:
         text_parts: List[str] = []

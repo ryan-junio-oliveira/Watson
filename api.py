@@ -25,7 +25,6 @@ from rag.prompt import PromptBuilder
 from rag.reranker import Reranker as RagReranker
 from rag.response import Mode
 from rag.retriever import Retriever
-from rag.validator import ConfidenceScorer, FactValidator
 from utils.logger import setup_logger
 
 
@@ -54,7 +53,7 @@ class ChatMetadata(BaseModel):
     provider: Optional[str] = Field(None, description="Provedor da resposta (rag)", examples=["rag"])
     evidence_count: int = Field(0, description="Quantidade de evidências utilizadas")
     execution_time_ms: int = Field(0, description="Tempo de execução em milissegundos")
-    verdict: str = Field("unknown", description="Veredito da validação (consistent, partial, inconsistent, unknown)")
+    verdict: str = Field("ok", description="Status da resposta", examples=["ok"])
     issues: Optional[List[str]] = Field(None, description="Problemas encontrados internamente")
 
 
@@ -158,20 +157,11 @@ def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
         if cfg.use_reranker
         else None
     )
-    _fact_validator = (
-        FactValidator(ollama_client=_ollama_client, logger=_logger)
-        if cfg.enable_validator
-        else None
-    )
-    _conf_min = cfg.min_confidence
-    if hasattr(ConfidenceScorer, 'MIN_CONFIDENCE'):
-        ConfidenceScorer.MIN_CONFIDENCE = _conf_min
     return ChatBot(
         retriever=_retriever,
         prompt_builder=_prompt_builder,
         ollama_client=_ollama_client,
         reranker=_rag_reranker,
-        fact_validator=_fact_validator,
         logger=_logger,
     )
 

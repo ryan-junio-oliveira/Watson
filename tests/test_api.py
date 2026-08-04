@@ -42,8 +42,6 @@ def mock_env():
         mock_cfg.web_chunk_size = 1000
         mock_cfg.web_chunk_overlap = 200
         mock_cfg.enable_planner = False
-        mock_cfg.enable_validator = False
-        mock_cfg.min_confidence = 0.5
         mock_cfg.db_connection_string = None
         mock_cfg.db_tables = None
         yield mock_cfg

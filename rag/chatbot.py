@@ -9,7 +9,6 @@ from rag.evidence import Evidence, EvidenceAggregator, EvidenceNormalizer
 from rag.prompt import PromptBuilder
 from rag.response import AgentResponse, Mode
 from rag.retriever import Retriever
-from rag.validator import ConfidenceScorer, FactValidator, ValidationResult
 
 
 class ChatBot:
@@ -19,14 +18,12 @@ class ChatBot:
         prompt_builder: PromptBuilder,
         ollama_client: OllamaClient,
         reranker: Optional[Retriever] = None,
-        fact_validator: Optional[FactValidator] = None,
         logger: Optional[logging.Logger] = None,
     ):
         self.retriever = retriever
         self.prompt_builder = prompt_builder
         self.ollama_client = ollama_client
         self._rag_reranker = reranker
-        self.fact_validator = fact_validator
         self.logger = logger
         self.aggregator = EvidenceAggregator(logger=logger)
 
@@ -55,39 +52,18 @@ class ChatBot:
                 self.logger.warning(f"Stream interrupted: {e}")
         return "".join(full_answer)
 
-    def _validate(
-        self, answer: str, evidence: List[Evidence]
-    ) -> ValidationResult:
-        if self.fact_validator:
-            try:
-                return self.fact_validator.validate(answer, evidence)
-            except Exception as e:
-                if self.logger:
-                    self.logger.warning(f"Validation failed: {e}")
-        return ValidationResult(
-            overall_verdict="unknown", overall_confidence=0.5
-        )
-
     def _build_response(
         self,
         answer: str,
         evidences: List[Evidence],
-        validation: ValidationResult,
         start_time: float,
-        extra_issues: Optional[List[str]] = None,
     ) -> AgentResponse:
-        confidence = ConfidenceScorer.calculate(validation, evidences)
-        issues = validation.issues[:]
-        if extra_issues:
-            issues.extend(extra_issues)
         elapsed = time.time() - start_time
-
         return AgentResponse(
             answer=answer,
             evidences=evidences,
-            confidence=confidence,
-            verdict=validation.overall_verdict,
-            issues=issues,
+            confidence=1.0 if evidences else 0.5,
+            verdict="ok",
             metadata={
                 "provider": "rag",
                 "evidence_count": len(evidences),
@@ -115,8 +91,7 @@ class ChatBot:
                 self.logger.info("No evidence found in indexed documents")
             prompt = self.prompt_builder.build(question, mode=mode)
             answer = self._call_llm(prompt)
-            validation = self._validate(answer, [])
-            resp = self._build_response(answer, [], validation, start)
+            resp = self._build_response(answer, [], start)
             resp.metadata["fallback"] = "no_documents"
             return resp
 
@@ -129,14 +104,11 @@ class ChatBot:
         )
 
         answer_clean = self._call_llm(prompt)
-        validation = self._validate(answer_clean, evidence)
-        result = self._build_response(answer_clean, evidence, validation, start)
+        result = self._build_response(answer_clean, evidence, start)
 
         if self.logger:
             self.logger.info(
-                f"AgentResponse: confidence={result.confidence:.2f}, "
-                f"verdict={result.verdict}, "
-                f"evidence={len(evidence)}, "
+                f"AgentResponse: evidence={len(evidence)}, "
                 f"time={result.execution_time:.2f}s"
             )
 
@@ -154,40 +126,23 @@ class ChatBot:
         return self._process(question, history_context, mode)
 
     def _stream_evidence(
-        self, question: str, prompt: str, evidence: List[Evidence]
+        self, prompt: str, evidence: List[Evidence]
     ) -> Generator[str, None, AgentResponse]:
         start = time.time()
         full_answer: List[str] = []
-        stream_error = ""
         try:
             for token in self.ollama_client.ask_stream(prompt):
                 full_answer.append(token)
                 yield token
         except Exception as e:
-            stream_error = str(e)
             if self.logger:
-                self.logger.warning(f"Stream interrupted: {stream_error}")
+                self.logger.warning(f"Stream interrupted: {e}")
 
         answer_clean = "".join(full_answer)
-        validation = self._validate(answer_clean, evidence)
-
-        extra_issues: List[str] = []
-        if stream_error:
-            extra_issues.append(
-                f"Resposta parcial - erro no streaming: {stream_error}"
-            )
-
-        result = self._build_response(
-            answer_clean, evidence, validation, start, extra_issues
-        )
+        result = self._build_response(answer_clean, evidence, start)
 
         if self.logger:
-            self.logger.info(
-                f"Stream result: confidence={result.confidence:.2f}, "
-                f"verdict={result.verdict}, "
-                f"evidence={len(evidence)}, "
-                f"time={result.execution_time:.2f}s"
-            )
+            self.logger.info(f"Stream result: time={result.execution_time:.2f}s")
 
         return result
 
@@ -206,8 +161,7 @@ class ChatBot:
             else self.prompt_builder.build(question, mode=mode)
         )
         full_answer = yield from self._call_llm_stream(prompt)
-        validation = self._validate(full_answer, [])
-        resp = self._build_response(full_answer, [], validation, start)
+        resp = self._build_response(full_answer, [], start)
         resp.metadata["fallback"] = "no_documents"
         return resp
 
@@ -227,7 +181,7 @@ class ChatBot:
             return (yield from self._stream_no_evidence(question, mode=mode))
 
         prompt = self.prompt_builder.build(question, evidence, mode=mode)
-        result = yield from self._stream_evidence(question, prompt, evidence)
+        result = yield from self._stream_evidence(prompt, evidence)
         return result
 
     def ask_stream_with_history(
@@ -255,7 +209,7 @@ class ChatBot:
         prompt = self.prompt_builder.build_with_history(
             question, evidence, history_context, mode=mode
         )
-        result = yield from self._stream_evidence(question, prompt, evidence)
+        result = yield from self._stream_evidence(prompt, evidence)
         return result
 
     def chat_loop(self) -> None:

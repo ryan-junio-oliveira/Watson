@@ -8,7 +8,6 @@ from rag.chatbot import ChatBot
 from rag.prompt import PromptBuilder
 from rag.reranker import Reranker as RagReranker
 from rag.retriever import Retriever
-from rag.validator import ConfidenceScorer, FactValidator
 from utils.logger import setup_logger
 
 
@@ -63,13 +62,6 @@ def main() -> None:
             if cfg.use_reranker
             else None
         )
-        fact_validator = (
-            FactValidator(ollama_client=ollama_client, logger=logger)
-            if cfg.enable_validator
-            else None
-        )
-        if hasattr(ConfidenceScorer, 'MIN_CONFIDENCE'):
-            ConfidenceScorer.MIN_CONFIDENCE = cfg.min_confidence
 
         embedding_generator.get_embeddings()
         if rag_reranker is not None:
@@ -81,7 +73,6 @@ def main() -> None:
             prompt_builder=prompt_builder,
             ollama_client=ollama_client,
             reranker=rag_reranker,
-            fact_validator=fact_validator,
             logger=logger,
         )
         chatbot.chat_loop()
