@@ -123,12 +123,7 @@ class FactValidator:
         )
 
         try:
-            import ollama
-            temp_client = ollama.Client(
-                host=self.ollama_client.base_url,
-                timeout=self.validation_timeout,
-            )
-            response = temp_client.generate(
+            response = self.ollama_client._client.generate(
                 model=self.ollama_client.model,
                 prompt=prompt,
                 options={

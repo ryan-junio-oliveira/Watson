@@ -1,24 +1,20 @@
-import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from rag.evidence import Evidence
 
 
 class Mode(str, Enum):
     auto = "auto"
-    knowledge = "knowledge"
     rag = "rag"
-    web = "web"
-    all = "all"
 
 
 @dataclass
 class Source:
     title: str
-    url: str
-    provider: str = "web"
+    url: str = ""
+    provider: str = "rag"
 
     def to_dict(self) -> Dict[str, str]:
         d: Dict[str, str] = {"title": self.title, "url": self.url}

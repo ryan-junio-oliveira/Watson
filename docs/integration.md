@@ -11,7 +11,7 @@ API_URL = "http://localhost:9000"
 health = requests.get(f"{API_URL}/api/health")
 print(health.json())
 
-# Fazer pergunta (auto: planner decide as fontes)
+# Consulta documentos indexados
 res = requests.post(f"{API_URL}/api/chat", json={
     "question": "Qual o status do cliente XYZ?",
 })
@@ -20,27 +20,7 @@ print(data["answer"])
 print(f"Confianca: {data['confidence']:.0%}")
 print(f"Fontes: {[s['title'] for s in data['sources']]}")
 
-# Apenas conhecimento do LLM, sem buscar em fontes
-res = requests.post(f"{API_URL}/api/chat", json={
-    "question": "Quantas letras tem a palavra morango?",
-    "mode": "knowledge",
-})
-print(res.json()["answer"])
-
-# Forcar busca apenas nos documentos indexados
-res = requests.post(f"{API_URL}/api/chat", json={
-    "question": "Qual o status do cliente 2?",
-    "mode": "rag",
-})
-print(res.json()["answer"])
-
-# Forcar busca apenas na internet
-res = requests.post(f"{API_URL}/api/chat", json={
-    "question": "Clima em Sao Paulo hoje?",
-    "mode": "web",
-})
-
-# Fazer pergunta com historico
+# Com historico
 res = requests.post(f"{API_URL}/api/chat", json={
     "question": "E qual o contato dele?",
     "history": [
@@ -97,11 +77,11 @@ const API_URL = 'http://localhost:9000';
 const health = await fetch(`${API_URL}/api/health`);
 console.log(await health.json());
 
-// Fazer pergunta (apenas conhecimento do LLM, sem busca)
+// Consulta documentos indexados
 const res = await fetch(`${API_URL}/api/chat`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ question: 'Quantas letras tem morango?', mode: 'knowledge' }),
+  body: JSON.stringify({ question: 'Quais servidores estao cadastrados?' }),
 });
 const data = await res.json();
 console.log(data.answer);
@@ -134,7 +114,7 @@ while (true) {
   }
 }
 
-// Upload de documento (com FormData)
+// Upload de documento
 const FormData = require('form-data');
 const fs = require('fs');
 const form = new FormData();
@@ -174,28 +154,10 @@ Http::post("$apiUrl/api/index");
 ## cURL
 
 ```bash
-# Pergunta simples (auto: planner decide as fontes)
+# Pergunta simples
 curl -s http://localhost:9000/api/chat \
   -H "Content-Type: application/json" \
   -d '{"question": "Qual o total de instalacoes?"}' \
-  | jq '.answer'
-
-# Apenas conhecimento do LLM (sem buscar em indices ou internet)
-curl -s http://localhost:9000/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"question": "Quantas letras tem morango?", "mode": "knowledge"}' \
-  | jq '.answer'
-
-# Forcar busca apenas nos documentos indexados
-curl -s http://localhost:9000/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"question": "Status do cliente 2?", "mode": "rag"}' \
-  | jq '{answer, confidence, sources: [.sources[].title]}'
-
-# Forcar busca apenas na internet
-curl -s http://localhost:9000/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"question": "Clima em SP hoje?", "mode": "web"}' \
   | jq '.answer'
 
 # Com fontes e metadata

@@ -2,19 +2,19 @@
 
 Servidor FastAPI padrao na porta `9000`. Documentacao interativa disponivel em `/docs` (Swagger) e `/redoc`.
 
-**Versao atual:** 2.0.0
+**Versao atual:** 2.1.0
 
 ---
 
 ## Arquitetura da Resposta
 
-Todas as respostas da API seguem um contrato estavel e previsivel, separando **apresentacao** do **pipeline interno**:
+Todas as respostas da API seguem um contrato estavel e previsivel:
 
 ```
-Pipeline de IA → AgentResponse (interno) → ResponseFormatter → JSON estavel
+Recuperacao ChromaDB → LLM (Ollama) → Validacao → JSON estavel
 ```
 
-Diagnosticos internos (validacao, logs do planner, erros de parsing) **nunca** sao expostos na resposta.
+O Watson consulta **exclusivamente documentos indexados** e base de dados MySQL. Diagnosticos internos (validacao, logs) **nunca** sao expostos na resposta.
 
 ---
 
@@ -31,7 +31,7 @@ Verifica se a API esta operacional e se o Ollama esta acessivel.
   "documents_dir": "documents",
   "chroma_dir": "database/chroma",
   "db_configured": true,
-  "ollama_model": "qwen3:8b"
+  "ollama_model": "gemma3:4b"
 }
 ```
 
@@ -42,7 +42,7 @@ Verifica se a API esta operacional e se o Ollama esta acessivel.
   "documents_dir": "documents",
   "chroma_dir": "database/chroma",
   "db_configured": true,
-  "ollama_model": "qwen3:8b"
+  "ollama_model": "gemma3:4b"
 }
 ```
 
@@ -63,7 +63,7 @@ Lista os modelos disponiveis no servidor Ollama.
 **Response (200):**
 ```json
 {
-  "models": ["qwen3:8b", "llama3.2:3b", "mistral:7b"]
+  "models": ["gemma3:4b", "llama3.2:3b"]
 }
 ```
 
@@ -73,7 +73,7 @@ Em caso de falha de conexao com Ollama, retorna apenas o modelo configurado como
 
 ### `POST /api/chat`
 
-Endpoint principal de perguntas e respostas.
+Endpoint principal de perguntas e respostas. **Consulta apenas documentos indexados e banco de dados.**
 
 **Body:**
 ```json
@@ -83,7 +83,7 @@ Endpoint principal de perguntas e respostas.
     {"role": "user", "content": "Qual o total de clientes?"},
     {"role": "assistant", "content": "Temos 15 clientes ativos."}
   ],
-  "model": "qwen3:8b"
+  "mode": "auto"
 }
 ```
 
@@ -91,8 +91,7 @@ Endpoint principal de perguntas e respostas.
 |---|---|---|---|
 | `question` | string | sim | Pergunta em linguagem natural |
 | `history` | array | nao | Historico da conversa para contexto |
-| `model` | string | nao | Modelo Ollama (usa o padrao da config se omitido) |
-| `mode` | string | nao | Fonte de conhecimento: `"auto"` (planner decide), `"knowledge"` (apenas LLM), `"rag"` (documentos indexados), `"web"` (internet), `"all"` (ambos). Padrao: `"auto"`. Em `"rag"`, `"web"` ou `"all"`, o LLM nao pode usar conhecimento proprio se nao encontrar resultados — apenas informa que nao encontrou. |
+| `mode` | string | nao | Modo de consulta: `"auto"` ou `"rag"` (ambos buscam nos documentos indexados). Padrao: `"auto"` |
 
 **Response (200):**
 ```json
@@ -102,13 +101,18 @@ Endpoint principal de perguntas e respostas.
   "confidence": 0.94,
   "sources": [
     {
-      "title": "Dicio",
-      "url": "https://www.dicio.com.br/morango/",
-      "provider": "web"
+      "title": "servidores.pdf",
+      "url": "",
+      "provider": "rag"
+    },
+    {
+      "title": "clientes (tabela MySQL)",
+      "url": "",
+      "provider": "rag"
     }
   ],
   "metadata": {
-    "provider": "web",
+    "provider": "rag",
     "evidence_count": 3,
     "execution_time_ms": 814,
     "verdict": "consistent"
@@ -121,7 +125,7 @@ Endpoint principal de perguntas e respostas.
 | `success` | bool | `true` para respostas bem-sucedidas |
 | `answer` | string | Texto da resposta gerada |
 | `confidence` | float | Nivel de confianca (0.0 a 1.0) |
-| `sources` | array | Lista de fontes utilizadas (vide modelo `Source`) |
+| `sources` | array | Lista de documentos utilizados como fonte |
 | `metadata` | object | Metadados da execucao (vide modelo `ChatMetadata`) |
 
 **Response (500 - Erro interno):**
@@ -130,7 +134,7 @@ Endpoint principal de perguntas e respostas.
   "success": false,
   "error": {
     "code": "INTERNAL_ERROR",
-    "message": "O servico de busca nao respondeu"
+    "message": "O servico nao respondeu"
   }
 }
 ```
@@ -171,7 +175,7 @@ Sequencia de eventos:
 2. `data: [DONE]\n\n` — fim do texto da resposta
 3. `data: <JSON>\n\n` — metadados finais (confidence, sources, metadata)
 
-> **Nota:** Eventos de validacao interna (`[VALIDATION]`) **nao** sao mais emitidos a partir da v2.0.0.
+> **Nota:** Eventos de validacao interna **nao** sao expostos no stream.
 
 **Exemplo com curl:**
 ```bash
@@ -306,12 +310,11 @@ Remove apenas o banco vetorial ChromaDB. Os arquivos de documentos permanecem no
   "history": [
     {"role": "user|assistant", "content": "string"}
   ],
-  "model": "string (opcional)",
-  "mode": "auto|knowledge|rag|web|all (opcional, padrao: auto)"
+  "mode": "auto|rag (opcional, padrao: auto)"
 }
 ```
 
-### ChatSuccessResponse (v2.0.0)
+### ChatSuccessResponse (v2.1.0)
 ```json
 {
   "success": true,
@@ -320,12 +323,12 @@ Remove apenas o banco vetorial ChromaDB. Os arquivos de documentos permanecem no
   "sources": [
     {
       "title": "string",
-      "url": "string",
-      "provider": "string (opcional)"
+      "url": "string (vazio para docs internos)",
+      "provider": "string (opcional, sempre 'rag')"
     }
   ],
   "metadata": {
-    "provider": "string (rag|web|hybrid)",
+    "provider": "string (sempre 'rag')",
     "evidence_count": "integer",
     "execution_time_ms": "integer",
     "verdict": "string (consistent|partial|inconsistent|unknown)",
@@ -334,7 +337,7 @@ Remove apenas o banco vetorial ChromaDB. Os arquivos de documentos permanecem no
 }
 ```
 
-### ChatErrorResponse (v2.0.0)
+### ChatErrorResponse (v2.1.0)
 ```json
 {
   "success": false,
@@ -357,7 +360,7 @@ Remove apenas o banco vetorial ChromaDB. Os arquivos de documentos permanecem no
 ### ChatMetadata
 ```json
 {
-  "provider": "string (rag|web|hybrid)",
+  "provider": "string (sempre 'rag')",
   "evidence_count": "integer",
   "execution_time_ms": "integer",
   "verdict": "string (consistent|partial|inconsistent|unknown)",
@@ -383,12 +386,5 @@ Remove apenas o banco vetorial ChromaDB. Os arquivos de documentos permanecem no
   "chroma_dir": "string",
   "db_configured": "boolean",
   "ollama_model": "string"
-}
-```
-
-### ErrorResponse (legado)
-```json
-{
-  "detail": "string"
 }
 ```

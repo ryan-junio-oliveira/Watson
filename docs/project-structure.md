@@ -2,7 +2,7 @@
 
 ```
 Watson/
-├── api.py                  # Servidor FastAPI (modo API) - v2.0.0
+├── api.py                  # Servidor FastAPI (modo API) - v2.1.0
 ├── app.py                  # Chat interativo via terminal (modo CLI)
 ├── index.py                # Indexacao via linha de comando
 ├── config.py               # Configuracoes centralizadas (dataclass + .env)
@@ -17,21 +17,10 @@ Watson/
 │   ├── embeddings.py       # Geracao de embeddings (HuggingFace)
 │   └── indexer.py          # Indexacao no ChromaDB com cache SHA-256
 │
-├── search/                 # Pipeline de busca web (modular, SOLID)
-│   ├── provider.py         # Classe abstrata SearchProvider
-│   ├── google_provider.py  # Provedor Google (googlesearch-python)
-│   ├── ddgs_provider.py    # Provedor DuckDuckGo (ddgs)
-│   ├── fetcher.py          # Download de paginas (httpx com retry/backoff/cache)
-│   ├── extractor.py        # Extracao de conteudo HTML (trafilatura)
-│   ├── cleaner.py          # Limpeza de texto (entidades HTML, whitespace)
-│   ├── chunker.py          # Chunking de texto web (RecursiveCharacterTextSplitter)
-│   └── reranker.py         # Re-ranking web com CrossEncoder
-│
-├── rag/                    # Pipeline de consulta (Hybrid RAG Agent)
-│   ├── chatbot.py          # Orquestrador: Planner → Busca → Extracao → Sintese → Validacao
-│   ├── response.py         # Modelos internos: AgentResponse, Source
+├── rag/                    # Pipeline de consulta (RAG)
+│   ├── chatbot.py          # Orquestrador: Recuperacao → Geracao → Validacao
+│   ├── response.py         # Modelos: AgentResponse, Source, Mode
 │   ├── evidence.py         # Modelo Evidence + EvidenceNormalizer + EvidenceAggregator
-│   ├── planner.py          # Classificador de intencao (rag vs web vs ambos)
 │   ├── prompt.py           # Construcao de prompts com system prompt + evidencias
 │   ├── retriever.py        # Busca vetorial por similaridade (top-k, MMR, threshold)
 │   ├── reranker.py         # Re-ranking RAG com CrossEncoder (opcional)
@@ -46,31 +35,27 @@ Watson/
 ├── utils/                  # Utilitarios
 │   └── logger.py           # Logging em arquivo com rotacao + console
 │
-├── tests/                  # Testes unitarios (pytest) - 156 testes
+├── search/                 # Pipeline de busca web (removido na v2.1.0)
+│
+├── tests/                  # Testes unitarios (pytest)
 │   ├── conftest.py
 │   ├── test_api.py
 │   ├── test_chatbot.py
-│   ├── test_chunker.py
-│   ├── test_cleaner.py
 │   ├── test_db_loader.py
 │   ├── test_embeddings.py
 │   ├── test_evidence.py
-│   ├── test_extractor.py
-│   ├── test_fetcher.py
 │   ├── test_indexer.py
 │   ├── test_loader.py
 │   ├── test_ollama_client.py
 │   ├── test_presentation.py
 │   ├── test_prompt.py
 │   ├── test_retriever.py
-│   ├── test_search_provider.py
-│   ├── test_search_reranker.py
 │   └── test_splitter.py
 │
 ├── docs/                   # Documentacao detalhada
 │   ├── installation.md
 │   ├── configuration.md
-│   ├── api-reference.md    # Referencia completa da API v2.0.0
+│   ├── api-reference.md    # Referencia completa da API v2.1.0
 │   ├── database-indexing.md
 │   ├── integration.md
 │   └── project-structure.md
@@ -80,28 +65,29 @@ Watson/
 └── logs/                   # Logs da aplicacao (com rotacao automatica)
 ```
 
-## Novidades na v2.0.0
+## Novidades na v2.1.0
 
-### Arquitetura
+### Simplificacao
 
-- **Camada de Apresentacao**: Novo pacote `presentation/` com `ResponseFormatter` (API, CLI). Separa o pipeline de IA do output.
-- **AgentResponse**: Modelo interno padrao. Substitui `ChatResult`. Contem `answer`, `evidences`, `confidence`, `verdict`, `issues`, `metadata`, `execution_time`.
-- **Source**: Modelo estruturado de fontes (`title`, `url`, `provider`). Fontes nao sao mais concatenadas ao texto.
-- **Diagnosticos internos**: Validacao, logs do planner, erros de parsing nunca sao expostos na resposta.
-
-### API
-
-- **Contrato estavel**: Respostas seguem `{success, answer, confidence, sources, metadata}`.
-- **Streaming limpo**: Stream termina com `[DONE]` + JSON metadata. Evento `[VALIDATION]` removido.
-- **Erros estruturados**: Erros internos retornam `{success: false, error: {code, message}}`.
+- **RAG-only**: Agente consulta apenas documentos indexados e banco MySQL. Sem busca na internet.
+- **Codigo removido**: Planner (classificador de intencao) e QueryRefiner removidos. Busca web desabilitada por padrao.
+- **Configuracao simplificada**: `ENABLE_PLANNER`, `ENABLE_WEB_SEARCH`, e variaveis de busca web removidas do uso padrao.
 
 ### Pipeline
 
-- **Hybrid RAG Agent**: Pipeline completo: Planner → Retriever/Search → Fetcher → Extractor → Cleaner → Chunker → Reranker → Aggregator → PromptBuilder → LLM → FactValidator → ConfidenceScorer.
-- **Search Web**: Provedor DDGS primario, Google fallback.
-- **Evidence**: Modelo unificado `Evidence` com normalizador e agregador.
+- **Pipeline**: Pergunta → ChromaDB (busca vetorial) → LLM (gemma3:4b) → Validacao (anti-alucinacao).
+- **2 chamadas LLM**: Geracao + Validacao. Classificacao de intencao removida.
+- **Sem rede externa**: Nao faz requisicoes HTTP para buscadores. Apenas Ollama local + ChromaDB local + MySQL (se configurado).
 
-### Seguranca
+### Performance
 
-- **SQL Injection**: Nomes de tabela do MySQL sao validados e escapados
-- **Log Rotation**: Logs rotacionam a cada 10 MB (5 backups)
+- **Modelo menor**: Padrao `gemma3:4b` (4B parametros), ~2x mais rapido que `qwen3:8b`.
+- **Tokens reduzidos**: `MAX_TOKENS=1024` (antes 2048).
+- **Preload**: Embeddings e reranker carregados no startup.
+
+### Historico (v2.0.0)
+
+- **Camada de Apresentacao**: `ResponseFormatter` (API, CLI).
+- **AgentResponse**: Modelo interno padrao com `answer`, `evidences`, `confidence`, `verdict`.
+- **Source**: Modelo estruturado de fontes.
+- **Contrato estavel**: Respostas seguem `{success, answer, confidence, sources, metadata}`.

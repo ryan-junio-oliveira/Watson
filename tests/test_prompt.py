@@ -15,7 +15,7 @@ class TestPromptBuilder:
             url=url,
             content=content,
             score=1.0,
-            source_type="web",
+            source_type="rag",
         )
 
     def test_build_returns_string(self):
@@ -46,12 +46,12 @@ class TestPromptBuilder:
 
     def test_build_without_evidence_uses_no_evidence_prompt(self):
         prompt = self.builder.build("Pergunta?", None)
-        assert "Não foram encontradas evidências" in prompt
+        assert "Não foram encontradas informações" in prompt
         assert "Pergunta?" in prompt
 
     def test_build_without_evidence_and_history_uses_no_evidence_prompt(self):
         prompt = self.builder.build_with_history("Pergunta?", None, "user: Oi")
-        assert "Não foram encontradas evidências" in prompt
+        assert "Não foram encontradas informações" in prompt
         assert "Histórico da conversa:" in prompt
         assert "user: Oi" in prompt
 
@@ -59,8 +59,7 @@ class TestPromptBuilder:
         prompt = self.builder.build(
             "Pergunta?", [self._ev("Algo importante.", "Fonte")]
         )
-        assert "APENAS com base nelas" in prompt
-        assert "conhecimento geral" not in prompt
+        assert "APENAS com base nas evidências" in prompt
 
     def test_build_includes_evidence_in_prompt(self):
         e1 = self._ev("O céu é azul.", "Fonte A", "https://a.com")
@@ -71,39 +70,26 @@ class TestPromptBuilder:
         assert "a.com" in prompt
         assert "b.com" in prompt
 
-    def test_build_knowledge_mode_uses_no_evidence_prompt(self):
-        prompt = self.builder.build("Pergunta?", mode=Mode.knowledge)
-        assert "Não foram encontradas evidências" in prompt
-        assert "conhecimento geral" in prompt
+    def test_build_auto_mode_no_evidence_uses_no_evidence_prompt(self):
+        prompt = self.builder.build("Pergunta?", mode=Mode.auto)
+        assert "Não foram encontradas informações" in prompt
+        assert "documentos internos indexados" in prompt
 
-    def test_build_rag_mode_no_evidence_uses_strict_prompt(self):
+    def test_build_rag_mode_no_evidence_uses_no_evidence_prompt(self):
         prompt = self.builder.build("Pergunta?", mode=Mode.rag)
-        assert "modo de consulta selecionado" in prompt
+        assert "Não foram encontradas informações" in prompt
         assert "documentos internos" in prompt
-        assert "NÃO utilize seu conhecimento interno" in prompt
-
-    def test_build_web_mode_no_evidence_uses_strict_prompt(self):
-        prompt = self.builder.build("Pergunta?", mode=Mode.web)
-        assert "modo de consulta selecionado" in prompt
-        assert "resultados de pesquisa na internet" in prompt
-        assert "NÃO utilize seu conhecimento interno" in prompt
-
-    def test_build_all_mode_no_evidence_uses_strict_prompt(self):
-        prompt = self.builder.build("Pergunta?", mode=Mode.all)
-        assert "modo de consulta selecionado" in prompt
-        assert "NÃO utilize seu conhecimento interno" in prompt
 
     def test_build_rag_mode_with_evidence_uses_system_prompt(self):
         prompt = self.builder.build(
             "Pergunta?", [self._ev("Algo importante.", "Fonte")], mode=Mode.rag
         )
-        assert "APENAS com base nelas" in prompt
-        assert "modo de consulta selecionado" not in prompt
+        assert "APENAS com base nas evidências" in prompt
+        assert "Evidências:" in prompt
 
     def test_build_with_history_and_mode(self):
         prompt = self.builder.build_with_history(
             "Pergunta?", mode=Mode.rag, history_context="user: Oi"
         )
-        assert "modo de consulta selecionado" in prompt
         assert "Histórico da conversa:" in prompt
         assert "user: Oi" in prompt

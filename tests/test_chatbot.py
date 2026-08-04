@@ -94,29 +94,24 @@ class TestChatBot:
         assert isinstance(result, AgentResponse)
         assert result.answer == "".join(tokens)
 
-    def test_ask_knowledge_mode_skips_evidence(self, mock_prompt_builder, mock_ollama_client):
+    def test_ask_auto_mode_retrieves_rag(self, mock_prompt_builder, mock_ollama_client):
         retriever = MagicMock()
+        retriever.retrieve.return_value = []
         chatbot = ChatBot(
             retriever=retriever,
             prompt_builder=mock_prompt_builder,
             ollama_client=mock_ollama_client,
         )
-        result = chatbot.ask("Pergunta?", mode=Mode.knowledge)
-        retriever.retrieve.assert_not_called()
+        result = chatbot.ask("Pergunta?", mode=Mode.auto)
+        retriever.retrieve.assert_called_once()
         assert isinstance(result, AgentResponse)
-        assert "mode" in result.metadata
-        assert result.metadata["mode"] == "knowledge"
 
     def test_ask_rag_mode(self, chatbot):
         result = chatbot.ask("Pergunta?", mode=Mode.rag)
         assert isinstance(result, AgentResponse)
 
-    def test_ask_all_mode(self, chatbot):
-        result = chatbot.ask("Pergunta?", mode=Mode.all)
-        assert isinstance(result, AgentResponse)
-
-    def test_ask_stream_knowledge_mode(self, chatbot):
-        gen = chatbot.ask_stream("Pergunta?", mode=Mode.knowledge)
+    def test_ask_stream_auto_mode(self, chatbot):
+        gen = chatbot.ask_stream("Pergunta?", mode=Mode.auto)
         tokens = []
         try:
             while True:
@@ -124,7 +119,6 @@ class TestChatBot:
         except StopIteration as e:
             result = e.value
         assert isinstance(result, AgentResponse)
-        assert result.metadata.get("mode") == "knowledge"
 
     def test_ask_stream_survives_llm_timeout(self, mock_retriever, mock_prompt_builder):
         client = MagicMock()

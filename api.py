@@ -1,12 +1,11 @@
 import logging
 import re
-import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator, List, Optional
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile, status
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -22,18 +21,11 @@ from ingestion.splitter import DocumentSplitter
 from llm.ollama_client import OllamaClient
 from presentation.formatter import ApiFormatter
 from rag.chatbot import ChatBot
-from rag.planner import IntentClassifier
 from rag.prompt import PromptBuilder
 from rag.reranker import Reranker as RagReranker
-from rag.response import AgentResponse, Mode
+from rag.response import Mode
 from rag.retriever import Retriever
 from rag.validator import ConfidenceScorer, FactValidator
-from search.chunker import Chunker
-from search.cleaner import ContentCleaner
-from search.extractor import ContentExtractor
-from search.fetcher import PageFetcher
-from search.google_provider import GoogleProvider
-from search.reranker import Reranker as SearchReranker
 from utils.logger import setup_logger
 
 
@@ -45,25 +37,24 @@ class ChatRequest(BaseModel):
         None, description="Histórico da conversa para contexto",
         examples=[[{"role": "user", "content": "Olá"}, {"role": "assistant", "content": "Olá! Como posso ajudar?"}]]
     )
-    model: Optional[str] = Field(None, description="Modelo Ollama a ser usado", examples=["qwen3:8b"])
     mode: Mode = Field(
         Mode.auto,
-        description="Fonte de conhecimento: auto (planner decide), knowledge (apenas LLM), rag (documentos indexados), web (internet), all (ambos)",
-        examples=["auto", "knowledge", "rag", "web", "all"],
+        description="Modo de consulta: auto ou rag (ambos buscam apenas nos documentos indexados)",
+        examples=["auto", "rag"],
     )
 
 
 class SourceItem(BaseModel):
-    title: str = Field(..., description="Título da fonte", examples=["Wikipedia"])
-    url: str = Field(..., description="URL da fonte", examples=["https://pt.wikipedia.org/wiki/Exemplo"])
-    provider: Optional[str] = Field(None, description="Provedor da fonte", examples=["web"])
+    title: str = Field(..., description="Título da fonte", examples=["servidores.pdf"])
+    url: str = Field("", description="URL da fonte (vazio para documentos internos)")
+    provider: Optional[str] = Field(None, description="Provedor da fonte", examples=["rag"])
 
 
 class ChatMetadata(BaseModel):
-    provider: Optional[str] = Field(None, description="Provedor da resposta (rag, web, hybrid)", examples=["web"])
+    provider: Optional[str] = Field(None, description="Provedor da resposta (rag)", examples=["rag"])
     evidence_count: int = Field(0, description="Quantidade de evidências utilizadas")
     execution_time_ms: int = Field(0, description="Tempo de execução em milissegundos")
-    verdict: str = Field("unknown", description="Veredito da validação interna (consistent, partial, inconsistent, unknown)")
+    verdict: str = Field("unknown", description="Veredito da validação (consistent, partial, inconsistent, unknown)")
     issues: Optional[List[str]] = Field(None, description="Problemas encontrados internamente")
 
 
@@ -71,7 +62,7 @@ class ChatSuccessResponse(BaseModel):
     success: bool = Field(True, description="Indica se a requisição foi bem-sucedida")
     answer: str = Field(..., description="Resposta gerada pelo Watson", examples=["Existem 5 servidores cadastrados."])
     confidence: float = Field(0.0, description="Nível de confiança na resposta (0.0 a 1.0)")
-    sources: List[SourceItem] = Field(default_factory=list, description="Fontes utilizadas para gerar a resposta")
+    sources: List[SourceItem] = Field(default_factory=list, description="Documentos utilizados como fonte")
     metadata: ChatMetadata = Field(default_factory=ChatMetadata, description="Metadados da execução")
 
 
@@ -131,6 +122,12 @@ cfg: Config = None
 api_formatter: ApiFormatter = None
 
 
+def _preload_models(_chatbot: ChatBot, _emb_gen, _logger) -> None:
+    _emb_gen.get_embeddings()
+    if _chatbot._rag_reranker is not None:
+        _chatbot._rag_reranker._load_model()
+
+
 def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
     _embedding_generator = EmbeddingGenerator(model_name=cfg.embedding_model, device=cfg.embedding_device)
     _retriever = Retriever(
@@ -161,30 +158,6 @@ def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
         if cfg.use_reranker
         else None
     )
-    _fetcher = PageFetcher(
-        timeout=cfg.fetch_timeout,
-        max_size=cfg.fetch_max_size,
-        max_retries=cfg.fetch_retries,
-        logger=_logger,
-    )
-    _extractor = ContentExtractor(logger=_logger)
-    _cleaner = ContentCleaner(logger=_logger)
-    _chunker = Chunker(
-        chunk_size=cfg.web_chunk_size,
-        chunk_overlap=cfg.web_chunk_overlap,
-        logger=_logger,
-    )
-    _search_reranker = SearchReranker(
-        model_name=cfg.reranker_model,
-        device=cfg.embedding_device,
-        logger=_logger,
-    )
-    _search_provider = GoogleProvider(logger=_logger)
-    _intent_classifier = (
-        IntentClassifier(ollama_client=_ollama_client, logger=_logger)
-        if cfg.enable_planner
-        else None
-    )
     _fact_validator = (
         FactValidator(ollama_client=_ollama_client, logger=_logger)
         if cfg.enable_validator
@@ -198,17 +171,8 @@ def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
         prompt_builder=_prompt_builder,
         ollama_client=_ollama_client,
         reranker=_rag_reranker,
-        intent_classifier=_intent_classifier,
         fact_validator=_fact_validator,
         logger=_logger,
-        fetcher=_fetcher,
-        extractor=_extractor,
-        cleaner=_cleaner,
-        chunker=_chunker,
-        search_reranker=_search_reranker,
-        search_provider=_search_provider,
-        max_pages_per_query=cfg.fetch_max_pages,
-        max_chunks_per_query=cfg.web_search_max_results * 6,
     )
 
 
@@ -248,6 +212,11 @@ async def lifespan(app: FastAPI):
 
     chatbot = build_chatbot(cfg, logger)
     embedding_generator, splitter, indexer = build_indexer(cfg, logger)
+
+    logger.info("Preloading models...")
+    _preload_models(chatbot, embedding_generator, logger)
+    logger.info("Models loaded successfully")
+
     api_formatter = ApiFormatter()
 
     yield
@@ -259,16 +228,16 @@ app = FastAPI(
     title="Watson RAG API",
     description="""
     API de Retrieval-Augmented Generation (RAG) para indexação de documentos e
-    consultas inteligentes com modelos LLM via Ollama.
+    consultas inteligentes sobre dados internos da empresa com modelos LLM via Ollama.
 
     ## Arquitetura
     O Watson segue uma arquitetura em camadas:
-    1. **Pipeline de IA** — planejamento, busca, extração, síntese e validação
-    2. **Agente** — produz um `AgentResponse` estruturado (objeto interno)
-    3. **Apresentação** — `ResponseFormatter` converte para o formato adequado (JSON, CLI, etc.)
+    1. **Recuperação** — busca documentos relevantes no ChromaDB
+    2. **Geração** — LLM sintetiza resposta baseada nas evidências
+    3. **Validação** — verificação anti-alucinação das respostas geradas
 
     ## Funcionalidades
-    - **Chat**: Faça perguntas sobre documentos indexados e internet
+    - **Chat**: Faça perguntas sobre documentos e banco de dados indexados
     - **Streaming**: Receba respostas parciais em tempo real via SSE
     - **Indexação**: Indexe documentos (PDF, TXT, DOCX, etc.) e dados de banco MySQL
     - **Upload**: Envie novos documentos para indexação
@@ -291,7 +260,7 @@ app = FastAPI(
     }
     ```
 
-    Diagnósticos internos (validação, logs, planner) **nunca** são expostos na resposta.
+    Diagnósticos internos (validação, logs) **nunca** são expostos na resposta.
     """,
     version="2.0.0",
     contact={

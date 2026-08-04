@@ -5,17 +5,10 @@ from config import Config, config
 from ingestion.embeddings import EmbeddingGenerator
 from llm.ollama_client import OllamaClient
 from rag.chatbot import ChatBot
-from rag.planner import IntentClassifier
 from rag.prompt import PromptBuilder
 from rag.reranker import Reranker as RagReranker
 from rag.retriever import Retriever
 from rag.validator import ConfidenceScorer, FactValidator
-from search.chunker import Chunker
-from search.cleaner import ContentCleaner
-from search.extractor import ContentExtractor
-from search.fetcher import PageFetcher
-from search.google_provider import GoogleProvider
-from search.reranker import Reranker as SearchReranker
 from utils.logger import setup_logger
 
 
@@ -34,7 +27,7 @@ def main() -> None:
         log_file=cfg.log_file,
     )
 
-    logger.info("Starting RAG Chat")
+    logger.info("Starting Watson RAG")
 
     try:
         embedding_generator = EmbeddingGenerator(
@@ -70,30 +63,6 @@ def main() -> None:
             if cfg.use_reranker
             else None
         )
-        fetcher = PageFetcher(
-            timeout=cfg.fetch_timeout,
-            max_size=cfg.fetch_max_size,
-            max_retries=cfg.fetch_retries,
-            logger=logger,
-        )
-        extractor = ContentExtractor(logger=logger)
-        cleaner = ContentCleaner(logger=logger)
-        chunker = Chunker(
-            chunk_size=cfg.web_chunk_size,
-            chunk_overlap=cfg.web_chunk_overlap,
-            logger=logger,
-        )
-        search_reranker = SearchReranker(
-            model_name=cfg.reranker_model,
-            device=cfg.embedding_device,
-            logger=logger,
-        )
-        search_provider = GoogleProvider(logger=logger)
-        intent_classifier = (
-            IntentClassifier(ollama_client=ollama_client, logger=logger)
-            if cfg.enable_planner
-            else None
-        )
         fact_validator = (
             FactValidator(ollama_client=ollama_client, logger=logger)
             if cfg.enable_validator
@@ -102,22 +71,18 @@ def main() -> None:
         if hasattr(ConfidenceScorer, 'MIN_CONFIDENCE'):
             ConfidenceScorer.MIN_CONFIDENCE = cfg.min_confidence
 
+        embedding_generator.get_embeddings()
+        if rag_reranker is not None:
+            rag_reranker._load_model()
+        logger.info("Models preloaded successfully")
+
         chatbot = ChatBot(
             retriever=retriever,
             prompt_builder=prompt_builder,
             ollama_client=ollama_client,
             reranker=rag_reranker,
-            intent_classifier=intent_classifier,
             fact_validator=fact_validator,
             logger=logger,
-            fetcher=fetcher,
-            extractor=extractor,
-            cleaner=cleaner,
-            chunker=chunker,
-            search_reranker=search_reranker,
-            search_provider=search_provider,
-            max_pages_per_query=cfg.fetch_max_pages,
-            max_chunks_per_query=cfg.web_search_max_results * 6,
         )
         chatbot.chat_loop()
 

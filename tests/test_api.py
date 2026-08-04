@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from rag.response import AgentResponse
@@ -142,39 +141,39 @@ class TestChatEndpoint:
         assert data["confidence"] == 0.8
 
     @patch("api.chatbot")
-    def test_chat_with_knowledge_mode(self, mock_chatbot, client):
+    def test_chat_with_auto_mode(self, mock_chatbot, client):
         mock_chatbot.ask.return_value = AgentResponse(
-            answer="Resposta da propria inteligencia.",
+            answer="Resposta baseada nos documentos.",
             evidences=[],
             confidence=0.9,
             verdict="consistent",
         )
         response = client.post(
             "/api/chat",
-            json={"question": "Quantas letras tem morango?", "mode": "knowledge"},
+            json={"question": "Quais servidores estao cadastrados?", "mode": "auto"},
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["success"] is True
-        assert data["answer"] == "Resposta da propria inteligencia."
+        assert data["answer"] == "Resposta baseada nos documentos."
         from rag.response import Mode
-        mock_chatbot.ask.assert_called_with("Quantas letras tem morango?", mode=Mode.knowledge)
+        mock_chatbot.ask.assert_called_with("Quais servidores estao cadastrados?", mode=Mode.auto)
 
     @patch("api.chatbot")
-    def test_chat_stream_with_knowledge_mode(self, mock_chatbot, client):
+    def test_chat_stream_with_auto_mode(self, mock_chatbot, client):
         result = AgentResponse(
-            answer="7",
+            answer="5 servidores encontrados",
             evidences=[],
             confidence=0.9,
             verdict="consistent",
         )
-        mock_chatbot.ask_stream.return_value = _stream_gen(["7"], result)
+        mock_chatbot.ask_stream.return_value = _stream_gen(["5"], result)
         response = client.post(
             "/api/chat/stream",
-            json={"question": "Quantas letras tem morango?", "mode": "knowledge"},
+            json={"question": "Quantos servidores?", "mode": "auto"},
         )
         assert response.status_code == status.HTTP_200_OK
-        assert "data: 7" in response.text
+        assert "data: 5" in response.text
 
 
 def _stream_gen(tokens, result):
