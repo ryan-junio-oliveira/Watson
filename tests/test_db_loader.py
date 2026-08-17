@@ -112,7 +112,6 @@ class TestDatabaseLoader:
             row={"id": 1, "name": "John", "password": "secret"},
             safe_columns=["id", "name"],
             pk_columns=["id"],
-            row_index=0,
         )
         assert doc.filepath == "db://users/1"
         assert doc.file_type == "db"

@@ -40,6 +40,13 @@ database/chroma/
 chroma_db/
 chroma/
 
+# Dados gerados localmente
+database/embedding_cache.sqlite3
+database/images/
+
+# Binários de terceiros (Tesseract - instalar via libs/)
+libs/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -20,6 +20,16 @@ def mock_env():
         mock_cfg.ollama_timeout = 300
         mock_cfg.embedding_model = "all-MiniLM-L6-v2"
         mock_cfg.embedding_device = "cpu"
+        mock_cfg.embedding_batch_size = 32
+        mock_cfg.embedding_normalize = True
+        mock_cfg.embedding_cache_path = "/tmp/test_emb_cache.sqlite3"
+        mock_cfg.tesseract_cmd = ""
+        mock_cfg.ocr_lang = "por+eng"
+        mock_cfg.ocr_dpi = 300
+        mock_cfg.ocr_min_text_chars = 20
+        mock_cfg.image_dir = "/tmp/images"
+        mock_cfg.vision_model = ""
+        mock_cfg.db_max_rows_per_query = 200
         mock_cfg.temperature = 0.1
         mock_cfg.max_tokens = 2048
         mock_cfg.chunk_size = 1000
