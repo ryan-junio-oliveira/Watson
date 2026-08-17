@@ -34,11 +34,23 @@ def main() -> None:
         embedding_generator = EmbeddingGenerator(
             model_name=cfg.embedding_model,
             device=cfg.embedding_device,
+            batch_size=cfg.embedding_batch_size,
+            normalize=cfg.embedding_normalize,
+            cache_path=cfg.embedding_cache_path,
+            logger=logger,
         )
 
         all_documents: List[LoadedDocument] = []
 
-        loader = DocumentLoader(logger=logger)
+        loader = DocumentLoader(
+            logger=logger,
+            ocr_lang=cfg.ocr_lang,
+            ocr_dpi=cfg.ocr_dpi,
+            ocr_min_text_chars=cfg.ocr_min_text_chars,
+            tesseract_cmd=cfg.tesseract_cmd,
+            image_dir=cfg.image_dir,
+            vision_model=cfg.vision_model,
+        )
         logger.info(f"Scanning documents in: {cfg.documents_dir}")
         file_docs = loader.load(cfg.documents_dir)
         logger.info(f"Found {len(file_docs)} file documents")

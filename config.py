@@ -27,7 +27,20 @@ class Config:
         default_factory=lambda: int(os.getenv("OLLAMA_TIMEOUT", "300"))
     )
     embedding_model: str = field(
-        default_factory=lambda: os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+        default_factory=lambda: os.getenv(
+            "EMBEDDING_MODEL", "intfloat/multilingual-e5-base"
+        )
+    )
+    embedding_batch_size: int = field(
+        default_factory=lambda: int(os.getenv("EMBEDDING_BATCH_SIZE", "32"))
+    )
+    embedding_normalize: bool = field(
+        default_factory=lambda: os.getenv("EMBEDDING_NORMALIZE", "true").lower() == "true"
+    )
+    embedding_cache_path: str = field(
+        default_factory=lambda: os.getenv(
+            "EMBEDDING_CACHE_PATH", "database/embedding_cache.sqlite3"
+        )
     )
     chunk_size: int = field(
         default_factory=lambda: int(os.getenv("CHUNK_SIZE", "1000"))
@@ -72,6 +85,26 @@ class Config:
     embedding_device: str = field(
         default_factory=lambda: os.getenv("EMBEDDING_DEVICE", "cpu")
     )
+    ocr_lang: str = field(
+        default_factory=lambda: os.getenv("OCR_LANG", "por+eng")
+    )
+    ocr_dpi: int = field(
+        default_factory=lambda: int(os.getenv("OCR_DPI", "300"))
+    )
+    ocr_min_text_chars: int = field(
+        default_factory=lambda: int(os.getenv("OCR_MIN_TEXT_CHARS", "20"))
+    )
+    tesseract_cmd: str = field(
+        default_factory=lambda: os.getenv(
+            "TESSERACT_CMD", "libs/tesseract"
+        )
+    )
+    image_dir: str = field(
+        default_factory=lambda: os.getenv("IMAGE_DIR", "database/images")
+    )
+    vision_model: str = field(
+        default_factory=lambda: os.getenv("VISION_MODEL", "")
+    )
     log_level: str = field(
         default_factory=lambda: os.getenv("LOG_LEVEL", "INFO")
     )
@@ -86,6 +119,12 @@ class Config:
     db_name: str = field(default_factory=lambda: os.getenv("DB_NAME", ""))
     db_connection_string: Optional[str] = field(default=None)
     db_tables: Optional[List[str]] = field(default=None)
+    db_mode: str = field(
+        default_factory=lambda: os.getenv("DB_MODE", "both").lower()
+    )
+    db_max_rows_per_query: int = field(
+        default_factory=lambda: int(os.getenv("DB_MAX_ROWS_PER_QUERY", "200"))
+    )
 
     enable_web_search: bool = field(
         default_factory=lambda: os.getenv("ENABLE_WEB_SEARCH", "true").lower() == "true"

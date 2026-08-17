@@ -8,6 +8,7 @@ from rag.chatbot import ChatBot
 from rag.prompt import PromptBuilder
 from rag.reranker import Reranker as RagReranker
 from rag.retriever import Retriever
+from tools.sql_tool import SqlQueryTool
 from utils.logger import setup_logger
 
 
@@ -32,6 +33,10 @@ def main() -> None:
         embedding_generator = EmbeddingGenerator(
             model_name=cfg.embedding_model,
             device=cfg.embedding_device,
+            batch_size=cfg.embedding_batch_size,
+            normalize=cfg.embedding_normalize,
+            cache_path=cfg.embedding_cache_path,
+            logger=logger,
         )
 
         retriever = Retriever(
@@ -63,6 +68,17 @@ def main() -> None:
             else None
         )
 
+        sql_tool = (
+            SqlQueryTool(
+                connection_string=cfg.db_connection_string,
+                tables=cfg.db_tables,
+                max_rows=cfg.db_max_rows_per_query,
+                logger=logger,
+            )
+            if cfg.db_connection_string
+            else None
+        )
+
         embedding_generator.get_embeddings()
         if rag_reranker is not None:
             rag_reranker._load_model()
@@ -73,6 +89,7 @@ def main() -> None:
             prompt_builder=prompt_builder,
             ollama_client=ollama_client,
             reranker=rag_reranker,
+            sql_tool=sql_tool,
             logger=logger,
         )
         chatbot.chat_loop()

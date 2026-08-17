@@ -25,6 +25,7 @@ from rag.prompt import PromptBuilder
 from rag.reranker import Reranker as RagReranker
 from rag.response import Mode
 from rag.retriever import Retriever
+from tools.sql_tool import SqlQueryTool
 from utils.logger import setup_logger
 
 
@@ -128,7 +129,14 @@ def _preload_models(_chatbot: ChatBot, _emb_gen, _logger) -> None:
 
 
 def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
-    _embedding_generator = EmbeddingGenerator(model_name=cfg.embedding_model, device=cfg.embedding_device)
+    _embedding_generator = EmbeddingGenerator(
+        model_name=cfg.embedding_model,
+        device=cfg.embedding_device,
+        batch_size=cfg.embedding_batch_size,
+        normalize=cfg.embedding_normalize,
+        cache_path=cfg.embedding_cache_path,
+        logger=_logger,
+    )
     _retriever = Retriever(
         embedding_generator=_embedding_generator,
         chroma_persist_dir=cfg.vector_db_dir,
@@ -157,17 +165,35 @@ def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
         if cfg.use_reranker
         else None
     )
+    _sql_tool = (
+        SqlQueryTool(
+            connection_string=cfg.db_connection_string,
+            tables=cfg.db_tables,
+            max_rows=cfg.db_max_rows_per_query,
+            logger=_logger,
+        )
+        if cfg.db_connection_string
+        else None
+    )
     return ChatBot(
         retriever=_retriever,
         prompt_builder=_prompt_builder,
         ollama_client=_ollama_client,
         reranker=_rag_reranker,
+        sql_tool=_sql_tool,
         logger=_logger,
     )
 
 
 def build_indexer(cfg: Config, _logger: logging.Logger):
-    _embedding_generator = EmbeddingGenerator(model_name=cfg.embedding_model, device=cfg.embedding_device)
+    _embedding_generator = EmbeddingGenerator(
+        model_name=cfg.embedding_model,
+        device=cfg.embedding_device,
+        batch_size=cfg.embedding_batch_size,
+        normalize=cfg.embedding_normalize,
+        cache_path=cfg.embedding_cache_path,
+        logger=_logger,
+    )
     _splitter = DocumentSplitter(
         chunk_size=cfg.chunk_size,
         chunk_overlap=cfg.chunk_overlap,
@@ -540,7 +566,15 @@ async def _run_index(index_documents: bool, index_database: bool) -> IndexRespon
 
     if index_documents:
         try:
-            loader = DocumentLoader(logger=logger)
+            loader = DocumentLoader(
+                logger=logger,
+                ocr_lang=cfg.ocr_lang,
+                ocr_dpi=cfg.ocr_dpi,
+                ocr_min_text_chars=cfg.ocr_min_text_chars,
+                tesseract_cmd=cfg.tesseract_cmd,
+                image_dir=cfg.image_dir,
+                vision_model=cfg.vision_model,
+            )
             documents = loader.load(cfg.documents_dir)
 
             if documents:
@@ -564,6 +598,17 @@ async def _run_index(index_documents: bool, index_database: bool) -> IndexRespon
                 raise HTTPException(
                     status_code=400,
                     detail="Database not configured. Set DB_CONNECTION_STRING in config.",
+                )
+
+            if cfg.db_mode == "sql":
+                # §12: dados estruturados são consultados via SQL Tool,
+                # não são transformados em embeddings.
+                logger.info("DB_MODE=sql: skipping RAG indexing of database records")
+                return IndexResponse(
+                    status="ok",
+                    documents_indexed=docs_indexed,
+                    db_indexed=0,
+                    total_chunks=total_chunks,
                 )
 
             loader = DatabaseLoader(
