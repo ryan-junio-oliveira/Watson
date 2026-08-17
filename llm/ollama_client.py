@@ -6,7 +6,10 @@ import ollama
 
 
 class OllamaClient:
-    THINK_PATTERN = re.compile(r"<think>.*?</think>", re.DOTALL)
+    # Remove apenas um bloco de raciocínio inicial delimitado por
+    # " thinking" ... " response". Âncorado ao início da resposta para não
+    # corromper conteúdo legítimo que contenha "response" no meio.
+    THINK_PATTERN = re.compile(r"^\s*thinking\b.*?response\b", re.DOTALL)
 
     def __init__(
         self,
@@ -77,24 +80,32 @@ class OllamaClient:
                 yield content
                 continue
             buffer += content
+            # Remove apenas um bloco de raciocínio INICIAL " thinking ... response",
+            # âncora no começo. Depois que o bloco fecha, repassa o restante
+            # (buffer) e segue sem re-inspecionar (não corta conteúdo legítimo).
             while buffer:
                 if not in_think:
-                    idx = buffer.find("<think>")
+                    idx = buffer.find(" thinking")
                     if idx == -1:
                         yield buffer
                         buffer = ""
-                    else:
-                        if idx > 0:
-                            yield buffer[:idx]
-                        buffer = buffer[idx + 7:]
+                    elif idx == 0:
+                        buffer = buffer[len(" thinking"):]
                         in_think = True
+                    else:
+                        # "thinking" no meio => conteúdo legítimo; repassa tudo
+                        yield buffer
+                        buffer = ""
                 else:
-                    idx = buffer.find("</think>")
+                    idx = buffer.find(" response")
                     if idx == -1:
                         buffer = ""
                     else:
-                        buffer = buffer[idx + 8:]
+                        buffer = buffer[idx + len(" response"):]
                         in_think = False
+                        if buffer:
+                            yield buffer
+                            buffer = ""
 
     def list_models(self) -> list:
         try:
