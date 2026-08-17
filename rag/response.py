@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from rag.evidence import Evidence
 
@@ -8,6 +8,7 @@ from rag.evidence import Evidence
 class Mode(str, Enum):
     auto = "auto"
     rag = "rag"
+    sql = "sql"
 
 
 @dataclass
@@ -15,11 +16,23 @@ class Source:
     title: str
     url: str = ""
     provider: str = "rag"
+    page: Optional[int] = None
+    section: str = ""
+    manufacturer: str = ""
+    model: str = ""
 
     def to_dict(self) -> Dict[str, str]:
         d: Dict[str, str] = {"title": self.title, "url": self.url}
         if self.provider:
             d["provider"] = self.provider
+        if self.page is not None:
+            d["page"] = self.page
+        if self.section:
+            d["section"] = self.section
+        if self.manufacturer:
+            d["manufacturer"] = self.manufacturer
+        if self.model:
+            d["model"] = self.model
         return d
 
     @staticmethod
@@ -28,6 +41,10 @@ class Source:
             title=ev.title or ev.source,
             url=ev.url,
             provider=ev.provider,
+            page=ev.page_start,
+            section=ev.section,
+            manufacturer=ev.manufacturer,
+            model=ev.model,
         )
 
     @staticmethod

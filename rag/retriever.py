@@ -39,7 +39,12 @@ class Retriever:
             )
         return self._vector_store
 
-    def retrieve(self, query: str) -> List[Document]:
+    def retrieve(
+        self,
+        query: str,
+        k: Optional[int] = None,
+        filter: Optional[dict] = None,
+    ) -> List[Document]:
         try:
             vector_store = self._get_vector_store()
         except Exception as e:
@@ -48,6 +53,8 @@ class Retriever:
                     f"Could not open vector store (possibly empty): {e}"
                 )
             return []
+
+        top_k = k or self.top_k
 
         try:
             # Check if collection exists and has data
@@ -67,16 +74,24 @@ class Retriever:
             return []
 
         if self.use_mmr:
+            mmr_kwargs = {
+                "k": top_k,
+                "fetch_k": self.mmr_fetch_k,
+                "lambda_mult": self.mmr_lambda,
+            }
+            if filter is not None:
+                mmr_kwargs["filter"] = filter
             results = vector_store.max_marginal_relevance_search(
-                query,
-                k=self.top_k,
-                fetch_k=self.mmr_fetch_k,
-                lambda_mult=self.mmr_lambda,
+                query, **mmr_kwargs
             )
         else:
-            results_with_scores = vector_store.similarity_search_with_relevance_scores(
-                query,
-                k=self.top_k,
+            search_kwargs = {"k": top_k}
+            if filter is not None:
+                search_kwargs["filter"] = filter
+            results_with_scores = (
+                vector_store.similarity_search_with_relevance_scores(
+                    query, **search_kwargs
+                )
             )
             results = []
             for doc, score in results_with_scores:

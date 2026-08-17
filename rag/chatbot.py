@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from typing import Generator, List, Optional
 
@@ -9,6 +10,35 @@ from rag.evidence import Evidence, EvidenceAggregator, EvidenceNormalizer
 from rag.prompt import PromptBuilder
 from rag.response import AgentResponse, Mode
 from rag.retriever import Retriever
+from tools.sql_tool import SqlQueryTool
+
+STRUCTURED_VERBS = (
+    "quantos", "quantas", "quantidade", "total", "liste", "lista",
+    "quais", "conte", "conta", "somam", "soma", "media", "média",
+    "maior", "menor", "vencidos", "vencendo", "expirando", "expira",
+    "cadastrad", "registros", "renova", "ultimos", "últimos",
+)
+DB_NOUNS = (
+    "licen", "client", "instala", "usuario", "usuário", "equipament",
+    "impressora", "scanner", "contrato", "assinatura", "renovac",
+    "dispositivo", "ativo", "inativo", "bloquead", "planos", "produtos",
+    "quantidade", "registro",
+)
+_SQL_FENCE = re.compile(r"```(?:sql)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
+
+
+def extract_sql(raw: str) -> str:
+    """Extrai a SQL da resposta do LLM (remove fences/prefixos)."""
+    m = _SQL_FENCE.search(raw)
+    if m:
+        raw = m.group(1)
+    raw = raw.strip()
+    idx = raw.upper().find("SELECT")
+    if idx == -1:
+        idx = raw.upper().find("SHOW")
+    if idx != -1:
+        raw = raw[idx:]
+    return raw.rstrip().rstrip(";").strip()
 
 
 class ChatBot:
@@ -18,14 +48,79 @@ class ChatBot:
         prompt_builder: PromptBuilder,
         ollama_client: OllamaClient,
         reranker: Optional[Retriever] = None,
+        sql_tool: Optional[SqlQueryTool] = None,
         logger: Optional[logging.Logger] = None,
     ):
         self.retriever = retriever
         self.prompt_builder = prompt_builder
         self.ollama_client = ollama_client
         self._rag_reranker = reranker
+        self.sql_tool = sql_tool
         self.logger = logger
         self.aggregator = EvidenceAggregator(logger=logger)
+
+    # ------------------------------------------------------------------ #
+    # Roteamento RAG vs SQL (§12)
+    # ------------------------------------------------------------------ #
+
+    def _looks_structured(self, question: str) -> bool:
+        q = question.lower()
+        verb_hit = sum(1 for v in STRUCTURED_VERBS if v in q)
+        noun_hit = sum(1 for n in DB_NOUNS if n in q)
+        # Requer um verbo estruturado (quantos/total/liste/quais...) + um
+        # substantivo de dados. Número sozinho (ex.: "erro E123") NÃO rotula
+        # como SQL — senão perguntas de troubleshooting iriam para o banco.
+        return (noun_hit >= 1 and verb_hit >= 1) or verb_hit >= 2
+
+    def _should_use_sql(self, question: str, mode: Mode) -> bool:
+        if self.sql_tool is None or not self.sql_tool.configured:
+            return False
+        if mode == Mode.sql:
+            return True
+        if mode == Mode.auto:
+            return self._looks_structured(question)
+        return False
+
+    def _extract_sql_answer(self, question: str) -> tuple:
+        schema_text = self.sql_tool.table_descriptions()
+        gen_prompt = (
+            "Você tem acesso a um banco de dados com estas tabelas:\n"
+            f"{schema_text}\n\n"
+            f'Gere APENAS uma consulta SQL SELECT que responda: "{question}".\n'
+            "Regras: apenas leitura; use apenas tabelas e colunas listadas; "
+            "não invente colunas.\n"
+            "Para contagens (COUNT) use alias descritivo, ex.: "
+            "COUNT(*) AS total. Selecione colunas legíveis e relevantes.\n"
+            "Responda somente com a SQL, sem explicações."
+        )
+        raw = self.ollama_client.ask(gen_prompt, temperature=0.0)
+        sql = extract_sql(raw)
+        if not sql:
+            raise ValueError("LLM não produziu SQL válida")
+        rows = self.sql_tool.execute(sql)
+        return sql, rows
+
+    def _process_sql(self, question: str) -> AgentResponse:
+        start = time.time()
+        sql, rows = self._extract_sql_answer(question)
+        rows_text = self.sql_tool.rows_to_text(rows)
+        evidence = [
+            Evidence(
+                provider="sql",
+                source="database",
+                title=f"Resultado da consulta ({len(rows)} linha(s))",
+                content=rows_text,
+                metadata={"sql": sql, "rows": len(rows)},
+                source_type="sql",
+            )
+        ]
+        prompt = self.prompt_builder.build_sql(question, sql, rows_text)
+        answer = self._call_llm(prompt)
+        resp = self._build_response(answer, evidence, start)
+        resp.metadata["provider"] = "sql"
+        resp.metadata["sql"] = sql
+        resp.metadata["rows"] = len(rows)
+        return resp
 
     def _retrieve_rag(self, question: str) -> List[Evidence]:
         docs: List[Document] = self.retriever.retrieve(question)
@@ -81,6 +176,22 @@ class ChatBot:
 
         if self.logger:
             self.logger.info(f"Question: {question}")
+
+        if self._should_use_sql(question, mode):
+            try:
+                return self._process_sql(question)
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(
+                        f"SQL path failed ({e}), falling back to RAG"
+                    )
+            # se mode for sql (forçado), não cai em RAG
+            if mode == Mode.sql:
+                resp = self._build_response(
+                    "Não foi possível executar a consulta SQL.", [], start
+                )
+                resp.metadata["fallback"] = "sql_failed"
+                return resp
 
         evidence = self._retrieve_rag(question)
         evidence = self.aggregator.collect(rag_evidence=evidence)
@@ -165,11 +276,30 @@ class ChatBot:
         resp.metadata["fallback"] = "no_documents"
         return resp
 
+    def _stream_sql(self, question: str) -> Generator[str, None, AgentResponse]:
+        start = time.time()
+        try:
+            resp = self._process_sql(question)
+            yield resp.answer
+            return resp
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"SQL stream failed ({e}), falling back to RAG")
+            resp = self._build_response(
+                "Não foi possível executar a consulta SQL.", [], start
+            )
+            resp.metadata["fallback"] = "sql_failed"
+            yield resp.answer
+            return resp
+
     def ask_stream(
         self, question: str, mode: Mode = Mode.auto
     ) -> Generator[str, None, AgentResponse]:
         if self.logger:
             self.logger.info(f"Question: {question}")
+
+        if self._should_use_sql(question, mode):
+            return (yield from self._stream_sql(question))
 
         evidence = self._retrieve_rag(question)
         evidence = self.aggregator.collect(rag_evidence=evidence)
@@ -192,6 +322,9 @@ class ChatBot:
     ) -> Generator[str, None, AgentResponse]:
         if self.logger:
             self.logger.info(f"Question: {question}")
+
+        if self._should_use_sql(question, mode):
+            return (yield from self._stream_sql(question))
 
         evidence = self._retrieve_rag(question)
         evidence = self.aggregator.collect(rag_evidence=evidence)
