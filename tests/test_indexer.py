@@ -258,6 +258,47 @@ class TestIndex:
         assert total == 0  # 0 chunks, mas reprocessado
         assert indexer.manifest.get(sample_doc.document_id)["status"] == "completed"
 
+    def test_progress_callback_reports_done_and_total(self, tmp_path, fake_store, sample_doc):
+        splitter = MagicMock()
+        from langchain_core.documents import Document
+
+        splitter.split.return_value = [
+            Document(page_content="Conteúdo de teste para o callback de progresso.", metadata={"chunk_id": f"chunk_{sample_doc.document_id}_1"}),
+        ]
+        embedding = MagicMock()
+        embedding.get_embeddings.return_value = MagicMock()
+        embedding.embed_documents.return_value = [[0.1] * 4]
+        embedding.embedding_model = "test-model"
+        embedding.embedding_version = "test-model-8"
+        splitter.parser_version = "1.0"
+        splitter.chunking_version = "2.0"
+
+        calls: list[tuple] = []
+        indexer = build_indexer(tmp_path, fake_store, splitter, embedding)
+        indexer.progress_callback = lambda done, total, name: calls.append((done, total, name))
+
+        indexer.index([sample_doc])
+
+        assert calls == [(1, 1, sample_doc.filename)]
+
+    def test_progress_callback_noop_when_nothing_pending(self, tmp_path, fake_store, sample_doc):
+        indexer = build_indexer(tmp_path, fake_store)
+        indexer.manifest.upsert(sample_doc.document_id, {
+            "status": "completed",
+            "content_hash": sample_doc.content_hash,
+            "metadata_hash": compute_metadata_hash(sample_doc),
+            "source_id": sample_doc.source_key,
+            "parser_version": "1.0",
+            "chunking_version": "2.0",
+            "embedding_model": "test-model",
+            "embedding_version": "test-model-8",
+        })
+        calls: list[tuple] = []
+        indexer.progress_callback = lambda done, total, name: calls.append((done, total, name))
+
+        assert indexer.index([sample_doc]) == 0
+        assert calls == []
+
     def test_delete_document(self, tmp_path, fake_store, sample_doc):
         indexer = build_indexer(tmp_path, fake_store)
         fake_store.chunks[f"chunk_{sample_doc.document_id}_1"] = "x"

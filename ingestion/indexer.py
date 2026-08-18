@@ -17,7 +17,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from tqdm import tqdm
 
@@ -55,12 +55,14 @@ class DocumentIndexer:
         quality_gate: Optional[QualityGate] = None,
         deduplicator: Optional[Deduplicator] = None,
         logger: Optional[logging.Logger] = None,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ):
         self.embedding_generator = embedding_generator
         self.splitter = splitter
         self.chroma_persist_dir = chroma_persist_dir
         self.batch_size = batch_size
         self.logger = logger
+        self.progress_callback = progress_callback
 
         embeddings = embedding_generator.get_embeddings()
         self.vector_store = vector_store or ChromaVectorStore(
@@ -155,7 +157,7 @@ class DocumentIndexer:
         errors: List[Tuple[str, str]] = []
 
         progress = tqdm(pending, desc="Indexing documents", unit="doc")
-        for doc in progress:
+        for i, doc in enumerate(progress):
             try:
                 stats = self._process_document(doc)
                 total_chunks += stats["chunks_indexed"]
@@ -164,6 +166,8 @@ class DocumentIndexer:
                 errors.append((doc.filename, str(e)))
                 if self.logger:
                     self.logger.error(f"Failed to index {doc.filename}: {e}")
+            if self.progress_callback:
+                self.progress_callback(i + 1, len(pending), doc.filename)
 
         for document_id in stale:
             entry = self.manifest.get(document_id)
