@@ -31,7 +31,7 @@ from utils.logger import setup_logger
 
 class ChatRequest(BaseModel):
     question: str = Field(
-        ..., description="Pergunta do usuário", examples=["Quais servidores estão cadastrados?"]
+        ..., description="Pergunta do usuário", examples=["Como corrigir o erro E123 na impressora E52645?"]
     )
     history: Optional[List[dict]] = Field(
         None, description="Histórico da conversa para contexto",
@@ -39,15 +39,22 @@ class ChatRequest(BaseModel):
     )
     mode: Mode = Field(
         Mode.auto,
-        description="Modo de consulta: auto ou rag (ambos buscam apenas nos documentos indexados)",
+        description="Modo de consulta. `auto` e `rag` são equivalentes: "
+                    "ambos respondem com base nos documentos e dados indexados (RAG). "
+                    "Modos: auto | rag.",
         examples=["auto", "rag"],
     )
 
 
 class SourceItem(BaseModel):
-    title: str = Field(..., description="Título da fonte", examples=["servidores.pdf"])
+    title: str = Field(..., description="Título da fonte", examples=["HP LASER JET E52645.pdf"])
     url: str = Field("", description="URL da fonte (vazio para documentos internos)")
     provider: Optional[str] = Field(None, description="Provedor da fonte", examples=["rag"])
+    page: Optional[int] = Field(None, description="Número da página onde o trecho foi encontrado", examples=[142])
+    section: Optional[str] = Field(None, description="Seção do documento (headings)", examples=["Troubleshooting"])
+    manufacturer: Optional[str] = Field(None, description="Fabricante inferido do documento", examples=["HP"])
+    model: Optional[str] = Field(None, description="Modelo do equipamento", examples=["E52645"])
+    error_codes: Optional[List[str]] = Field(None, description="Códigos de erro detectados no trecho", examples=[["E123"]])
 
 
 class ChatMetadata(BaseModel):
@@ -243,42 +250,73 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Watson RAG API",
     description="""
-    API de Retrieval-Augmented Generation (RAG) para indexação de documentos e
-    consultas inteligentes sobre dados internos da empresa com modelos LLM via Ollama.
+    API de Retrieval-Augmented Generation (RAG) para indexação de documentos,
+    imagens e dados de banco, com consultas inteligentes via LLM (Ollama).
 
-    ## Arquitetura
-    O Watson segue uma arquitetura em camadas:
-    1. **Recuperação** — busca documentos relevantes no ChromaDB
-    2. **Geração** — LLM sintetiza resposta baseada nas evidências
-    3. **Validação** — verificação anti-alucinação das respostas geradas
+    ## Arquitetura (Knowledge Ingestion & Indexing Pipeline)
+    O Watson transforma fontes de conhecimento em uma base pesquisável:
+
+    1. **Ingestão** — adapters por fonte (PDF com OCR seletivo, DOCX, CSV, XLSX,
+       TXT, imagens e banco de dados), extraindo estrutura (páginas, seções,
+       tabelas, imagens).
+    2. **Indexação** — chunking semântico por tipo, deduplicação, quality gate,
+       embeddings multilíngues (padrão `intfloat/multilingual-e5-base`) com
+       cache, e gravação em um índice vetorial (Chroma).
+    3. **Manifesto** — cada documento é registrado com hashes, versões de
+       parser/chunking/embedding e status, permitindo indexação incremental e
+       reindexação controlada (§versionamento).
+    4. **Recuperação** — busca vetorial com metadata rica (fabricante, modelo,
+       seção, página, códigos de erro) e rerank opcional.
+    5. **Geração** — LLM sintetiza a resposta com base nas evidências.
 
     ## Funcionalidades
-    - **Chat**: Faça perguntas sobre documentos e banco de dados indexados
-    - **Streaming**: Receba respostas parciais em tempo real via SSE
-    - **Indexação**: Indexe documentos (PDF, TXT, DOCX, etc.) e dados de banco MySQL
-    - **Upload**: Envie novos documentos para indexação
-    - **Saúde**: Monitore o status da API e componentes
+    - **Chat**: perguntas sobre documentos e banco indexados (RAG).
+    - **Streaming (SSE)**: tokens da resposta em tempo real + metadados finais.
+    - **Indexação**: `POST /api/index` (documentos + banco), com endpoints
+      separados para documentos e banco; respeita `DB_MODE` (rag | sql | both).
+    - **Upload**: envie novos documentos (PDF, TXT, DOCX, XLSX, CSV, imagens).
+    - **Reindexação**: incremental por hash/versão; use `DELETE` de fontes via
+      limpeza ou reindexação controlada.
+    - **OCR seletivo**: Tesseract aplicado apenas em páginas sem texto nativo.
+    - **Saúde**: status da API e dependências.
 
     ## Formato de Resposta
-    Todas as respostas da API seguem um contrato estável:
+    Todas as respostas seguem um contrato estável:
     ```json
     {
       "success": true,
       "answer": "texto da resposta",
       "confidence": 0.94,
-      "sources": [{"title": "...", "url": "...", "provider": "web"}],
+      "sources": [
+        {
+          "title": "HP LASER JET E52645.pdf",
+          "provider": "rag",
+          "page": 142,
+          "section": "Troubleshooting",
+          "manufacturer": "HP",
+          "model": "E52645",
+          "error_codes": ["E123"]
+        }
+      ],
       "metadata": {
-        "provider": "web",
+        "provider": "rag",
         "evidence_count": 3,
         "execution_time_ms": 814,
-        "verdict": "consistent"
+        "verdict": "ok"
       }
     }
     ```
 
-    Diagnósticos internos (validação, logs) **nunca** são expostos na resposta.
+    ## Streaming (SSE)
+    O endpoint `POST /api/chat/stream` envia eventos:
+    1. `data: {"content": "<token>"}` — cada token da resposta (JSON preserva
+       newlines e formatação markdown);
+    2. `data: [DONE]` — fim do texto;
+    3. `data: {...}` — metadados finais (confidence, sources ricas, metadata).
+
+    Diagnósticos internos **nunca** são expostos na resposta.
     """,
-    version="2.0.0",
+    version="3.0.0",
     contact={
         "name": "Watson Team",
         "url": "http://localhost:9000",
@@ -382,6 +420,11 @@ async def list_models():
     },
 )
 async def chat(request: ChatRequest, req: Request):
+    """Responde uma pergunta usando RAG (documentos + banco indexados).
+
+    Retorna `answer`, `confidence`, `sources` (com metadata rica: fabricante,
+    modelo, seção, página e códigos de erro) e `metadata` de execução.
+    """
     global chatbot, logger, api_formatter
     request_id = getattr(req.state, "request_id", "unknown")
 
@@ -426,14 +469,16 @@ async def chat(request: ChatRequest, req: Request):
     "/api/chat/stream",
     tags=["Chat"],
     summary="Fazer uma pergunta ao Watson com resposta em streaming (SSE)",
-    response_description="Stream de eventos SSE com tokens da resposta + metadados finais",
+    response_description="Stream de eventos SSE com tokens JSON da resposta + metadados finais",
     responses={
         200: {
             "description": (
-                "Stream de eventos SSE: "
-                "1. data: token_parcial  — tokens da resposta; "
-                "2. data: [DONE] — fim do texto; "
-                "3. data: {...} — metadados finais (confidence, sources, metadata)"
+                "Stream de eventos SSE:\n"
+                "1. `data: {\"content\": \"<token>\"}` — cada token da resposta "
+                "(JSON preserva newlines/ markdown);\n"
+                "2. `data: [DONE]` — fim do texto;\n"
+                "3. `data: {...}` — metadados finais com sources ricas "
+                "(confidence, sources, metadata)."
             ),
         },
         400: {"description": "Pergunta inválida ou vazia"},
@@ -441,14 +486,14 @@ async def chat(request: ChatRequest, req: Request):
     },
 )
 async def chat_stream(request: ChatRequest, req: Request):
-    """Envia uma pergunta e recebe a resposta em tempo real via Server-Sent Events (SSE).
+    """Envia uma pergunta e recebe a resposta em tempo real via SSE.
 
-    O stream segue o formato: tokens → [DONE] → metadados.
-
-    - Tokens individuais: `data: texto\\n\\n`
-    - `[DONE]` sinaliza o fim do texto da resposta
-    - Último evento: JSON com confidence, sources e metadata
-    - Eventos de validação interna **não** são expostos no stream
+    Formato dos eventos:
+    - Tokens: `data: {"content": "<token>"}\\n\\n` (JSON — preserva quebras de
+      linha, espaços e formatação markdown).
+    - `[DONE]` sinaliza o fim do texto.
+    - Último evento: JSON com `confidence`, `sources` (metadata rica:
+      fabricante, modelo, seção, página, códigos de erro) e `metadata`.
     """
     global chatbot, logger, api_formatter
     request_id = getattr(req.state, "request_id", "unknown")
@@ -526,6 +571,12 @@ async def chat_stream(request: ChatRequest, req: Request):
     },
 )
 async def index_all():
+    """Indexa documentos e banco de forma incremental (por hash/versão).
+
+    Processa apenas documentos/registros alterados ou novos. Respeita
+    `DB_MODE`: em `sql`, os dados do banco são consultados via SQL Tool e não
+    são indexados em embeddings.
+    """
     return await _run_index(index_documents=True, index_database=True)
 
 
@@ -541,6 +592,8 @@ async def index_all():
     },
 )
 async def index_documents():
+    """Indexa apenas documentos (PDF, DOCX, CSV, XLSX, TXT, imagens) do
+    diretório configurado, com OCR seletivo e incremental por hash."""
     return await _run_index(index_documents=True, index_database=False)
 
 
@@ -557,6 +610,8 @@ async def index_documents():
     },
 )
 async def index_database():
+    """Indexa registros do banco (tabelas úteis configuradas) como conhecimento
+    RAG. Em `DB_MODE=sql`, não indexa — dados são consultados via SQL Tool."""
     return await _run_index(index_documents=False, index_database=True)
 
 
@@ -656,7 +711,12 @@ async def _run_index(index_documents: bool, index_database: bool) -> IndexRespon
         400: {"description": "Nenhum arquivo enviado", "model": ErrorResponse},
     },
 )
-async def upload_document(file: UploadFile = File(..., description="Arquivo a ser enviado (PDF, TXT, DOCX, etc.)")):
+async def upload_document(file: UploadFile = File(..., description="Arquivo a ser enviado (PDF, DOCX, TXT, MD, CSV, XLSX, XLS, JPG, PNG, BMP, TIFF)")):
+    """Envia um documento para o diretório de indexação (máx. 50 MB).
+
+    Depois de enviado, execute `POST /api/index` para indexá-lo. Nomes de
+    arquivo são sanitizados; envio duplicado retorna 409.
+    """
     global logger, cfg
 
     if not file.filename:

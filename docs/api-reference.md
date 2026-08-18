@@ -2,7 +2,7 @@
 
 Servidor FastAPI padrao na porta `9000`. Documentacao interativa disponivel em `/docs` (Swagger) e `/redoc`.
 
-**Versao atual:** 2.1.0
+**Versao atual:** 3.0.0
 
 ---
 
@@ -11,10 +11,12 @@ Servidor FastAPI padrao na porta `9000`. Documentacao interativa disponivel em `
 Todas as respostas da API seguem um contrato estavel e previsivel:
 
 ```
-Recuperacao ChromaDB → LLM (Ollama) → Validacao → JSON estavel
+Adapters (PDF/OCR/DOCX/CSV/XLSX/imagem/banco) → Chunking semantico → Embeddings multilíngues → ChromaDB → LLM (Ollama) → JSON estavel
 ```
 
-O Watson consulta **exclusivamente documentos indexados** e base de dados MySQL. Diagnosticos internos (validacao, logs) **nunca** sao expostos na resposta.
+O Watson consulta **exclusivamente documentos e banco de dados indexados** (RAG). Diagnosticos internos (validacao, logs) **nunca** sao expostos na resposta.
+
+Cada fonte retornada carrega **metadata rica** (fabricante, modelo, seção, página e códigos de erro) para citação no chat.
 
 ---
 
@@ -73,12 +75,12 @@ Em caso de falha de conexao com Ollama, retorna apenas o modelo configurado como
 
 ### `POST /api/chat`
 
-Endpoint principal de perguntas e respostas. **Consulta apenas documentos indexados e banco de dados.**
+Endpoint principal de perguntas e respostas. **Consulta apenas documentos indexados e banco de dados (RAG).**
 
 **Body:**
 ```json
 {
-  "question": "Quantas licencas estao prestes a expirar?",
+  "question": "Como corrigir o erro E123 na impressora E52645?",
   "history": [
     {"role": "user", "content": "Qual o total de clientes?"},
     {"role": "assistant", "content": "Temos 15 clientes ativos."}
@@ -91,24 +93,24 @@ Endpoint principal de perguntas e respostas. **Consulta apenas documentos indexa
 |---|---|---|---|
 | `question` | string | sim | Pergunta em linguagem natural |
 | `history` | array | nao | Historico da conversa para contexto |
-| `mode` | string | nao | Modo de consulta: `"auto"` ou `"rag"` (ambos buscam nos documentos indexados). Padrao: `"auto"` |
+| `mode` | string | nao | Modo de consulta: `"auto"` ou `"rag"` (ambos usam RAG sobre documentos + banco). Padrao: `"auto"` |
 
 **Response (200):**
 ```json
 {
   "success": true,
-  "answer": "Existem 5 servidores cadastrados no sistema.",
+  "answer": "Para desatolar papel preso, siga: 1. ... (Fonte: seção Troubleshooting, página 142)",
   "confidence": 0.94,
   "sources": [
     {
-      "title": "servidores.pdf",
+      "title": "HP LASER JET E52645.pdf",
       "url": "",
-      "provider": "rag"
-    },
-    {
-      "title": "clientes (tabela MySQL)",
-      "url": "",
-      "provider": "rag"
+      "provider": "rag",
+      "page": 142,
+      "section": "Troubleshooting",
+      "manufacturer": "HP",
+      "model": "E52645",
+      "error_codes": ["E123"]
     }
   ],
   "metadata": {
@@ -125,8 +127,20 @@ Endpoint principal de perguntas e respostas. **Consulta apenas documentos indexa
 | `success` | bool | `true` para respostas bem-sucedidas |
 | `answer` | string | Texto da resposta gerada |
 | `confidence` | float | Nivel de confianca (0.0 a 1.0) |
-| `sources` | array | Lista de documentos utilizados como fonte |
+| `sources` | array | Lista de documentos utilizados como fonte (com metadata rica) |
 | `metadata` | object | Metadados da execucao (vide modelo `ChatMetadata`) |
+
+**Campos ricos de cada `source`:**
+| Campo | Tipo | Descricao |
+|---|---|---|
+| `title` | string | Nome do documento/fonte |
+| `url` | string | URL (vazio para documentos internos) |
+| `provider` | string | Sempre `"rag"` |
+| `page` | integer/null | Numero da pagina onde o trecho foi encontrado |
+| `section` | string | Secao do documento (headings) |
+| `manufacturer` | string | Fabricante inferido (ex.: `HP`) |
+| `model` | string | Modelo do equipamento (ex.: `E52645`) |
+| `error_codes` | array | Codigos de erro detectados no trecho (ex.: `["E123"]`) |
 
 **Response (500 - Erro interno):**
 ```json
@@ -152,7 +166,7 @@ Endpoint principal de perguntas e respostas. **Consulta apenas documentos indexa
 
 Endpoint de chat com resposta em **streaming (SSE)**.
 
-Envia uma pergunta e recebe a resposta token por token em tempo real.
+Envia uma pergunta e recebe a resposta token por token em tempo real. **Cada token é enviado como JSON** (`{"content": ...}`) para preservar newlines, espaços e formatação markdown.
 
 **Body** (mesmo formato do `/api/chat`):
 ```json
@@ -163,17 +177,17 @@ Envia uma pergunta e recebe a resposta token por token em tempo real.
 
 **Response:** Stream de eventos SSE no formato:
 ```
-data: token_1
-data: token_2
-data: token_3
+data: {"content": "Para desatolar"}
+data: {"content": " papel preso, siga:"}
+data: {"content": "\\n\\n1. Abra a porta frontal."}
 data: [DONE]
 data: {"confidence": 0.94, "sources": [...], "metadata": {...}}
 ```
 
 Sequencia de eventos:
-1. `data: <texto>\n\n` — tokens individuais da resposta
+1. `data: {"content": "<token>"}\n\n` — cada token da resposta (JSON preserva quebras de linha)
 2. `data: [DONE]\n\n` — fim do texto da resposta
-3. `data: <JSON>\n\n` — metadados finais (confidence, sources, metadata)
+3. `data: <JSON>\n\n` — metadados finais (confidence, sources ricas, metadata)
 
 > **Nota:** Eventos de validacao interna **nao** sao expostos no stream.
 
@@ -192,7 +206,21 @@ const response = await fetch('/api/chat/stream', {
   body: JSON.stringify({ question: "Quais servidores?" })
 });
 const reader = response.body.getReader();
-// Processar o stream ate [DONE], depois ler o JSON final
+const decoder = new TextDecoder();
+let buffer = '';
+while (true) {
+  const { value, done } = await reader.read();
+  if (done) break;
+  buffer += decoder.decode(value, { stream: true });
+  const events = buffer.split('\n\n');
+  buffer = events.pop();
+  for (const ev of events) {
+    const line = ev.trim();
+    if (!line.startsWith('data: ')) continue;
+    const payload = JSON.parse(line.slice(6)); // {"content": "..."} ou {"done":..., "metadata":...}
+    // payload.content = token acumulado; payload.metadata = metadados finais
+  }
+}
 ```
 
 **Erros:**
@@ -205,7 +233,12 @@ const reader = response.body.getReader();
 
 ### `POST /api/index`
 
-Indexa documentos e banco de dados simultaneamente. Apenas arquivos novos ou modificados sao processados.
+Indexa documentos e banco de dados de forma **incremental** (por hash e versões de parser/chunking/embedding). Apenas arquivos/registros novos ou alterados sao processados.
+
+Respeita `DB_MODE`:
+- `both` (padrao): indexa documentos + banco em embeddings.
+- `sql`: banco e consultado via SQL Tool; registros nao sao transformados em embeddings.
+- `rag`: indexa banco em embeddings (sem SQL Tool).
 
 **Response (200):**
 ```json
@@ -221,13 +254,13 @@ Indexa documentos e banco de dados simultaneamente. Apenas arquivos novos ou mod
 
 ### `POST /api/index/documents`
 
-Indexa apenas documentos (PDF, DOCX, TXT, MD, imagens) do diretorio configurado.
+Indexa apenas documentos (PDF, DOCX, TXT, MD, CSV, XLSX, imagens) do diretorio configurado, com **OCR seletivo** (Tesseract apenas em páginas sem texto nativo).
 
 ---
 
 ### `POST /api/index/database`
 
-Indexa apenas o banco de dados MySQL. Requer `DB_CONNECTION_STRING` configurado.
+Indexa apenas o banco de dados (tabelas úteis configuradas via `DB_TABLES`). Requer `DB_CONNECTION_STRING` configurado. Em `DB_MODE=sql`, nao indexa.
 
 ---
 
@@ -260,7 +293,7 @@ curl -X POST http://localhost:9000/api/documents/upload \
 
 ### `POST /api/clear`
 
-Remove todos os documentos e limpa o banco vetorial ChromaDB.
+Remove todos os documentos e limpa o banco vetorial ChromaDB **e o manifesto de indexação**.
 
 **Response (200):**
 ```json
@@ -281,7 +314,7 @@ Remove apenas os arquivos de documentos do diretorio. O banco vetorial permanece
 
 ### `POST /api/clear/vectorstore`
 
-Remove apenas o banco vetorial ChromaDB. Os arquivos de documentos permanecem no diretorio.
+Remove apenas o banco vetorial ChromaDB e o manifesto. Os arquivos de documentos permanecem no diretorio.
 
 ---
 
@@ -296,8 +329,8 @@ Remove apenas o banco vetorial ChromaDB. Os arquivos de documentos permanecem no
 ## Seguranca
 
 - **CORS**: Habilitado para todas origens (configuravel)
-- **SQL Injection**: Nomes de tabela do MySQL sao validados e escapados
-- **Colunas sensiveis**: `password`, `senha`, `token`, `secret`, etc. sao automaticamente filtradas na indexacao do banco
+- **SQL Injection**: nomes de tabela validados e escapados; o SQL Tool aceita apenas `SELECT`/`SHOW`/`DESCRIBE`/`EXPLAIN` com whitelist de tabelas e `LIMIT` obrigatorio
+- **Colunas sensiveis**: `password`, `senha`, `token`, `secret`, `api_key`, etc. sao automaticamente filtradas na indexacao e no SQL Tool
 
 ---
 
@@ -314,7 +347,7 @@ Remove apenas o banco vetorial ChromaDB. Os arquivos de documentos permanecem no
 }
 ```
 
-### ChatSuccessResponse (v2.1.0)
+### ChatSuccessResponse (v3.0.0)
 ```json
 {
   "success": true,
@@ -324,7 +357,12 @@ Remove apenas o banco vetorial ChromaDB. Os arquivos de documentos permanecem no
     {
       "title": "string",
       "url": "string (vazio para docs internos)",
-      "provider": "string (opcional, sempre 'rag')"
+      "provider": "string (sempre 'rag')",
+      "page": "integer|null",
+      "section": "string",
+      "manufacturer": "string",
+      "model": "string",
+      "error_codes": ["string"]
     }
   ],
   "metadata": {
@@ -337,7 +375,7 @@ Remove apenas o banco vetorial ChromaDB. Os arquivos de documentos permanecem no
 }
 ```
 
-### ChatErrorResponse (v2.1.0)
+### ChatErrorResponse (v3.0.0)
 ```json
 {
   "success": false,
@@ -353,7 +391,12 @@ Remove apenas o banco vetorial ChromaDB. Os arquivos de documentos permanecem no
 {
   "title": "string",
   "url": "string",
-  "provider": "string (opcional)"
+  "provider": "string (opcional)",
+  "page": "integer|null",
+  "section": "string",
+  "manufacturer": "string",
+  "model": "string",
+  "error_codes": ["string"]
 }
 ```
 
