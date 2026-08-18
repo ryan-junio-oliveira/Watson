@@ -24,7 +24,8 @@ show_menu() {
     echo "  [5] Drive Sync      - Apenas sincronizar Google Drive"
     echo "  [6] Selecao Drive   - Escolher pastas do Drive p/ indexar"
     echo "  [7] Reset Total     - Limpar banco vetorial e documentos"
-    echo "  [8] Sair"
+    echo "  [8] Watcher         - Reindexar automaticamente ao detectar mudancas"
+    echo "  [9] Sair"
     echo ""
 }
 
@@ -114,6 +115,19 @@ while true; do
             read -rp "Pressione Enter para continuar..."
             ;;
         8)
+            echo ""
+            echo "============================================"
+            echo "Watcher de documentos - reindexacao automatica"
+            echo "Monitora documents/ e indexa mudancas."
+            echo "Pressione Ctrl+C para parar."
+            echo "============================================"
+            echo ""
+            python3 watch.py
+            echo ""
+            echo "Watcher encerrado."
+            read -rp "Pressione Enter para continuar..."
+            ;;
+        9)
             exit 0
             ;;
         *)

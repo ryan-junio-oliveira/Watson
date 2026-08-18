@@ -24,7 +24,8 @@ echo  [4] Drive + Index   - Sincronizar Google Drive e indexar
 echo  [5] Drive Sync      - Apenas sincronizar Google Drive
 echo  [6] Selecao Drive   - Escolher pastas do Drive p/ indexar
 echo  [7] Reset Total     - Limpar banco vetorial e documentos
-echo  [8] Sair
+echo  [8] Watcher         - Reindexar automaticamente ao detectar mudancas
+echo  [9] Sair
 echo.
 set /p opcao="Digite o numero da opcao: "
 
@@ -35,7 +36,8 @@ if "%opcao%"=="4" goto drive_index
 if "%opcao%"=="5" goto drive_sync
 if "%opcao%"=="6" goto drive_select
 if "%opcao%"=="7" goto reset
-if "%opcao%"=="8" exit /b 0
+if "%opcao%"=="8" goto watch
+if "%opcao%"=="9" exit /b 0
 echo Opcao invalida! Tente novamente.
 timeout /t 2 >nul
 goto menu
@@ -124,5 +126,19 @@ echo ============================================
 echo.
 python drive_select.py
 echo.
+pause
+goto menu
+
+:watch
+echo.
+echo ============================================
+echo Watcher de documentos - reindexacao automatica
+echo Monitora documents/ e indexa mudancas.
+echo Pressione Ctrl+C para parar.
+echo ============================================
+echo.
+python watch.py
+echo.
+echo Watcher encerrado.
 pause
 goto menu
