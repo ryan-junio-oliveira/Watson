@@ -54,6 +54,9 @@ def mock_env():
         mock_cfg.enable_planner = False
         mock_cfg.db_connection_string = None
         mock_cfg.db_tables = None
+        mock_cfg.google_drive_folder_id = ""
+        mock_cfg.google_drive_dest_dir = "/tmp/test_drive"
+        mock_cfg.google_drive_sync_timeout = 30
         yield mock_cfg
 
 
@@ -321,6 +324,67 @@ class TestIndexEndpoints:
         response = client.post("/api/index")
         assert response.status_code == status.HTTP_200_OK
 
+    def test_index_async_starts_job(self, client):
+        with patch("api._start_index_job") as mock_start:
+            mock_start.return_value = "job123"
+            response = client.post("/api/index/async", json={"mode": "documents"})
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "started"
+        assert data["job_id"] == "job123"
+        mock_start.assert_called_once_with(
+            index_documents=True, index_database=False, sync_drive=False
+        )
+
+    def test_index_async_sync_drive_true(self, client):
+        with patch("api._start_index_job") as mock_start:
+            mock_start.return_value = "job456"
+            response = client.post(
+                "/api/index/async",
+                json={"mode": "all", "sync_drive": True},
+            )
+        assert response.status_code == status.HTTP_200_OK
+        mock_start.assert_called_once_with(
+            index_documents=True, index_database=True, sync_drive=True
+        )
+
+    def test_index_async_invalid_mode(self, client):
+        with patch("api._start_index_job") as mock_start:
+            response = client.post("/api/index/async", json={"mode": "nope"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_start.assert_not_called()
+
+    def test_index_status_not_found(self, client):
+        response = client.get("/api/index/status/inexistente")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_index_status_running(self, client):
+        with patch("api._get_index_job") as mock_get:
+            mock_get.return_value = {"status": "running", "result": None, "error": None}
+            response = client.get("/api/index/status/abc123")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "running"
+        assert data["result"] is None
+
+    def test_index_status_done(self, client):
+        with patch("api._get_index_job") as mock_get:
+            mock_get.return_value = {
+                "status": "done",
+                "result": {
+                    "status": "ok",
+                    "documents_indexed": 3,
+                    "db_indexed": 0,
+                    "total_chunks": 42,
+                },
+                "error": None,
+            }
+            response = client.get("/api/index/status/abc123")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "done"
+        assert data["result"]["total_chunks"] == 42
+
 
 class TestClearEndpoints:
     @patch("api.indexer")
@@ -353,3 +417,76 @@ class TestModelsEndpoint:
         response = client.get("/api/models")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["models"] == ["model1", "model2"]
+
+
+class TestDriveEndpoints:
+    def test_drive_sync_requires_config(self, client, mock_env):
+        response = client.post("/api/drive/sync")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_drive_sync_ok(self, client, mock_env, tmp_path):
+        mock_env.google_drive_folder_id = "ROOT"
+        mock_env.google_drive_dest_dir = str(tmp_path / "drive")
+        from ingestion.drive_sync import GoogleDriveSync, SelectedFolder
+
+        with patch.object(GoogleDriveSync, "sync") as mock_sync:
+            mock_sync.return_value = MagicMock(
+                files_remote=5,
+                folders=2,
+                downloaded=3,
+                skipped=1,
+                failed=0,
+                removed=0,
+                bytes_downloaded=100,
+                errors=[],
+            )
+            response = client.post("/api/drive/sync")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "ok"
+        assert data["downloaded"] == 3
+
+    def test_drive_selection_empty(self, client, mock_env, tmp_path):
+        mock_env.google_drive_dest_dir = str(tmp_path / "drive")
+        response = client.get("/api/drive/selection")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["folders"] == []
+
+    def test_drive_selection_save(self, client, mock_env, tmp_path):
+        mock_env.google_drive_dest_dir = str(tmp_path / "drive")
+        payload = {"folders": [{"folder_id": "ABC", "path": "MANUAIS/HP"}]}
+        response = client.post("/api/drive/selection", json=payload)
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["selected"] == 1
+        assert data["folders"][0]["folder_id"] == "ABC"
+
+        # persistido: reload
+        response = client.get("/api/drive/selection")
+        assert response.json()["folders"][0]["path"] == "MANUAIS/HP"
+
+    def test_drive_clear(self, client, mock_env, tmp_path):
+        drive_dir = tmp_path / "drive"
+        drive_dir.mkdir()
+        (drive_dir / "file.pdf").write_bytes(b"data")
+        mock_env.google_drive_dest_dir = str(drive_dir)
+        response = client.post("/api/drive/clear")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["removed"] == 1
+        assert not (drive_dir / "file.pdf").exists()
+
+    def test_drive_folder_lists(self, client, mock_env, tmp_path):
+        mock_env.google_drive_dest_dir = str(tmp_path / "drive")
+        from ingestion.drive_sync import DriveEntry, GoogleDriveSync
+
+        with patch.object(GoogleDriveSync, "list_folder") as mock_list:
+            mock_list.return_value = [
+                DriveEntry(entry_id="F1", name="Pasta", is_folder=True, modified="5/13/25"),
+                DriveEntry(entry_id="F2", name="doc.pdf", is_folder=False, modified=""),
+            ]
+            response = client.get("/api/drive/folder/ROOT")
+        assert response.status_code == status.HTTP_200_OK
+        items = response.json()
+        assert items[0]["type"] == "folder"
+        assert items[1]["type"] == "file"
+        assert items[1]["name"] == "doc.pdf"

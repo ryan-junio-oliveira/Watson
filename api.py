@@ -1,9 +1,11 @@
+import asyncio
 import logging
 import re
+import threading
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncGenerator, List, Optional
+from typing import AsyncGenerator, Dict, List, Optional
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +16,10 @@ MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 
 from config import Config, config as app_config
 from ingestion.db_loader import DatabaseLoader
+from ingestion.drive_sync import (
+    GoogleDriveSync,
+    SelectedFolder as _SelectedFolder,
+)
 from ingestion.embeddings import EmbeddingGenerator
 from ingestion.indexer import DocumentIndexer
 from ingestion.loader import DocumentLoader
@@ -114,6 +120,52 @@ class HealthResponse(BaseModel):
     ollama_model: str = Field(..., description="Modelo Ollama em uso")
 
 
+class DriveItem(BaseModel):
+    id: str = Field(..., description="ID da pasta ou arquivo no Google Drive")
+    name: str = Field(..., description="Nome do item")
+    type: str = Field(..., description="`folder` ou `file`")
+    modified: Optional[str] = Field(None, description="Data de última modificação")
+
+
+class DriveFolderRequest(BaseModel):
+    folder_id: str = Field(..., description="ID da pasta no Google Drive")
+
+
+class SelectedFolderRequest(BaseModel):
+    folder_id: str = Field(..., description="ID da pasta selecionada")
+    path: str = Field("", description="Caminho relativo preservado (ex.: MANUAIS/HP)")
+
+
+class DriveSelectionResponse(BaseModel):
+    folders: List[SelectedFolderRequest] = Field(
+        default_factory=list, description="Pastas selecionadas para indexação"
+    )
+    selected: int = Field(0, description="Quantidade de pastas selecionadas")
+
+
+class DriveSelectionSaveRequest(BaseModel):
+    folders: List[SelectedFolderRequest] = Field(
+        ..., description="Nova lista de pastas selecionadas"
+    )
+
+
+class DriveSyncResponse(BaseModel):
+    status: str = Field(..., description="Status do sync", examples=["ok"])
+    files_remote: int = Field(0, description="Arquivos encontrados no Drive")
+    folders: int = Field(0, description="Pastas percorridas")
+    downloaded: int = Field(0, description="Arquivos baixados")
+    skipped: int = Field(0, description="Arquivos ignorados (não suportados ou já atuais)")
+    failed: int = Field(0, description="Falhas")
+    removed: int = Field(0, description="Arquivos removidos localmente")
+    bytes_downloaded: int = Field(0, description="Bytes baixados")
+    errors: List[str] = Field(default_factory=list, description="Erros ocorridos")
+
+
+class DriveClearResponse(BaseModel):
+    status: str = Field(..., description="Status da operação", examples=["ok"])
+    removed: int = Field(0, description="Quantidade de arquivos removidos")
+
+
 class ModelListResponse(BaseModel):
     models: List[str] = Field(..., description="Lista de modelos disponíveis no Ollama")
 
@@ -127,6 +179,75 @@ retriever: Retriever = None
 ollama_client: OllamaClient = None
 cfg: Config = None
 api_formatter: ApiFormatter = None
+
+
+# ------------------------------------------------------------------ #
+# Indexação assíncrona (jobs em segundo plano)
+# ------------------------------------------------------------------ #
+
+_index_jobs: Dict[str, dict] = {}
+_index_jobs_lock = threading.Lock()
+_index_exec_lock = threading.Lock()
+
+
+def _start_index_job(
+    index_documents: bool,
+    index_database: bool,
+    sync_drive: bool = False,
+) -> str:
+    """Inicia a indexação em uma thread de fundo e retorna o job_id.
+
+    O resultado fica disponível em `GET /api/index/status/{job_id}`.
+    """
+    job_id = uuid.uuid4().hex[:12]
+    with _index_jobs_lock:
+        _index_jobs[job_id] = {
+            "status": "running",
+            "result": None,
+            "error": None,
+            "created_at": __import__("time").time(),
+        }
+
+    def _worker():
+        try:
+            with _index_exec_lock:
+                result = asyncio.run(
+                    _run_index(index_documents, index_database, sync_drive)
+                )
+            with _index_jobs_lock:
+                _index_jobs[job_id] = {
+                    "status": "done",
+                    "result": result.model_dump(),
+                    "error": None,
+                }
+        except Exception as e:
+            logger.exception(f"Background index job {job_id} failed: {e}")
+            with _index_jobs_lock:
+                _index_jobs[job_id] = {
+                    "status": "error",
+                    "result": None,
+                    "error": str(e),
+                }
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return job_id
+
+
+def _get_index_job(job_id: str) -> Optional[dict]:
+    with _index_jobs_lock:
+        return _index_jobs.get(job_id)
+
+
+def _prune_index_jobs(max_age_seconds: int = 3600) -> None:
+    """Remove jobs antigos para não vazar memória (chamado a cada novo job)."""
+    import time
+
+    now = time.time()
+    with _index_jobs_lock:
+        for jid in list(_index_jobs.keys()):
+            ts = _index_jobs[jid].get("created_at", 0)
+            if now - ts > max_age_seconds:
+                _index_jobs.pop(jid, None)
 
 
 def _preload_models(_chatbot: ChatBot, _emb_gen, _logger) -> None:
@@ -559,6 +680,167 @@ async def chat_stream(request: ChatRequest, req: Request):
     )
 
 
+@app.get(
+    "/api/drive/folder/{folder_id}",
+    response_model=List[DriveItem],
+    tags=["Google Drive"],
+    summary="Listar itens de uma pasta do Google Drive",
+    response_description="Lista de pastas e arquivos da pasta",
+    responses={
+        404: {"description": "Pasta não encontrada", "model": ErrorResponse},
+    },
+)
+async def drive_folder(folder_id: str, req: Request):
+    """Lista os itens (pastas e arquivos) de uma pasta pública do Drive."""
+    global logger, cfg
+    try:
+        drive = GoogleDriveSync(
+            folder_id=folder_id,
+            dest_dir=cfg.google_drive_dest_dir,
+            logger=logger,
+            timeout=cfg.google_drive_sync_timeout,
+        )
+        entries = drive.list_folder(folder_id)
+        return [
+            DriveItem(
+                id=e.entry_id,
+                name=e.name,
+                type="folder" if e.is_folder else "file",
+                modified=e.modified or None,
+            )
+            for e in entries
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Folder listing failed: {e}")
+
+
+@app.get(
+    "/api/drive/selection",
+    response_model=DriveSelectionResponse,
+    tags=["Google Drive"],
+    summary="Obter a seleção de pastas para indexação",
+    response_description="Pastas atualmente selecionadas",
+)
+async def drive_selection_get(req: Request):
+    """Retorna quais subpastas do Drive estão selecionadas para indexação."""
+    global cfg
+    drive = GoogleDriveSync(
+        folder_id=cfg.google_drive_folder_id or "",
+        dest_dir=cfg.google_drive_dest_dir,
+        timeout=cfg.google_drive_sync_timeout,
+    )
+    selection = drive.load_selection()
+    return DriveSelectionResponse(
+        folders=[
+            SelectedFolderRequest(folder_id=s.folder_id, path=s.path)
+            for s in selection
+        ],
+        selected=len(selection),
+    )
+
+
+@app.post(
+    "/api/drive/selection",
+    response_model=DriveSelectionResponse,
+    tags=["Google Drive"],
+    summary="Salvar a seleção de pastas para indexação",
+    response_description="Seleção salva",
+)
+async def drive_selection_save(payload: DriveSelectionSaveRequest, req: Request):
+    """Salva quais subpastas do Drive serão sincronizadas/indexadas.
+
+    Enviar lista vazia (`{"folders": []}`) faz o sync usar a pasta raiz
+    inteira.
+    """
+    global cfg
+    drive = GoogleDriveSync(
+        folder_id=cfg.google_drive_folder_id or "",
+        dest_dir=cfg.google_drive_dest_dir,
+        timeout=cfg.google_drive_sync_timeout,
+    )
+    selection = [
+        SelectedFolderRequest(folder_id=f.folder_id, path=f.path)
+        for f in payload.folders
+    ]
+    drive.save_selection(
+        [
+            _SelectedFolder(folder_id=f.folder_id, path=f.path)
+            for f in selection
+        ]
+    )
+    return DriveSelectionResponse(folders=selection, selected=len(selection))
+
+
+@app.post(
+    "/api/drive/sync",
+    response_model=DriveSyncResponse,
+    tags=["Google Drive"],
+    summary="Sincronizar arquivos selecionados do Google Drive",
+    response_description="Relatório do sync",
+)
+async def drive_sync(req: Request):
+    """Baixa os arquivos das pastas selecionadas para o diretório local,
+    respeitando a seleção salva em `/api/drive/selection`."""
+    global logger, cfg
+    if not cfg.google_drive_folder_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Google Drive not configured. Set GOOGLE_DRIVE_FOLDER_ID.",
+        )
+    drive = GoogleDriveSync(
+        folder_id=cfg.google_drive_folder_id,
+        dest_dir=cfg.google_drive_dest_dir,
+        logger=logger,
+        timeout=cfg.google_drive_sync_timeout,
+    )
+    result = drive.sync()
+    return DriveSyncResponse(
+        status="ok",
+        files_remote=result.files_remote,
+        folders=result.folders,
+        downloaded=result.downloaded,
+        skipped=result.skipped,
+        failed=result.failed,
+        removed=result.removed,
+        bytes_downloaded=result.bytes_downloaded,
+        errors=result.errors,
+    )
+
+
+@app.post(
+    "/api/drive/clear",
+    response_model=DriveClearResponse,
+    tags=["Google Drive"],
+    summary="Remover arquivos sincronizados do Google Drive",
+    response_description="Quantidade de arquivos removidos",
+)
+async def drive_clear(req: Request):
+    """Apaga os arquivos sincronizados (e a seleção) do diretório local.
+
+    Use com cuidado: após isso, `POST /api/index` detectará os documentos
+    como stale e os removerá do índice.
+    """
+    global logger, cfg
+    drive = GoogleDriveSync(
+        folder_id=cfg.google_drive_folder_id or "",
+        dest_dir=cfg.google_drive_dest_dir,
+        logger=logger,
+        timeout=cfg.google_drive_sync_timeout,
+    )
+    removed = 0
+    dest = Path(cfg.google_drive_dest_dir)
+    if dest.exists():
+        for item in dest.rglob("*"):
+            if item.is_file():
+                try:
+                    item.unlink()
+                    removed += 1
+                except OSError:
+                    pass
+    drive.save_selection([])
+    return DriveClearResponse(status="ok", removed=removed)
+
+
 @app.post(
     "/api/index",
     response_model=IndexResponse,
@@ -615,7 +897,95 @@ async def index_database():
     return await _run_index(index_documents=False, index_database=True)
 
 
-async def _run_index(index_documents: bool, index_database: bool) -> IndexResponse:
+class IndexJobRequest(BaseModel):
+    mode: str = Field(
+        "all", description="O que indexar: all | documents | database",
+        examples=["documents"],
+    )
+    sync_drive: bool = Field(
+        False,
+        description="Se true, sincroniza o Google Drive antes de indexar "
+        "(use apenas quando quiser baixar o Drive junto)",
+    )
+
+
+class IndexJobResponse(BaseModel):
+    status: str = Field(..., description="Status da operação", examples=["started"])
+    job_id: str = Field(..., description="ID do job para consulta de status")
+
+
+class IndexJobStatus(BaseModel):
+    job_id: str = Field(..., description="ID do job")
+    status: str = Field(..., description="running | done | error", examples=["running"])
+    result: Optional[IndexResponse] = Field(None, description="Resultado (quando done)")
+    error: Optional[str] = Field(None, description="Mensagem de erro (quando error)")
+
+
+@app.post(
+    "/api/index/async",
+    response_model=IndexJobResponse,
+    tags=["Indexação"],
+    summary="Iniciar indexação em segundo plano",
+    response_description="Retorna o job_id imediatamente; consulte o status via GET /api/index/status/{job_id}",
+    responses={
+        200: {"description": "Job iniciado", "model": IndexJobResponse},
+        503: {"description": "Indexador não foi inicializado", "model": ErrorResponse},
+    },
+)
+async def index_async(payload: IndexJobRequest):
+    """Inicia a indexação em segundo plano e retorna na hora.
+
+    Não bloqueia a requisição — a UI fica livre enquanto o job roda.
+    Use `GET /api/index/status/{job_id}` para acompanhar o progresso.
+    """
+    global indexer, logger
+
+    if not indexer:
+        raise HTTPException(status_code=503, detail="Indexer not initialized")
+
+    mode = payload.mode or "all"
+    if mode not in {"all", "documents", "database"}:
+        raise HTTPException(status_code=400, detail=f"Invalid mode: {mode}")
+
+    job_id = _start_index_job(
+        index_documents=mode in {"all", "documents"},
+        index_database=mode in {"all", "database"},
+        sync_drive=payload.sync_drive,
+    )
+    logger.info(f"Background index job started: {job_id} ({mode})")
+    return IndexJobResponse(status="started", job_id=job_id)
+
+
+@app.get(
+    "/api/index/status/{job_id}",
+    response_model=IndexJobStatus,
+    tags=["Indexação"],
+    summary="Consultar status de um job de indexação",
+    response_description="Status atual do job (running, done ou error)",
+    responses={
+        200: {"description": "Status do job", "model": IndexJobStatus},
+        404: {"description": "Job não encontrado", "model": ErrorResponse},
+    },
+)
+async def index_status(job_id: str):
+    """Consulta o status de um job iniciado via `POST /api/index/async`."""
+    job = _get_index_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
+
+    return IndexJobStatus(
+        job_id=job_id,
+        status=job["status"],
+        result=IndexResponse(**job["result"]) if job.get("result") else None,
+        error=job.get("error"),
+    )
+
+
+async def _run_index(
+    index_documents: bool,
+    index_database: bool,
+    sync_drive: bool = False,
+) -> IndexResponse:
     global indexer, embedding_generator, splitter, logger, cfg
 
     if not indexer:
@@ -627,6 +997,19 @@ async def _run_index(index_documents: bool, index_database: bool) -> IndexRespon
 
     if index_documents:
         try:
+            if sync_drive and cfg.google_drive_folder_id:
+                try:
+                    drive_sync = GoogleDriveSync(
+                        folder_id=cfg.google_drive_folder_id,
+                        dest_dir=cfg.google_drive_dest_dir,
+                        logger=logger,
+                        timeout=cfg.google_drive_sync_timeout,
+                    )
+                    result = drive_sync.sync()
+                    logger.info(f"Google Drive sync: {result.as_dict()}")
+                except Exception as e:
+                    logger.exception(f"Google Drive sync error: {e}")
+
             loader = DocumentLoader(
                 logger=logger,
                 ocr_lang=cfg.ocr_lang,
