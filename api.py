@@ -5,7 +5,7 @@ import threading
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncGenerator, Dict, List, Optional
+from typing import AsyncGenerator, Callable, Dict, List, Optional
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -190,6 +190,10 @@ _index_jobs_lock = threading.Lock()
 _index_exec_lock = threading.Lock()
 
 
+class _IndexJobCancelled(Exception):
+    """Sinaliza que um job de indexação foi cancelado pelo usuário."""
+
+
 def _start_index_job(
     index_documents: bool,
     index_database: bool,
@@ -199,6 +203,17 @@ def _start_index_job(
 
     O resultado fica disponível em `GET /api/index/status/{job_id}`.
     """
+    with _index_jobs_lock:
+        running = [
+            jid for jid, j in _index_jobs.items()
+            if j.get("status") == "running"
+        ]
+    if running:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Já existe uma indexação em andamento (job {running[0]}).",
+        )
+
     job_id = uuid.uuid4().hex[:12]
     with _index_jobs_lock:
         _index_jobs[job_id] = {
@@ -206,19 +221,49 @@ def _start_index_job(
             "result": None,
             "error": None,
             "created_at": __import__("time").time(),
+            "progress": 0,
+            "total": 0,
+            "message": "",
+            "cancel_requested": False,
         }
+
+    def _update_job(**fields: object) -> None:
+        with _index_jobs_lock:
+            if job_id in _index_jobs:
+                _index_jobs[job_id].update(fields)
+                if _index_jobs[job_id].get("cancel_requested"):
+                    raise _IndexJobCancelled(job_id)
 
     def _worker():
         try:
             with _index_exec_lock:
                 result = asyncio.run(
-                    _run_index(index_documents, index_database, sync_drive)
+                    _run_index(
+                        index_documents,
+                        index_database,
+                        sync_drive,
+                        on_progress=_update_job,
+                    )
                 )
             with _index_jobs_lock:
                 _index_jobs[job_id] = {
                     "status": "done",
                     "result": result.model_dump(),
                     "error": None,
+                    "progress": _index_jobs[job_id].get("progress", 0),
+                    "total": _index_jobs[job_id].get("total", 0),
+                    "message": _index_jobs[job_id].get("message", ""),
+                }
+        except _IndexJobCancelled:
+            logger.info(f"Background index job {job_id} cancelled")
+            with _index_jobs_lock:
+                _index_jobs[job_id] = {
+                    "status": "cancelled",
+                    "result": None,
+                    "error": None,
+                    "progress": _index_jobs[job_id].get("progress", 0),
+                    "total": _index_jobs[job_id].get("total", 0),
+                    "message": _index_jobs[job_id].get("message", ""),
                 }
         except Exception as e:
             logger.exception(f"Background index job {job_id} failed: {e}")
@@ -227,6 +272,9 @@ def _start_index_job(
                     "status": "error",
                     "result": None,
                     "error": str(e),
+                    "progress": _index_jobs[job_id].get("progress", 0),
+                    "total": _index_jobs[job_id].get("total", 0),
+                    "message": _index_jobs[job_id].get("message", ""),
                 }
 
     threading.Thread(target=_worker, daemon=True).start()
@@ -465,6 +513,35 @@ async def add_request_id(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Request-ID"] = request.state.request_id
     return response
+
+
+@app.middleware("http")
+async def require_api_token(request: Request, call_next):
+    """Exige o header `X-API-Token` (ou `Authorization: Bearer`) em todos os
+    endpoints `/api/*`, exceto health/docs. Desativado se `API_AUTH_TOKEN`
+    estiver vazio (configuração local de desenvolvimento)."""
+    path = request.url.path
+    if not path.startswith("/api/") or path.startswith("/api/health"):
+        return await call_next(request)
+
+    token = getattr(app_config, "api_auth_token", "") or ""
+    if not token:
+        return await call_next(request)
+
+    header_token = request.headers.get("x-api-token", "")
+    if not header_token:
+        auth = request.headers.get("authorization", "")
+        if auth.lower().startswith("bearer "):
+            header_token = auth[7:].strip()
+
+    if header_token != token:
+        return JSONResponse(
+            status_code=401,
+            content={"success": False, "detail": "Token de API inválido ou ausente."},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return await call_next(request)
 
 
 @app.get(
@@ -916,9 +993,15 @@ class IndexJobResponse(BaseModel):
 
 class IndexJobStatus(BaseModel):
     job_id: str = Field(..., description="ID do job")
-    status: str = Field(..., description="running | done | error", examples=["running"])
+    status: str = Field(
+        ..., description="running | done | error | cancelled",
+        examples=["running"],
+    )
     result: Optional[IndexResponse] = Field(None, description="Resultado (quando done)")
     error: Optional[str] = Field(None, description="Mensagem de erro (quando error)")
+    progress: int = Field(0, description="Documentos processados até agora")
+    total: int = Field(0, description="Total de documentos pendentes")
+    message: str = Field("", description="Documento/fase atual")
 
 
 @app.post(
@@ -946,6 +1029,8 @@ async def index_async(payload: IndexJobRequest):
     mode = payload.mode or "all"
     if mode not in {"all", "documents", "database"}:
         raise HTTPException(status_code=400, detail=f"Invalid mode: {mode}")
+
+    _prune_index_jobs()
 
     job_id = _start_index_job(
         index_documents=mode in {"all", "documents"},
@@ -978,13 +1063,55 @@ async def index_status(job_id: str):
         status=job["status"],
         result=IndexResponse(**job["result"]) if job.get("result") else None,
         error=job.get("error"),
+        progress=job.get("progress", 0),
+        total=job.get("total", 0),
+        message=job.get("message", ""),
     )
+
+
+class IndexCancelResponse(BaseModel):
+    status: str = Field(..., description="Status da operação", examples=["cancelling"])
+    job_id: str = Field(..., description="ID do job a cancelar")
+
+
+@app.post(
+    "/api/index/cancel/{job_id}",
+    response_model=IndexCancelResponse,
+    tags=["Indexação"],
+    summary="Cancelar um job de indexação em andamento",
+    response_description="Solicita o cancelamento cooperativo do job",
+    responses={
+        200: {"description": "Cancelamento solicitado", "model": IndexCancelResponse},
+        404: {"description": "Job não encontrado", "model": ErrorResponse},
+        409: {"description": "Job não está em andamento", "model": ErrorResponse},
+    },
+)
+async def index_cancel(job_id: str):
+    """Marca o job para cancelamento. A thread verifica o flag entre
+    documentos e para de forma cooperativa (status vira `cancelled`)."""
+    job = _get_index_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
+
+    if job.get("status") != "running":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job '{job_id}' não está em andamento (status={job.get('status')})",
+        )
+
+    with _index_jobs_lock:
+        if job_id in _index_jobs:
+            _index_jobs[job_id]["cancel_requested"] = True
+
+    logger.info(f"Cancel requested for index job {job_id}")
+    return IndexCancelResponse(status="cancelling", job_id=job_id)
 
 
 async def _run_index(
     index_documents: bool,
     index_database: bool,
     sync_drive: bool = False,
+    on_progress: Optional[Callable[..., None]] = None,
 ) -> IndexResponse:
     global indexer, embedding_generator, splitter, logger, cfg
 
@@ -997,6 +1124,8 @@ async def _run_index(
 
     if index_documents:
         try:
+            if on_progress:
+                on_progress(message="Sincronizando Google Drive...")
             if sync_drive and cfg.google_drive_folder_id:
                 try:
                     drive_sync = GoogleDriveSync(
@@ -1019,14 +1148,29 @@ async def _run_index(
                 image_dir=cfg.image_dir,
                 vision_model=cfg.vision_model,
             )
+            if on_progress:
+                on_progress(message="Carregando documentos...")
             documents = loader.load(cfg.documents_dir)
+            if on_progress:
+                on_progress(message=f"{len(documents)} documentos carregados")
 
             if documents:
                 has_pending, pending_list, stale_set = (
                     indexer.has_pending_changes(documents)
                 )
                 if has_pending:
-                    chunks = indexer.index(documents)
+                    prev_callback = getattr(indexer, "progress_callback", None)
+                    indexer.progress_callback = (
+                        lambda done, total, name, _c=on_progress: (
+                            _c(progress=done, total=total, message=name)
+                            if _c
+                            else None
+                        )
+                    )
+                    try:
+                        chunks = indexer.index(documents)
+                    finally:
+                        indexer.progress_callback = prev_callback
                     total_chunks += chunks
                     docs_indexed = len(pending_list)
                     logger.info(f"Indexed {chunks} chunks from {len(pending_list)} documents")

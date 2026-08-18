@@ -172,6 +172,9 @@ class Config:
     api_port: int = field(
         default_factory=lambda: int(os.getenv("API_PORT", "9000"))
     )
+    api_auth_token: str = field(
+        default_factory=lambda: os.getenv("API_AUTH_TOKEN", "").strip()
+    )
 
     def __post_init__(self):
         raw = os.getenv("DB_CONNECTION_STRING")

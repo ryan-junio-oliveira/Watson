@@ -57,6 +57,7 @@ def mock_env():
         mock_cfg.google_drive_folder_id = ""
         mock_cfg.google_drive_dest_dir = "/tmp/test_drive"
         mock_cfg.google_drive_sync_timeout = 30
+        mock_cfg.api_auth_token = ""
         yield mock_cfg
 
 
@@ -348,6 +349,14 @@ class TestIndexEndpoints:
             index_documents=True, index_database=True, sync_drive=True
         )
 
+    def test_index_async_prunes_old_jobs(self, client):
+        with patch("api._prune_index_jobs") as mock_prune, \
+             patch("api._start_index_job") as mock_start:
+            mock_start.return_value = "job789"
+            response = client.post("/api/index/async", json={"mode": "documents"})
+        assert response.status_code == status.HTTP_200_OK
+        mock_prune.assert_called_once()
+
     def test_index_async_invalid_mode(self, client):
         with patch("api._start_index_job") as mock_start:
             response = client.post("/api/index/async", json={"mode": "nope"})
@@ -360,12 +369,18 @@ class TestIndexEndpoints:
 
     def test_index_status_running(self, client):
         with patch("api._get_index_job") as mock_get:
-            mock_get.return_value = {"status": "running", "result": None, "error": None}
+            mock_get.return_value = {
+                "status": "running", "result": None, "error": None,
+                "progress": 2, "total": 10, "message": "doc.pdf",
+            }
             response = client.get("/api/index/status/abc123")
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["status"] == "running"
         assert data["result"] is None
+        assert data["progress"] == 2
+        assert data["total"] == 10
+        assert data["message"] == "doc.pdf"
 
     def test_index_status_done(self, client):
         with patch("api._get_index_job") as mock_get:
@@ -378,12 +393,55 @@ class TestIndexEndpoints:
                     "total_chunks": 42,
                 },
                 "error": None,
+                "progress": 3, "total": 3, "message": "",
             }
             response = client.get("/api/index/status/abc123")
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["status"] == "done"
         assert data["result"]["total_chunks"] == 42
+        assert data["progress"] == 3
+
+    def test_index_cancel_not_found(self, client):
+        with patch("api._get_index_job", return_value=None):
+            response = client.post("/api/index/cancel/inexistente")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_index_cancel_not_running(self, client):
+        with patch("api._get_index_job") as mock_get:
+            mock_get.return_value = {"status": "done", "cancel_requested": False}
+            response = client.post("/api/index/cancel/abc123")
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+    def test_index_cancel_running_sets_flag(self, client):
+        import api as api_mod
+
+        api_mod._index_jobs.clear()
+        api_mod._index_jobs["abc123"] = {"status": "running", "cancel_requested": False}
+
+        response = client.post("/api/index/cancel/abc123")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "cancelling"
+        assert data["job_id"] == "abc123"
+        assert api_mod._index_jobs["abc123"]["cancel_requested"] is True
+        api_mod._index_jobs.clear()
+
+    def test_index_async_conflict_when_running(self, client):
+        import api as api_mod
+        import time
+
+        api_mod._index_jobs.clear()
+        api_mod._index_jobs["job_running"] = {
+            "status": "running",
+            "created_at": time.time(),
+        }
+
+        response = client.post("/api/index/async", json={"mode": "documents"})
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        api_mod._index_jobs.clear()
 
 
 class TestClearEndpoints:
@@ -490,3 +548,37 @@ class TestDriveEndpoints:
         assert items[0]["type"] == "folder"
         assert items[1]["type"] == "file"
         assert items[1]["name"] == "doc.pdf"
+
+
+class TestAuthMiddleware:
+    def test_no_token_configured_allows_request(self, client, mock_env):
+        mock_env.api_auth_token = ""
+        response = client.get("/api/models")
+        assert response.status_code != status.HTTP_401_UNAUTHORIZED
+
+    def test_missing_token_rejected(self, client, mock_env):
+        mock_env.api_auth_token = "secret-token"
+        response = client.get("/api/models")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_wrong_token_rejected(self, client, mock_env):
+        mock_env.api_auth_token = "secret-token"
+        response = client.get("/api/models", headers={"X-API-Token": "wrong"})
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_correct_header_token_accepted(self, client, mock_env):
+        mock_env.api_auth_token = "secret-token"
+        response = client.get("/api/models", headers={"X-API-Token": "secret-token"})
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_bearer_token_accepted(self, client, mock_env):
+        mock_env.api_auth_token = "secret-token"
+        response = client.get(
+            "/api/models", headers={"Authorization": "Bearer secret-token"}
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_health_is_exempt_from_auth(self, client, mock_env):
+        mock_env.api_auth_token = "secret-token"
+        response = client.get("/api/health")
+        assert response.status_code == status.HTTP_200_OK
