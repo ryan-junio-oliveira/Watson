@@ -169,33 +169,28 @@ class TestSqlRouting:
             sql_tool=sql_tool,
         )
 
-    def test_looks_structured_positive(self):
-        bot = self.make_chatbot()
-        assert bot._looks_structured("Quantas impressoras HP estão cadastradas?") is True
-
-    def test_looks_structured_negative(self):
-        bot = self.make_chatbot()
-        assert bot._looks_structured("Como corrigir o erro E123 na impressora?") is False
-
-    def test_should_use_sql_auto_structured(self):
+    def test_sql_routing_is_disabled_by_default(self):
+        # Tudo é respondido via RAG; não há roteamento automático para SQL.
         tool = MagicMock()
         tool.configured = True
         bot = self.make_chatbot(sql_tool=tool)
-        assert bot._should_use_sql("Quantas licenças ativas?", Mode.auto) is True
-
-    def test_should_not_use_sql_rag_mode(self):
-        tool = MagicMock()
-        tool.configured = True
-        bot = self.make_chatbot(sql_tool=tool)
+        assert bot._should_use_sql("Quantas licenças ativas?", Mode.auto) is False
         assert bot._should_use_sql("Quantas licenças?", Mode.rag) is False
 
-    def test_should_use_sql_forced_mode(self):
+    def test_structured_question_goes_to_rag(self):
         tool = MagicMock()
         tool.configured = True
-        bot = self.make_chatbot(sql_tool=tool)
-        assert bot._should_use_sql("Qualquer pergunta", Mode.sql) is True
+        retriever = MagicMock()
+        retriever.retrieve.return_value = [
+            Document(page_content="dados de clientes", metadata={"filename": "clients"})
+        ]
+        bot = self.make_chatbot(sql_tool=tool, mock_retriever=retriever)
+        resp = bot.ask("Quais clientes temos cadastrados?")
+        # caiu em RAG (não em SQL)
+        assert resp.metadata.get("provider") in ("rag", None)
+        retriever.retrieve.assert_called_once()
 
-    def test_process_sql_path(self):
+    def test_process_sql_still_available_explicit(self):
         tool = MagicMock()
         tool.configured = True
         tool.table_descriptions.return_value = "- printers: modelo, tipo"
@@ -207,24 +202,8 @@ class TestSqlRouting:
         ollama._strip_thinking.return_value = "SELECT modelo FROM printers"
         bot = self.make_chatbot(sql_tool=tool, mock_ollama=ollama)
 
-        resp = bot.ask("Quantas impressoras existem?")
+        resp = bot._process_sql("Quantas impressoras existem?")
         assert isinstance(resp, AgentResponse)
         assert resp.metadata.get("provider") == "sql"
         assert resp.metadata.get("rows") == 1
         assert resp.evidences[0].provider == "sql"
-
-    def test_sql_failure_falls_back_to_rag(self):
-        tool = MagicMock()
-        tool.configured = True
-        tool.table_descriptions.return_value = "- printers: modelo"
-        tool.execute.side_effect = ValueError("SQL invalida")
-
-        retriever = MagicMock()
-        retriever.retrieve.return_value = [
-            Document(page_content="contexto RAG", metadata={"filename": "doc.pdf"})
-        ]
-        bot = self.make_chatbot(sql_tool=tool, mock_retriever=retriever)
-
-        resp = bot.ask("Quantas impressoras ativas existem?")
-        # caiu em RAG
-        assert resp.metadata.get("provider") in ("rag", None)

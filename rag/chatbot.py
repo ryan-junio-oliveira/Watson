@@ -60,25 +60,13 @@ class ChatBot:
         self.aggregator = EvidenceAggregator(logger=logger)
 
     # ------------------------------------------------------------------ #
-    # Roteamento RAG vs SQL (§12)
+    # Roteamento (§12) — desativado por padrão.
+    # Tudo é respondido via RAG (documentos + dados de banco indexados).
+    # O SqlQueryTool permanece disponível para uso explícito futuro, mas não
+    # é acionado automaticamente no fluxo do chat.
     # ------------------------------------------------------------------ #
 
-    def _looks_structured(self, question: str) -> bool:
-        q = question.lower()
-        verb_hit = sum(1 for v in STRUCTURED_VERBS if v in q)
-        noun_hit = sum(1 for n in DB_NOUNS if n in q)
-        # Requer um verbo estruturado (quantos/total/liste/quais...) + um
-        # substantivo de dados. Número sozinho (ex.: "erro E123") NÃO rotula
-        # como SQL — senão perguntas de troubleshooting iriam para o banco.
-        return (noun_hit >= 1 and verb_hit >= 1) or verb_hit >= 2
-
     def _should_use_sql(self, question: str, mode: Mode) -> bool:
-        if self.sql_tool is None or not self.sql_tool.configured:
-            return False
-        if mode == Mode.sql:
-            return True
-        if mode == Mode.auto:
-            return self._looks_structured(question)
         return False
 
     def _extract_sql_answer(self, question: str) -> tuple:
@@ -176,22 +164,6 @@ class ChatBot:
 
         if self.logger:
             self.logger.info(f"Question: {question}")
-
-        if self._should_use_sql(question, mode):
-            try:
-                return self._process_sql(question)
-            except Exception as e:
-                if self.logger:
-                    self.logger.warning(
-                        f"SQL path failed ({e}), falling back to RAG"
-                    )
-            # se mode for sql (forçado), não cai em RAG
-            if mode == Mode.sql:
-                resp = self._build_response(
-                    "Não foi possível executar a consulta SQL.", [], start
-                )
-                resp.metadata["fallback"] = "sql_failed"
-                return resp
 
         evidence = self._retrieve_rag(question)
         evidence = self.aggregator.collect(rag_evidence=evidence)
@@ -298,9 +270,6 @@ class ChatBot:
         if self.logger:
             self.logger.info(f"Question: {question}")
 
-        if self._should_use_sql(question, mode):
-            return (yield from self._stream_sql(question))
-
         evidence = self._retrieve_rag(question)
         evidence = self.aggregator.collect(rag_evidence=evidence)
         evidence = self.aggregator.rank(evidence)
@@ -322,9 +291,6 @@ class ChatBot:
     ) -> Generator[str, None, AgentResponse]:
         if self.logger:
             self.logger.info(f"Question: {question}")
-
-        if self._should_use_sql(question, mode):
-            return (yield from self._stream_sql(question))
 
         evidence = self._retrieve_rag(question)
         evidence = self.aggregator.collect(rag_evidence=evidence)
@@ -368,9 +334,6 @@ class ChatBot:
                 break
 
             try:
-                if self.logger:
-                    self.logger.info(f"Question: {question}")
-
                 print()
                 gen = self.ask_stream(question)
                 tokens: List[str] = []
