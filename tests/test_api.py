@@ -181,7 +181,7 @@ class TestChatEndpoint:
             json={"question": "Quantos servidores?", "mode": "auto"},
         )
         assert response.status_code == status.HTTP_200_OK
-        assert "data: 5" in response.text
+        assert 'data: {"content": "5"}' in response.text
 
 
 def _stream_gen(tokens, result):
@@ -209,9 +209,10 @@ class TestChatStreamEndpoint:
         assert response.status_code == status.HTTP_200_OK
         assert response.headers["content-type"] == "text/event-stream; charset=utf-8"
         lines = response.text.strip().split("\n\n")
-        assert lines[0] == "data: Resposta "
-        assert lines[1] == "data: do "
-        assert lines[2] == "data: modelo."
+        # tokens são enviados como JSON (preserva newlines/ espaços do markdown)
+        assert json.loads(lines[0].replace("data: ", "", 1)) == {"content": "Resposta "}
+        assert json.loads(lines[1].replace("data: ", "", 1)) == {"content": "do "}
+        assert json.loads(lines[2].replace("data: ", "", 1)) == {"content": "modelo."}
         assert lines[3] == "data: [DONE]"
         final = json.loads(lines[4].replace("data: ", "", 1))
         assert final["confidence"] == 0.95

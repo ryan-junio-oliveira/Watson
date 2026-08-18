@@ -8,7 +8,6 @@ from rag.evidence import Evidence
 class Mode(str, Enum):
     auto = "auto"
     rag = "rag"
-    sql = "sql"
 
 
 @dataclass
@@ -20,6 +19,7 @@ class Source:
     section: str = ""
     manufacturer: str = ""
     model: str = ""
+    error_codes: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, str]:
         d: Dict[str, str] = {"title": self.title, "url": self.url}
@@ -33,6 +33,8 @@ class Source:
             d["manufacturer"] = self.manufacturer
         if self.model:
             d["model"] = self.model
+        if self.error_codes:
+            d["error_codes"] = self.error_codes
         return d
 
     @staticmethod
@@ -45,6 +47,7 @@ class Source:
             section=ev.section,
             manufacturer=ev.manufacturer,
             model=ev.model,
+            error_codes=ev.error_codes,
         )
 
     @staticmethod

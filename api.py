@@ -462,6 +462,8 @@ async def chat_stream(request: ChatRequest, req: Request):
 
     async def event_generator() -> AsyncGenerator[str, None]:
         try:
+            import json as _json
+
             result = None
             context = ""
             if request.history:
@@ -477,7 +479,11 @@ async def chat_stream(request: ChatRequest, req: Request):
             try:
                 while True:
                     token = next(gen)
-                    yield f"data: {token}\n\n"
+                    # Envia cada token como JSON ({"content": ...}) para que
+                    # newlines/ espaços do markdown sejam preservados com
+                    # segurança pelo consumidor (o delimitador SSE \n\n não
+                    # colide com o conteúdo).
+                    yield f"data: {_json.dumps({'content': token})}\n\n"
             except StopIteration as e:
                 result = e.value
 
