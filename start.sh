@@ -17,10 +17,14 @@ show_menu() {
     echo ""
     echo "Escolha o modo de operacao:"
     echo ""
-    echo "  [1] API       - Iniciar servidor FastAPI (http://$API_HOST:$API_PORT)"
-    echo "  [2] Prompt    - Chat interativo no terminal"
-    echo "  [3] Index     - Indexar documentos e sair"
-    echo "  [4] Sair"
+    echo "  [1] API             - Iniciar servidor FastAPI (http://$API_HOST:$API_PORT)"
+    echo "  [2] Prompt          - Chat interativo no terminal"
+    echo "  [3] Index           - Indexar documentos locais (documents/) + banco"
+    echo "  [4] Drive + Index   - Sincronizar Google Drive e indexar"
+    echo "  [5] Drive Sync      - Apenas sincronizar Google Drive"
+    echo "  [6] Selecao Drive   - Escolher pastas do Drive p/ indexar"
+    echo "  [7] Reset Total     - Limpar banco vetorial e documentos"
+    echo "  [8] Sair"
     echo ""
 }
 
@@ -56,7 +60,8 @@ while true; do
         3)
             echo ""
             echo "============================================"
-            echo "Indexando documentos..."
+            echo "Indexando documentos locais (documents/) + banco"
+            echo "(sem sincronizar o Google Drive - use a opcao 4 para isso)"
             echo "============================================"
             echo ""
             python3 index.py
@@ -65,6 +70,50 @@ while true; do
             read -rp "Pressione Enter para continuar..."
             ;;
         4)
+            echo ""
+            echo "============================================"
+            echo "Sincronizando Google Drive e indexando..."
+            echo "Isso pode demorar. Sem limite de tempo (CLI)."
+            echo "============================================"
+            echo ""
+            python3 drive_index.py
+            echo ""
+            echo "Concluido!"
+            read -rp "Pressione Enter para continuar..."
+            ;;
+        5)
+            echo ""
+            echo "============================================"
+            echo "Sincronizando Google Drive (somente sync)..."
+            echo "============================================"
+            echo ""
+            python3 drive_index.py --sync-only
+            echo ""
+            echo "Sync concluido!"
+            read -rp "Pressione Enter para continuar..."
+            ;;
+        6)
+            echo ""
+            echo "============================================"
+            echo "Selecao de pastas do Google Drive"
+            echo "============================================"
+            echo ""
+            python3 drive_select.py
+            echo ""
+            read -rp "Pressione Enter para continuar..."
+            ;;
+        7)
+            echo ""
+            echo "============================================"
+            echo "Reset total - limpar banco vetorial e documentos"
+            echo "============================================"
+            echo ""
+            python3 reset_app.py --yes
+            echo ""
+            echo "Reset concluido!"
+            read -rp "Pressione Enter para continuar..."
+            ;;
+        8)
             exit 0
             ;;
         *)

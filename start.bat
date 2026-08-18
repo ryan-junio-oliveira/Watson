@@ -17,17 +17,25 @@ echo ============================================
 echo.
 echo Escolha o modo de operacao:
 echo.
-echo  [1] API       - Iniciar servidor FastAPI (http://%API_HOST%:%API_PORT%)
-echo  [2] Prompt    - Chat interativo no terminal
-echo  [3] Index     - Indexar documentos e sair
-echo  [4] Sair
+echo  [1] API             - Iniciar servidor FastAPI (http://%API_HOST%:%API_PORT%)
+echo  [2] Prompt          - Chat interativo no terminal
+echo  [3] Index           - Indexar documentos locais (documents/) + banco
+echo  [4] Drive + Index   - Sincronizar Google Drive e indexar
+echo  [5] Drive Sync      - Apenas sincronizar Google Drive
+echo  [6] Selecao Drive   - Escolher pastas do Drive p/ indexar
+echo  [7] Reset Total     - Limpar banco vetorial e documentos
+echo  [8] Sair
 echo.
 set /p opcao="Digite o numero da opcao: "
 
 if "%opcao%"=="1" goto api
 if "%opcao%"=="2" goto prompt
 if "%opcao%"=="3" goto index
-if "%opcao%"=="4" exit /b 0
+if "%opcao%"=="4" goto drive_index
+if "%opcao%"=="5" goto drive_sync
+if "%opcao%"=="6" goto drive_select
+if "%opcao%"=="7" goto reset
+if "%opcao%"=="8" exit /b 0
 echo Opcao invalida! Tente novamente.
 timeout /t 2 >nul
 goto menu
@@ -43,7 +51,7 @@ python -m uvicorn api:app --host %API_HOST% --port %API_PORT%
 echo.
 echo Servidor encerrado.
 pause
-exit /b 0
+goto menu
 
 :prompt
 echo.
@@ -56,16 +64,65 @@ python app.py
 echo.
 echo Chat encerrado.
 pause
-exit /b 0
+goto menu
 
 :index
 echo.
 echo ============================================
-echo Indexando documentos...
+echo Indexando documentos locais (documents/) + banco
+echo (sem sincronizar o Google Drive - use a opcao 4 para isso)
 echo ============================================
 echo.
 python index.py
 echo.
 echo Indexacao concluida!
 pause
-exit /b 0
+goto menu
+
+:drive_index
+echo.
+echo ============================================
+echo Sincronizando Google Drive e indexando...
+echo Isso pode demorar. Sem limite de tempo (CLI).
+echo ============================================
+echo.
+python drive_index.py
+echo.
+echo Concluido!
+pause
+goto menu
+
+:drive_sync
+echo.
+echo ============================================
+echo Sincronizando Google Drive (somente sync)...
+echo ============================================
+echo.
+python drive_index.py --sync-only
+echo.
+echo Sync concluido!
+pause
+goto menu
+
+:reset
+echo.
+echo ============================================
+echo Reset total - limpar banco vetorial e documentos
+echo ============================================
+echo.
+python reset_app.py --yes
+echo.
+echo Reset concluido!
+pause
+goto menu
+
+:drive_select
+echo.
+echo ============================================
+echo Selecao de pastas do Google Drive
+echo ============================================
+echo.
+python drive_select.py
+echo.
+pause
+goto menu
