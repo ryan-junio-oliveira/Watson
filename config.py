@@ -79,6 +79,15 @@ class Config:
     documents_dir: str = field(
         default_factory=lambda: os.getenv("DOCUMENTS_DIR", "documents")
     )
+    google_drive_folder_id: str = field(
+        default_factory=lambda: os.getenv("GOOGLE_DRIVE_FOLDER_ID", "")
+    )
+    google_drive_dest_dir: str = field(
+        default_factory=lambda: os.getenv("GOOGLE_DRIVE_DEST_DIR", "documents/drive")
+    )
+    google_drive_sync_timeout: int = field(
+        default_factory=lambda: int(os.getenv("GOOGLE_DRIVE_SYNC_TIMEOUT", "60"))
+    )
     vector_db_dir: str = field(
         default_factory=lambda: os.getenv("VECTOR_DB_DIR", "database/chroma")
     )
