@@ -49,6 +49,11 @@ database/images/
 
 # Artefatos de teste (mocks gravando em disco)
 MagicMock/
+database/chroma_test*/
+database/test_images/
+
+# Estado do watcher de documentos
+logs/.watch_state.json
 
 # Binários de terceiros (Tesseract - instalar via libs/)
 libs/

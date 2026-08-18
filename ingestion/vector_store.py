@@ -115,7 +115,11 @@ class ChromaVectorStore(VectorStore):
         client = self._get_client()
         try:
             n = self.count()
-            client._collection.delete(where={})
+            if n > 0:
+                # chromadb 1.5.9 não aceita `delete(where={})`; apagar por ids.
+                ids = client._collection.get()["ids"]
+                if ids:
+                    client._collection.delete(ids=ids)
             return n
         except Exception as e:  # pragma: no cover
             if self.logger:
