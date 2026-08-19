@@ -33,6 +33,20 @@ if ! python3 -c "import venv" >/dev/null 2>&1; then
     fi
 fi
 
+# Garante o Tesseract OCR (dependencia de sistema para PDFs/imagens escaneadas)
+if ! command -v tesseract >/dev/null 2>&1; then
+    echo "[INFO] Instalando Tesseract OCR..."
+    if command -v apt-get >/dev/null 2>&1; then
+        sudo apt-get install -y tesseract-ocr tesseract-ocr-por tesseract-ocr-eng
+    elif command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y tesseract tesseract-langpack-por tesseract-langpack-eng
+    elif command -v pacman >/dev/null 2>&1; then
+        sudo pacman -S --noconfirm tesseract tesseract-data-por tesseract-data-eng
+    else
+        echo "[AVISO] Tesseract nao encontrado. Instale manualmente para usar OCR."
+    fi
+fi
+
 # 1. Criar venv se nao existir ou estiver invalido (ex.: copiado do Windows)
 if [ ! -x "$PYTHON_EXE" ] || [ ! -f "$VENV_DIR/bin/activate" ]; then
     echo "[1/4] Venv ausente ou invalido. Recriando em $VENV_DIR..."

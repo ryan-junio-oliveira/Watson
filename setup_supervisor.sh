@@ -17,7 +17,7 @@ echo "============================================"
 
 # 1. Instalar supervisor
 echo ""
-echo "[1/5] Instalando supervisor..."
+echo "[1/6] Instalando supervisor..."
 if command -v apt-get >/dev/null 2>&1; then
     apt-get update
     apt-get install -y supervisor
@@ -32,11 +32,29 @@ else
     exit 1
 fi
 
-# 2. Garantir que o config principal do supervisor esteja valido
+# 2. Instalar Tesseract OCR (dependencia do sistema)
+#    suporta o OCR de PDFs/imagens escaneadas no Linux
+echo ""
+echo "[2/6] Instalando Tesseract OCR..."
+if command -v tesseract >/dev/null 2>&1; then
+    echo "  Tesseract ja instalado: $(tesseract --version 2>&1 | head -1)"
+else
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get install -y tesseract-ocr tesseract-ocr-por tesseract-ocr-eng
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y tesseract tesseract-langpack-por tesseract-langpack-eng
+    elif command -v pacman >/dev/null 2>&1; then
+        pacman -S --noconfirm tesseract tesseract-data-por tesseract-data-eng
+    else
+        echo "  AVISO: instale o tesseract manualmente no seu gerenciador de pacotes."
+    fi
+fi
+
+# 3. Garantir que o config principal do supervisor esteja valido
 #    (o erro ".ini file does not include supervisorctl section" ocorre
 #     quando o arquivo principal nao possui as secoes necessarias)
 echo ""
-echo "[2/5] Verificando configuracao principal do supervisor..."
+echo "[3/6] Verificando configuracao principal do supervisor..."
 if [ ! -f "$MAIN_CONF" ]; then
     echo "  Configuracao principal nao encontrada. Criando..."
     mkdir -p "$(dirname "$MAIN_CONF")"
@@ -77,9 +95,9 @@ else
     echo "  Configuracao principal OK."
 fi
 
-# 3. Criar venv e instalar dependencias (TUDO dentro do venv, nada no sistema)
+# 4. Criar venv e instalar dependencias (TUDO dentro do venv, nada no sistema)
 echo ""
-echo "[3/5] Preparando ambiente Python (venv)..."
+echo "[4/6] Preparando ambiente Python (venv)..."
 
 # Garantir que o modulo venv esteja disponivel no sistema (Debian/Ubuntu)
 if ! python3 -c "import venv" >/dev/null 2>&1; then
@@ -111,9 +129,9 @@ if ! "$VENV_BIN/python" -c "import dotenv" >/dev/null 2>&1; then
 fi
 echo "  Dependencias OK (venv)."
 
-# 4. Instalar configuracao do programa watson
+# 5. Instalar configuracao do programa watson
 echo ""
-echo "[4/5] Instalando configuracao do watson..."
+echo "[5/6] Instalando configuracao do watson..."
 if [ -f "$CONF_DEST" ]; then
     cp "$CONF_DEST" "${CONF_DEST}.bak"
     echo "  Backup criado em ${CONF_DEST}.bak"
@@ -122,9 +140,9 @@ cp "$PROJECT_DIR/watson-supervisord.conf" "$CONF_DEST"
 
 mkdir -p "$PROJECT_DIR/logs"
 
-# 5. Iniciar supervisord (se nao estiver rodando) e carregar o programa
+# 6. Iniciar supervisord (se nao estiver rodando) e carregar o programa
 echo ""
-echo "[5/5] Iniciando supervisord e carregando o watson..."
+echo "[6/6] Iniciando supervisord e carregando o watson..."
 if [ ! -S "$SOCKET" ]; then
     supervisord -c "$MAIN_CONF"
     sleep 2
