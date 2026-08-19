@@ -140,6 +140,12 @@ cp "$PROJECT_DIR/watson-supervisord.conf" "$CONF_DEST"
 
 mkdir -p "$PROJECT_DIR/logs"
 
+# Garantir permissoes de escrita no banco (evita "readonly database" no ChromaDB/SQLite)
+if [ -d "$PROJECT_DIR/database" ]; then
+    echo "  Garantindo permissoes de escrita no banco..."
+    chmod -R u+rw "$PROJECT_DIR/database"
+fi
+
 # 6. Iniciar supervisord (se nao estiver rodando) e carregar o programa
 echo ""
 echo "[6/6] Iniciando supervisord e carregando o watson..."

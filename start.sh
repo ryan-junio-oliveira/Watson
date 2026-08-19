@@ -7,6 +7,11 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Garante permissoes de escrita no banco (evita "readonly database" no ChromaDB/SQLite)
+if [ -d "$SCRIPT_DIR/database" ]; then
+    chmod -R u+rw "$SCRIPT_DIR/database" 2>/dev/null || true
+fi
+
 # Setup automatico: garante venv + dependencias + .env (sem saida final)
 "$SCRIPT_DIR/setup.sh" silent
 
