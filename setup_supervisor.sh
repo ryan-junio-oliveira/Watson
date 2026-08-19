@@ -42,7 +42,8 @@ if [ ! -f "$MAIN_CONF" ]; then
     cat > "$MAIN_CONF" <<'EOF'
 [unix_http_server]
 file=/var/run/supervisor.sock
-chmod=0700
+chmod=0770
+chown=root:administrador
 
 [supervisord]
 logfile=/var/log/supervisor/supervisord.log
