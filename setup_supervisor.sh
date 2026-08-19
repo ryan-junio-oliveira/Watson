@@ -89,8 +89,9 @@ if ! python3 -c "import venv" >/dev/null 2>&1; then
     fi
 fi
 
-if [ ! -d "$VENV_DIR" ]; then
-    echo "  Criando venv em $VENV_DIR..."
+if [ ! -x "$VENV_BIN/python" ] || [ ! -f "$VENV_BIN/activate" ]; then
+    echo "  Venv invalido ou ausente. Recriando em $VENV_DIR..."
+    rm -rf "$VENV_DIR"
     python3 -m venv "$VENV_DIR"
 fi
 

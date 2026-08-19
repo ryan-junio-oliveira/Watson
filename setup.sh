@@ -33,9 +33,10 @@ if ! python3 -c "import venv" >/dev/null 2>&1; then
     fi
 fi
 
-# 1. Criar venv se nao existir
-if [ ! -x "$PYTHON_EXE" ]; then
-    echo "[1/4] Criando venv em $VENV_DIR..."
+# 1. Criar venv se nao existir ou estiver invalido (ex.: copiado do Windows)
+if [ ! -x "$PYTHON_EXE" ] || [ ! -f "$VENV_DIR/bin/activate" ]; then
+    echo "[1/4] Venv ausente ou invalido. Recriando em $VENV_DIR..."
+    rm -rf "$VENV_DIR"
     python3 -m venv "$VENV_DIR"
 else
     echo "[1/4] Venv ja existe em $VENV_DIR."
