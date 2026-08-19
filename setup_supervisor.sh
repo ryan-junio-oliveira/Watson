@@ -6,6 +6,7 @@ fi
 
 PROJECT_DIR="/home/administrador/palace/Watson"
 VENV_DIR="$PROJECT_DIR/.venv"
+VENV_BIN="$VENV_DIR/bin"
 CONF_DEST="/etc/supervisor/conf.d/watson.conf"
 MAIN_CONF="/etc/supervisor/supervisord.conf"
 SOCKET="/var/run/supervisor.sock"
@@ -76,14 +77,38 @@ else
     echo "  Configuracao principal OK."
 fi
 
-# 3. Criar venv e instalar dependencias
+# 3. Criar venv e instalar dependencias (TUDO dentro do venv, nada no sistema)
 echo ""
-echo "[3/5] Preparando ambiente Python..."
+echo "[3/5] Preparando ambiente Python (venv)..."
+
+# Garantir que o modulo venv esteja disponivel no sistema (Debian/Ubuntu)
+if ! python3 -c "import venv" >/dev/null 2>&1; then
+    echo "  Instalando python3-venv..."
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get install -y python3-venv
+    fi
+fi
+
 if [ ! -d "$VENV_DIR" ]; then
+    echo "  Criando venv em $VENV_DIR..."
     python3 -m venv "$VENV_DIR"
 fi
-"$VENV_DIR/bin/pip" install --upgrade pip
-"$VENV_DIR/bin/pip" install -r "$PROJECT_DIR/requirements.txt"
+
+# Ativa o venv para todo o restante do script
+# shellcheck disable=SC1091
+source "$VENV_BIN/activate"
+echo "  Venv ativado: $(which python)"
+
+"$VENV_BIN/pip" install --upgrade pip
+"$VENV_BIN/pip" install -r "$PROJECT_DIR/requirements.txt"
+
+# Confirma que as dependencias estao no venv
+if ! "$VENV_BIN/python" -c "import dotenv" >/dev/null 2>&1; then
+    echo "  ERRO: python-dotenv nao instalou no venv. Tente:"
+    echo "  source $VENV_BIN/activate && pip install -r $PROJECT_DIR/requirements.txt"
+    exit 1
+fi
+echo "  Dependencias OK (venv)."
 
 # 4. Instalar configuracao do programa watson
 echo ""
