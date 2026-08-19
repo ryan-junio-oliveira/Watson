@@ -13,13 +13,14 @@ class OllamaClient:
 
     def __init__(
         self,
-        model: str = "qwen3:8b",
+        model: str = "qwen3:4b-instruct",
         base_url: str = "http://localhost:11434",
         temperature: float = 0.1,
         max_tokens: int = 2048,
         request_timeout: int = 300,
         logger: Optional[logging.Logger] = None,
         strip_thinking: bool = True,
+        think: bool = False,
     ):
         self.model = model
         self.base_url = base_url.rstrip("/")
@@ -27,6 +28,7 @@ class OllamaClient:
         self.max_tokens = max_tokens
         self.logger = logger
         self.strip_thinking = strip_thinking
+        self.think = think
         self._client = ollama.Client(host=self.base_url, timeout=request_timeout)
 
     @staticmethod
@@ -43,6 +45,7 @@ class OllamaClient:
         response = self._client.generate(
             model=self.model,
             prompt=prompt,
+            think=self.think,
             options={
                 "temperature": temperature if temperature is not None else self.temperature,
                 "num_predict": max_tokens if max_tokens is not None else self.max_tokens,
@@ -64,6 +67,7 @@ class OllamaClient:
         stream = self._client.generate(
             model=self.model,
             prompt=prompt,
+            think=self.think,
             options={
                 "temperature": temperature if temperature is not None else self.temperature,
                 "num_predict": max_tokens if max_tokens is not None else self.max_tokens,
