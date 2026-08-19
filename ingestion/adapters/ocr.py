@@ -28,48 +28,52 @@ def _project_root() -> Path:
 
 
 def _resolve_platform_binary(directory: Path) -> Path | None:
-    """Procura o binário do Tesseract dentro de um diretório, por plataforma."""
+    """Procura o binário do Tesseract dentro de um diretório, por plataforma.
+
+    No Linux/macOS o `tesseract.exe` (formato Windows) é ignorado para evitar
+    o erro "Exec format error" quando o executável do Windows está presente
+    (ex.: em `libs/tesseract` copiado do projeto Windows).
+    """
     if IS_WINDOWS:
         exe = directory / "tesseract.exe"
         return exe if exe.is_file() else None
-    for name in ("tesseract", "tesseract.exe"):
-        binary = directory / name
-        if binary.is_file():
-            return binary
+    binary = directory / "tesseract"
+    if binary.is_file():
+        return binary
     return None
 
 
 def resolve_tesseract_cmd(tesseract_dir: str = "") -> str:
     """Resolve o caminho completo do executável do Tesseract.
 
-    Ordem de prioridade:
-    1. `tesseract_dir` informado (pode ser diretório OU o executável direto).
-    2. Variável de ambiente `TESSERACT_CMD`.
-    3. Padrão: `<raiz>/libs/tesseract`.
-    4. Binário do PATH (`shutil.which`), principalmente no Linux.
+    Linux/macOS: prioriza o binário do PATH (`/usr/bin/tesseract`); o diretório
+    `libs/tesseract` é ignorado (contém o `.exe` do Windows).
+
+    Windows: usa `tesseract_dir`/`TESSERACT_CMD` ou `libs/tesseract/tesseract.exe`.
 
     Retorna o caminho completo do executável. Se não for encontrado,
     retorna "" (o pytesseract usa o binário do PATH).
     """
-    candidates: list = []
-    if tesseract_dir:
-        candidates.append(tesseract_dir)
-    env = os.getenv("TESSERACT_CMD", "")
-    if env:
-        candidates.append(env)
-    candidates.append(str(_project_root() / "libs" / "tesseract"))
+    if IS_WINDOWS:
+        candidates: list = []
+        if tesseract_dir:
+            candidates.append(tesseract_dir)
+        env = os.getenv("TESSERACT_CMD", "")
+        if env:
+            candidates.append(env)
+        candidates.append(str(_project_root() / "libs" / "tesseract"))
 
-    for candidate in candidates:
-        if not candidate:
-            continue
-        path = Path(candidate)
-        if path.is_file():  # já é o executável
-            return str(path)
-        binary = _resolve_platform_binary(path)
-        if binary is not None:
-            return str(binary)
+        for candidate in candidates:
+            if not candidate:
+                continue
+            path = Path(candidate)
+            if path.is_file():  # já é o executável
+                return str(path)
+            binary = _resolve_platform_binary(path)
+            if binary is not None:
+                return str(binary)
 
-    # Fallback multiplataforma: binário no PATH (comum no Linux/macOS)
+    # Linux/macOS: binário no PATH (padrão de instalação via apt/dnf/pacman)
     which = shutil.which("tesseract")
     if which:
         return which
