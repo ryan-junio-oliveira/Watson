@@ -7,7 +7,16 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-read -r API_HOST API_PORT <<< "$(python3 -c "from config import config; print(config.api_host, config.api_port)" 2>/dev/null || echo "0.0.0.0 9000")"
+# Usa o Python do venv se existir, senao cai para python3 do sistema
+if [ -x "$SCRIPT_DIR/.venv/bin/python" ]; then
+    PY="$SCRIPT_DIR/.venv/bin/python"
+elif [ -x "$SCRIPT_DIR/venv/bin/python" ]; then
+    PY="$SCRIPT_DIR/venv/bin/python"
+else
+    PY=python3
+fi
+
+read -r API_HOST API_PORT <<< "$("$PY" -c "from config import config; print(config.api_host, config.api_port)" 2>/dev/null || echo "0.0.0.0 9000")"
 
 show_menu() {
     clear
@@ -41,7 +50,7 @@ while true; do
             echo "Documentacao: http://localhost:$API_PORT/docs"
             echo "============================================"
             echo ""
-            python3 -m uvicorn api:app --host "$API_HOST" --port "$API_PORT"
+            "$PY" -m uvicorn api:app --host "$API_HOST" --port "$API_PORT"
             echo ""
             echo "Servidor encerrado."
             read -rp "Pressione Enter para continuar..."
@@ -53,7 +62,7 @@ while true; do
             echo "Digite 'exit' ou 'quit' para sair."
             echo "============================================"
             echo ""
-            python3 app.py
+            "$PY" app.py
             echo ""
             echo "Chat encerrado."
             read -rp "Pressione Enter para continuar..."
@@ -65,7 +74,7 @@ while true; do
             echo "(sem sincronizar o Google Drive - use a opcao 4 para isso)"
             echo "============================================"
             echo ""
-            python3 index.py
+            "$PY" index.py
             echo ""
             echo "Indexacao concluida!"
             read -rp "Pressione Enter para continuar..."
@@ -77,7 +86,7 @@ while true; do
             echo "Isso pode demorar. Sem limite de tempo (CLI)."
             echo "============================================"
             echo ""
-            python3 drive_index.py
+            "$PY" drive_index.py
             echo ""
             echo "Concluido!"
             read -rp "Pressione Enter para continuar..."
@@ -88,7 +97,7 @@ while true; do
             echo "Sincronizando Google Drive (somente sync)..."
             echo "============================================"
             echo ""
-            python3 drive_index.py --sync-only
+            "$PY" drive_index.py --sync-only
             echo ""
             echo "Sync concluido!"
             read -rp "Pressione Enter para continuar..."
@@ -99,7 +108,7 @@ while true; do
             echo "Selecao de pastas do Google Drive"
             echo "============================================"
             echo ""
-            python3 drive_select.py
+            "$PY" drive_select.py
             echo ""
             read -rp "Pressione Enter para continuar..."
             ;;
@@ -109,7 +118,7 @@ while true; do
             echo "Reset total - limpar banco vetorial e documentos"
             echo "============================================"
             echo ""
-            python3 reset_app.py --yes
+            "$PY" reset_app.py --yes
             echo ""
             echo "Reset concluido!"
             read -rp "Pressione Enter para continuar..."
@@ -122,7 +131,7 @@ while true; do
             echo "Pressione Ctrl+C para parar."
             echo "============================================"
             echo ""
-            python3 watch.py
+            "$PY" watch.py
             echo ""
             echo "Watcher encerrado."
             read -rp "Pressione Enter para continuar..."
