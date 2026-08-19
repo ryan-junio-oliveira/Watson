@@ -5,7 +5,7 @@ locais e a seleção do Google Drive, restaurando a aplicação ao estado inicia
 
 Uso:
     python reset_app.py            -> pede confirmação
-    python reset_app.py --yes      -> executa sem pedir confirmação (start.bat)
+    python reset_app.py --yes      -> executa sem pedir confirmação (start.sh / start.bat)
     python reset_app.py --no-docs  -> mantém os documentos, limpa só o vetorial
 """
 
@@ -141,7 +141,7 @@ def main() -> None:
         print(f"  Google Drive  : {removed['drive']} arquivos removidos")
         print(f"  Seleção Drive : limpa")
     print()
-    print("Para reindexar tudo do zero: opção 4 (Drive + Index) do start.bat.")
+    print("Para reindexar tudo do zero: opção 4 (Drive + Index) do start.sh / start.bat.")
 
 
 if __name__ == "__main__":

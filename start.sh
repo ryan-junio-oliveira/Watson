@@ -7,6 +7,9 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Setup automatico: garante venv + dependencias + .env (sem saida final)
+"$SCRIPT_DIR/setup.sh" silent
+
 # Usa o Python do venv se existir, senao cai para python3 do sistema
 if [ -x "$SCRIPT_DIR/.venv/bin/python" ]; then
     PY="$SCRIPT_DIR/.venv/bin/python"

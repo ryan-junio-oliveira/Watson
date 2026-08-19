@@ -17,7 +17,7 @@ A interface web fica no **DokViewerManager** (Laravel), que consome a API do Wat
 
 **Windows:** rode `start.bat` — ele executa o `setup.bat` automaticamente (cria o venv `.venv`, instala dependências e gera o `.env` a partir do exemplo) e abre o menu de operações.
 
-**Linux/macOS:** rode `./start.sh` — ele usa o venv `.venv` automaticamente (cria/instala se necessário) e abre o mesmo menu.
+**Linux/macOS:** rode `./start.sh` — ele executa o `setup.sh` automaticamente (cria o venv `.venv`, instala dependências e gera o `.env`) e abre o mesmo menu.
 
 Para configurar manualmente:
 
