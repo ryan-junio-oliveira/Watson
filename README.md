@@ -15,6 +15,12 @@ A interface web fica no **DokViewerManager** (Laravel), que consome a API do Wat
 
 ## Início rápido
 
+**Windows:** rode `start.bat` — ele executa o `setup.bat` automaticamente (cria o venv `.venv`, instala dependências e gera o `.env` a partir do exemplo) e abre o menu de operações.
+
+**Linux/macOS:** rode `./start.sh` — ele usa o venv `.venv` automaticamente (cria/instala se necessário) e abre o mesmo menu.
+
+Para configurar manualmente:
+
 ```bash
 # 1. Ambiente Python
 python3 -m venv .venv && source .venv/bin/activate
@@ -27,8 +33,6 @@ cp .env.example .env   # edite com suas credenciais
 python app.py                              # chat no terminal
 uvicorn api:app --host 0.0.0.0 --port 9000 # API REST
 ```
-
-No Windows basta rodar `start.bat`; no Linux/macOS `./start.sh` — o menu oferece todas as operações.
 
 Documentação interativa da API: http://localhost:9000/docs
 

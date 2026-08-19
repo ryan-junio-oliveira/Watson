@@ -1,6 +1,14 @@
 @echo off
 chcp 65001 >nul 2>nul
+setlocal
 title Watson RAG - Build
+
+:: Chamar setup automatico (sem pausa) para garantir venv + dependencias
+call "%~dp0setup.bat" silent
+if errorlevel 1 exit /b 1
+
+set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
+set "PIP_EXE=%~dp0.venv\Scripts\pip.exe"
 
 echo ============================================
 echo       WATSON RAG - Gerando Executavel
@@ -8,10 +16,10 @@ echo ============================================
 echo.
 
 :: Verificar se pyinstaller esta instalado
-python -c "import PyInstaller" 2>nul
+"%PYTHON_EXE%" -c "import PyInstaller" 2>nul
 if errorlevel 1 (
-    echo [ERRO] PyInstaller nao encontrado. Instalando...
-    pip install pyinstaller
+    echo [INFO] PyInstaller nao encontrado. Instalando...
+    "%PIP_EXE%" install pyinstaller
 )
 
 :: Limpar builds anteriores
@@ -20,7 +28,7 @@ if exist build\watson rmdir /s /q build\watson
 
 echo [1/3] Gerando executavel com PyInstaller...
 echo.
-pyinstaller watson.spec --noconfirm --clean
+"%PYTHON_EXE%" -m PyInstaller watson.spec --noconfirm --clean
 if errorlevel 1 (
     echo.
     echo [ERRO] Falha ao gerar executavel!

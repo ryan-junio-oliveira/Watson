@@ -1,8 +1,15 @@
 @echo off
 chcp 65001 >nul 2>nul
+setlocal enabledelayedexpansion
 title Watson RAG - Parar
 
-for /f "tokens=1,2" %%a in ('python -c "from config import config; print(config.api_host, config.api_port)"' 2^>nul) do (
+:: Chamar setup automatico (sem pausa) para garantir venv
+call "%~dp0setup.bat" silent
+if errorlevel 1 exit /b 1
+
+set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
+
+for /f "tokens=1,2" %%a in ('"%PYTHON_EXE%" -c "from config import config; print(config.api_host, config.api_port)"' 2^>nul) do (
     set API_HOST=%%a
     set API_PORT=%%b
 )
