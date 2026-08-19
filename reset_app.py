@@ -56,10 +56,14 @@ def main() -> None:
     docs_dir = Path(cfg.documents_dir)
     drive_dir = Path(cfg.google_drive_dest_dir)
     selection_path = drive_dir / ".drive_selection.json"
+    embedding_cache = Path(cfg.embedding_cache_path)
+    image_dir = Path(cfg.image_dir)
 
     print("== Reset total do Watson ==")
     print(f"  Banco vetorial : {vector_db}")
     print(f"  Manifesto      : {manifest_path}")
+    print(f"  Cache emb.     : {embedding_cache}")
+    print(f"  Imagens OCR    : {image_dir}")
     if not args.no_docs:
         print(f"  Documentos     : {docs_dir}")
         print(f"  Google Drive   : {drive_dir} (inclui seleção)")
@@ -70,7 +74,7 @@ def main() -> None:
             print("Cancelado.")
             return
 
-    removed = {"chunks": 0, "manifest": 0, "docs": 0, "drive": 0}
+    removed = {"chunks": 0, "manifest": 0, "docs": 0, "drive": 0, "cache": 0, "images": 0}
 
     # 1) Banco vetorial + manifesto (reutiliza o indexer quando possível)
     try:
@@ -103,14 +107,24 @@ def main() -> None:
         if vector_db.exists():
             shutil.rmtree(vector_db, ignore_errors=True)
 
-    # 2) Documentos locais: remove a pasta inteira (sem deixar lixo)
+    # 2) Caches regeneráveis: cache de embeddings e imagens OCR
+    if embedding_cache.exists():
+        embedding_cache.unlink()
+        removed["cache"] = 1
+    if image_dir.exists():
+        for item in image_dir.rglob("*"):
+            if item.is_file():
+                removed["images"] += 1
+        shutil.rmtree(image_dir, ignore_errors=True)
+
+    # 3) Documentos locais: remove a pasta inteira (sem deixar lixo)
     if not args.no_docs and docs_dir.exists():
         for item in docs_dir.rglob("*"):
             if item.is_file():
                 removed["docs"] += 1
         shutil.rmtree(docs_dir, ignore_errors=True)
 
-    # 3) Google Drive sincronizado + seleção (se fora de documents/)
+    # 4) Google Drive sincronizado + seleção (se fora de documents/)
     if not args.no_docs:
         inside_docs = drive_dir.resolve().is_relative_to(docs_dir.resolve())
         if not inside_docs:
@@ -135,6 +149,8 @@ def main() -> None:
     print("Reset concluído:")
     print(f"  Banco vetorial: {removed['chunks']} chunks removidos")
     print(f"  Manifesto     : limpo")
+    print(f"  Cache emb.    : {removed['cache']} arquivo removido")
+    print(f"  Imagens OCR   : {removed['images']} arquivos removidos")
     if not args.no_docs:
         print(f"  Documentos    : pasta {docs_dir} removida inteira "
               f"({removed['docs']} arquivos)")
