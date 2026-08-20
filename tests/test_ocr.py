@@ -39,9 +39,14 @@ class TestTesseractResolution:
             assert resolved == ""
 
     def test_missing_dir_uses_default(self, tmp_path, monkeypatch):
-        # Um diretório inválido não quebra: recai no padrão libs/tesseract.
+        # Um diretório inválido não quebra: recai no padrão libs/tesseract
+        # (se existir) ou no PATH (vazio).
         monkeypatch.delenv("TESSERACT_CMD", raising=False)
         resolved = resolve_tesseract_cmd(str(tmp_path / "nao_existe"))
         from ingestion.adapters.ocr import _project_root
 
-        assert resolved == str(_project_root() / "libs" / "tesseract" / "tesseract.exe")
+        libs = _project_root() / "libs" / "tesseract" / "tesseract.exe"
+        if libs.exists():
+            assert resolved == str(libs)
+        else:
+            assert resolved == ""
