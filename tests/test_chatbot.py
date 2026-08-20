@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 import pytest
 from langchain_core.documents import Document
 
-from rag.chatbot import ChatBot, extract_sql
+from rag.chatbot import ChatBot
 from rag.response import AgentResponse, Mode
 
 
@@ -110,6 +110,23 @@ class TestChatBot:
         result = chatbot.ask("Pergunta?", mode=Mode.rag)
         assert isinstance(result, AgentResponse)
 
+    def test_is_listing_detects_enumeration_questions(self, chatbot):
+        assert chatbot._is_listing("quais são os PINs disponíveis?")
+        assert chatbot._is_listing("liste os clientes")
+        assert chatbot._is_listing("me liste os modelos")
+        assert not chatbot._is_listing("como resolver o erro E123?")
+        assert not chatbot._is_listing("qual a causa do problema?")
+
+    def test_wants_full_context_detects_completeness_requests(self, chatbot):
+        # Por padrão não quer contexto completo...
+        assert not chatbot._wants_full_context("qual o erro E123?")
+        assert not chatbot._wants_full_context("como faço para imprimir?")
+        # ...mas aumenta dinamicamente quando o usuário pede mais/amplitude.
+        assert chatbot._wants_full_context("me dê todos os PINs disponíveis")
+        assert chatbot._wants_full_context("quero a lista completa")
+        assert chatbot._wants_full_context("preciso de mais informações sobre isso")
+        assert chatbot._wants_full_context("quais são os modelos?")
+
     def test_ask_stream_auto_mode(self, chatbot):
         gen = chatbot.ask_stream("Pergunta?", mode=Mode.auto)
         tokens = []
@@ -142,68 +159,3 @@ class TestChatBot:
             result = e.value
         assert isinstance(result, AgentResponse)
         assert "token1 " in result.answer
-
-
-class TestExtractSql:
-    def test_extracts_from_fences(self):
-        raw = "Aqui está:\n```sql\nSELECT * FROM printers WHERE ativo=1\n```"
-        assert "SELECT * FROM printers" in extract_sql(raw)
-
-    def test_extracts_plain_select(self):
-        assert extract_sql("SELECT modelo FROM printers") == "SELECT modelo FROM printers"
-
-
-class TestSqlRouting:
-    def make_chatbot(self, sql_tool=None, mock_retriever=None, mock_ollama=None):
-        retriever = mock_retriever or MagicMock()
-        retriever.retrieve.return_value = []
-        builder = MagicMock()
-        builder.build.return_value = "prompt"
-        ollama = mock_ollama or MagicMock()
-        ollama.ask.return_value = "Resposta SQL"
-        ollama._strip_thinking.return_value = "Resposta SQL"
-        return ChatBot(
-            retriever=retriever,
-            prompt_builder=builder,
-            ollama_client=ollama,
-            sql_tool=sql_tool,
-        )
-
-    def test_sql_routing_is_disabled_by_default(self):
-        # Tudo é respondido via RAG; não há roteamento automático para SQL.
-        tool = MagicMock()
-        tool.configured = True
-        bot = self.make_chatbot(sql_tool=tool)
-        assert bot._should_use_sql("Quantas licenças ativas?", Mode.auto) is False
-        assert bot._should_use_sql("Quantas licenças?", Mode.rag) is False
-
-    def test_structured_question_goes_to_rag(self):
-        tool = MagicMock()
-        tool.configured = True
-        retriever = MagicMock()
-        retriever.retrieve.return_value = [
-            Document(page_content="dados de clientes", metadata={"filename": "clients"})
-        ]
-        bot = self.make_chatbot(sql_tool=tool, mock_retriever=retriever)
-        resp = bot.ask("Quais clientes temos cadastrados?")
-        # caiu em RAG (não em SQL)
-        assert resp.metadata.get("provider") in ("rag", None)
-        retriever.retrieve.assert_called_once()
-
-    def test_process_sql_still_available_explicit(self):
-        tool = MagicMock()
-        tool.configured = True
-        tool.table_descriptions.return_value = "- printers: modelo, tipo"
-        tool.execute.return_value = [{"modelo": "E52645", "tipo": "printer"}]
-        tool.rows_to_text.return_value = "modelo: E52645 | tipo: printer"
-
-        ollama = MagicMock()
-        ollama.ask.return_value = "SELECT modelo FROM printers"
-        ollama._strip_thinking.return_value = "SELECT modelo FROM printers"
-        bot = self.make_chatbot(sql_tool=tool, mock_ollama=ollama)
-
-        resp = bot._process_sql("Quantas impressoras existem?")
-        assert isinstance(resp, AgentResponse)
-        assert resp.metadata.get("provider") == "sql"
-        assert resp.metadata.get("rows") == 1
-        assert resp.evidences[0].provider == "sql"

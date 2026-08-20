@@ -73,6 +73,11 @@ class AgentResponse:
     metadata: Dict[str, Any] = field(default_factory=dict)
     execution_time: float = 0.0
 
+    # Analista proativo (sob demanda — chips na UI)
+    conclusions: List[str] = field(default_factory=list)
+    follow_up: List[str] = field(default_factory=list)
+    additional_info: List[str] = field(default_factory=list)
+
     @property
     def sources(self) -> List[Source]:
         return Source.from_evidence_list(self.evidences)

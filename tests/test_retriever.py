@@ -130,3 +130,51 @@ class TestRetriever:
         mock_chroma_instance.max_marginal_relevance_search.assert_called_once_with(
             "teste mmr", k=2, fetch_k=10, lambda_mult=0.7
         )
+
+    def test_retrieve_all_from_source_filters_by_source(self, mock_embedding_generator, mock_chroma):
+        mock_collection = MagicMock()
+        mock_collection.count.return_value = 5
+        mock_collection.get.return_value = {
+            "documents": ["Pin 1", "Pin 2", "Outro doc"],
+            "metadatas": [
+                {"source": "docs/manual.pdf", "chunk_id": "c1"},
+                {"source": "docs/manual.pdf", "chunk_id": "c2"},
+                {"source": "docs/outro.pdf", "chunk_id": "c3"},
+            ],
+        }
+        mock_vector_store = mock_chroma.return_value
+        mock_vector_store._collection = mock_collection
+
+        retriever = Retriever(
+            embedding_generator=mock_embedding_generator,
+            chroma_persist_dir="/tmp/test_chroma",
+            top_k=2,
+        )
+        results = retriever.retrieve_all_from_source("docs/manual.pdf")
+        assert len(results) == 2
+        assert results[0].metadata["source"] == "docs/manual.pdf"
+        assert results[1].metadata["source"] == "docs/manual.pdf"
+
+    def test_retrieve_all_from_source_respects_exclude(self, mock_embedding_generator, mock_chroma):
+        mock_collection = MagicMock()
+        mock_collection.count.return_value = 3
+        mock_collection.get.return_value = {
+            "documents": ["Pin 1", "Pin 2"],
+            "metadatas": [
+                {"source": "docs/manual.pdf", "chunk_id": "c1"},
+                {"source": "docs/manual.pdf", "chunk_id": "c2"},
+            ],
+        }
+        mock_vector_store = mock_chroma.return_value
+        mock_vector_store._collection = mock_collection
+
+        retriever = Retriever(
+            embedding_generator=mock_embedding_generator,
+            chroma_persist_dir="/tmp/test_chroma",
+            top_k=2,
+        )
+        results = retriever.retrieve_all_from_source(
+            "docs/manual.pdf", exclude_ids={"c1"}
+        )
+        assert len(results) == 1
+        assert results[0].metadata["chunk_id"] == "c2"
