@@ -188,9 +188,6 @@ curl -s http://localhost:9000/api/health | jq .
 # Reindexar tudo a cada hora
 0 * * * * curl -X POST http://localhost:9000/api/index
 
-# Reindexar apenas o banco a cada 30 minutos
-*/30 * * * * curl -X POST http://localhost:9000/api/index/database
-
 # Reindexar apenas documentos toda madrugada
 0 3 * * * curl -X POST http://localhost:9000/api/index/documents
 

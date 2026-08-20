@@ -37,69 +37,12 @@ cp .env.example .env
 | `LOG_FILE` | `logs/ai_agent.log` | Caminho do arquivo de log |
 | `API_HOST` | `0.0.0.0` | Host do servidor API |
 | `API_PORT` | `9000` | Porta do servidor API |
-| `DB_HOST` | — | Host do MySQL |
-| `DB_PORT` | `3306` | Porta do MySQL |
-| `DB_USER` | — | Usuario do MySQL |
-| `DB_PASSWORD` | — | Senha do MySQL (qualquer caractere especial funciona) |
-| `DB_NAME` | — | Nome do banco de dados |
-| `DB_TABLES` | — | Lista JSON de tabelas para indexar |
-| `VOICE_ENABLED` | `false` | Ativa o modo voz no terminal (captura de perguntas + respostas faladas) |
-| `VOICE_STT_MODEL` | `base` | Modelo Whisper para transcricao (tiny/base/small/medium/large-v3) |
-| `VOICE_STT_DEVICE` | `cpu` | Dispositivo do Whisper (cpu ou cuda) |
-| `VOICE_LANGUAGE` | `pt` | Idioma da transcricao |
-| `VOICE_NAME` | `pt-BR-FranciscaNeural` | Voz neural do edge-tts |
-| `VOICE_RATE` | `+0%` | Velocidade da fala (ex: `+10%`) |
-| `VOICE_VOLUME` | `+0%` | Volume da fala |
-| `VOICE_SILENCE_LIMIT` | `1.5` | Segundos de silencio para considerar fim da pergunta |
-| `VOICE_MAX_DURATION` | `20` | Duracao maxima da captura em segundos |
-| `VOICE_SPEECH_TIMEOUT` | `10` | Segundos aguardando fala antes de desistir |
-| `VOICE_OUTPUT_DIR` | — | Diretorio para salvar os audios gerados |
-
----
-
-## Conexao com o banco de dados
-
-O Watson oferece **dois formas** de configurar a conexao MySQL:
-
-### Forma recomendada: variaveis separadas
-
-```bash
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=@Admini20m07p
-DB_NAME=dokviewermanager
-```
-
-A `DB_CONNECTION_STRING` e montada automaticamente pelo `config.py`, aplicando **URL-encoding no password** de forma transparente.
-
-### Forma alternativa: connection string raw
-
-```bash
-DB_CONNECTION_STRING=mysql+pymysql://root:%40Admini20m07p@localhost:3306/dokviewermanager
-```
-
-Se `DB_CONNECTION_STRING` estiver definida, ela tem prioridade sobre as variaveis separadas.
-
-### Tabela de referencia de encoding
-
-Usado apenas se optar pela `DB_CONNECTION_STRING` raw:
-
-| Caractere | Codigo | Exemplo |
-|---|---|---|
-| `@` | `%40` | `@senha` -> `%40senha` |
-| `%` | `%25` | `senha%123` -> `senha%25123` |
-| `#` | `%23` | `senha#abc` -> `senha%23abc` |
-| `/` | `%2F` | `senha/abc` -> `senha%2Fabc` |
-| `:` | `%3A` | `senha:abc` -> `senha%3Aabc` |
-| `?` | `%3F` | `senha?abc` -> `senha%3Fabc` |
-| ` ` (espaco) | `%20` | `minha senha` -> `minha%20senha` |
 
 ---
 
 ## Pipeline de consulta
 
-O Watson consulta **apenas documentos indexados** (PDF, DOCX, TXT, MD) e banco MySQL:
+O Watson consulta **apenas documentos indexados** (PDF, DOCX, TXT, MD):
 
 ```
 Pergunta → ChromaDB (busca vetorial) → LLM (geracao) → Validacao (anti-alucinacao)

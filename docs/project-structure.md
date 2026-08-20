@@ -12,7 +12,6 @@ Watson/
 │
 ├── ingestion/              # Pipeline de indexacao
 │   ├── loader.py           # Leitura de PDF, DOCX, TXT, MD, imagens (com OCR)
-│   ├── db_loader.py        # Leitura de banco MySQL (com filtro de colunas sensiveis + anti SQL injection)
 │   ├── splitter.py         # Chunking de texto (RecursiveCharacterTextSplitter + metadata enriquecida)
 │   ├── embeddings.py       # Geracao de embeddings (HuggingFace)
 │   └── indexer.py          # Indexacao no ChromaDB com cache SHA-256
@@ -35,13 +34,10 @@ Watson/
 ├── utils/                  # Utilitarios
 │   └── logger.py           # Logging em arquivo com rotacao + console
 │
-├── search/                 # Pipeline de busca web (removido na v2.1.0)
-│
 ├── tests/                  # Testes unitarios (pytest)
 │   ├── conftest.py
 │   ├── test_api.py
 │   ├── test_chatbot.py
-│   ├── test_db_loader.py
 │   ├── test_embeddings.py
 │   ├── test_evidence.py
 │   ├── test_indexer.py
@@ -56,7 +52,6 @@ Watson/
 │   ├── installation.md
 │   ├── configuration.md
 │   ├── api-reference.md    # Referencia completa da API v2.1.0
-│   ├── database-indexing.md
 │   ├── integration.md
 │   └── project-structure.md
 │
@@ -69,15 +64,15 @@ Watson/
 
 ### Simplificacao
 
-- **RAG-only**: Agente consulta apenas documentos indexados e banco MySQL. Sem busca na internet.
+- **RAG-only**: Agente consulta apenas documentos indexados. Sem busca na internet.
 - **Codigo removido**: Planner (classificador de intencao) e QueryRefiner removidos. Busca web desabilitada por padrao.
-- **Configuracao simplificada**: `ENABLE_PLANNER`, `ENABLE_WEB_SEARCH`, e variaveis de busca web removidas do uso padrao.
+- **Configuracao simplificada**: `ENABLE_PLANNER` e variaveis de busca web removidas do uso padrao.
 
 ### Pipeline
 
 - **Pipeline**: Pergunta → ChromaDB (busca vetorial) → LLM (gemma3:4b) → Validacao (anti-alucinacao).
 - **2 chamadas LLM**: Geracao + Validacao. Classificacao de intencao removida.
-- **Sem rede externa**: Nao faz requisicoes HTTP para buscadores. Apenas Ollama local + ChromaDB local + MySQL (se configurado).
+- **Sem rede externa**: Nao faz requisicoes HTTP para buscadores. Apenas Ollama local + ChromaDB local.
 
 ### Performance
 

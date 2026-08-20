@@ -11,10 +11,10 @@ Servidor FastAPI padrao na porta `9000`. Documentacao interativa disponivel em `
 Todas as respostas da API seguem um contrato estavel e previsivel:
 
 ```
-Adapters (PDF/OCR/DOCX/CSV/XLSX/imagem/banco) → Chunking semantico → Embeddings multilíngues → ChromaDB → LLM (Ollama) → JSON estavel
+Adapters (PDF/OCR/DOCX/CSV/XLSX/imagem) → Chunking semantico → Embeddings multilíngues → ChromaDB → LLM (Ollama) → JSON estavel
 ```
 
-O Watson consulta **exclusivamente documentos e banco de dados indexados** (RAG). Diagnosticos internos (validacao, logs) **nunca** sao expostos na resposta.
+O Watson consulta **exclusivamente documentos indexados** (RAG). Diagnosticos internos (validacao, logs) **nunca** sao expostos na resposta.
 
 Cada fonte retornada carrega **metadata rica** (fabricante, modelo, seção, página e códigos de erro) para citação no chat.
 
@@ -32,7 +32,6 @@ Verifica se a API esta operacional e se o Ollama esta acessivel.
   "status": "ok",
   "documents_dir": "documents",
   "chroma_dir": "database/chroma",
-  "db_configured": true,
   "ollama_model": "gemma3:4b"
 }
 ```
@@ -43,7 +42,6 @@ Verifica se a API esta operacional e se o Ollama esta acessivel.
   "status": "degraded",
   "documents_dir": "documents",
   "chroma_dir": "database/chroma",
-  "db_configured": true,
   "ollama_model": "gemma3:4b"
 }
 ```
@@ -53,7 +51,6 @@ Verifica se a API esta operacional e se o Ollama esta acessivel.
 | `status` | string | `"ok"` (tudo funcionando) ou `"degraded"` (Ollama indisponivel) |
 | `documents_dir` | string | Diretorio de documentos configurado |
 | `chroma_dir` | string | Diretorio do banco vetorial ChromaDB |
-| `db_configured` | bool | Se o banco MySQL esta configurado |
 | `ollama_model` | string | Modelo Ollama configurado |
 
 ---
@@ -75,7 +72,7 @@ Em caso de falha de conexao com Ollama, retorna apenas o modelo configurado como
 
 ### `POST /api/chat`
 
-Endpoint principal de perguntas e respostas. **Consulta apenas documentos indexados e banco de dados (RAG).**
+Endpoint principal de perguntas e respostas. **Consulta apenas documentos indexados (RAG).**
 
 **Body:**
 ```json
@@ -93,7 +90,7 @@ Endpoint principal de perguntas e respostas. **Consulta apenas documentos indexa
 |---|---|---|---|
 | `question` | string | sim | Pergunta em linguagem natural |
 | `history` | array | nao | Historico da conversa para contexto |
-| `mode` | string | nao | Modo de consulta: `"auto"` ou `"rag"` (ambos usam RAG sobre documentos + banco). Padrao: `"auto"` |
+| `mode` | string | nao | Modo de consulta: `"auto"` ou `"rag"` (ambos usam RAG sobre documentos). Padrao: `"auto"` |
 
 **Response (200):**
 ```json
@@ -233,19 +230,13 @@ while (true) {
 
 ### `POST /api/index`
 
-Indexa documentos e banco de dados de forma **incremental** (por hash e versões de parser/chunking/embedding). Apenas arquivos/registros novos ou alterados sao processados.
-
-Respeita `DB_MODE`:
-- `both` (padrao): indexa documentos + banco em embeddings.
-- `sql`: banco e consultado via SQL Tool; registros nao sao transformados em embeddings.
-- `rag`: indexa banco em embeddings (sem SQL Tool).
+Indexa documentos de forma **incremental** (por hash e versões de parser/chunking/embedding). Apenas arquivos novos ou alterados sao processados.
 
 **Response (200):**
 ```json
 {
   "status": "ok",
   "documents_indexed": 5,
-  "db_indexed": 150,
   "total_chunks": 1200
 }
 ```
@@ -255,12 +246,6 @@ Respeita `DB_MODE`:
 ### `POST /api/index/documents`
 
 Indexa apenas documentos (PDF, DOCX, TXT, MD, CSV, XLSX, imagens) do diretorio configurado, com **OCR seletivo** (Tesseract apenas em páginas sem texto nativo).
-
----
-
-### `POST /api/index/database`
-
-Indexa apenas o banco de dados (tabelas úteis configuradas via `DB_TABLES`). Requer `DB_CONNECTION_STRING` configurado. Em `DB_MODE=sql`, nao indexa.
 
 ---
 
@@ -329,8 +314,6 @@ Remove apenas o banco vetorial ChromaDB e o manifesto. Os arquivos de documentos
 ## Seguranca
 
 - **CORS**: Habilitado para todas origens (configuravel)
-- **SQL Injection**: nomes de tabela validados e escapados; o SQL Tool aceita apenas `SELECT`/`SHOW`/`DESCRIBE`/`EXPLAIN` com whitelist de tabelas e `LIMIT` obrigatorio
-- **Colunas sensiveis**: `password`, `senha`, `token`, `secret`, `api_key`, etc. sao automaticamente filtradas na indexacao e no SQL Tool
 
 ---
 
@@ -416,7 +399,6 @@ Remove apenas o banco vetorial ChromaDB e o manifesto. Os arquivos de documentos
 {
   "status": "string",
   "documents_indexed": "integer",
-  "db_indexed": "integer",
   "total_chunks": "integer"
 }
 ```
@@ -427,7 +409,6 @@ Remove apenas o banco vetorial ChromaDB e o manifesto. Os arquivos de documentos
   "status": "string (ok|degraded)",
   "documents_dir": "string",
   "chroma_dir": "string",
-  "db_configured": "boolean",
   "ollama_model": "string"
 }
 ```
