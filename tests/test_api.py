@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture(autouse=True)
-def mock_env():
+def mock_env(tmp_path):
     with patch("api.app_config") as mock_cfg:
         mock_cfg.vector_db_dir = "/tmp/test_chroma"
         mock_cfg.documents_dir = "/tmp/test_docs"
@@ -29,7 +29,6 @@ def mock_env():
         mock_cfg.ocr_min_text_chars = 20
         mock_cfg.image_dir = "/tmp/images"
         mock_cfg.vision_model = ""
-        mock_cfg.db_max_rows_per_query = 200
         mock_cfg.temperature = 0.1
         mock_cfg.max_tokens = 2048
         mock_cfg.chunk_size = 1000
@@ -42,21 +41,10 @@ def mock_env():
         mock_cfg.use_reranker = False
         mock_cfg.reranker_model = "cross-encoder/ms-marco-MiniLM-L-6-v2"
         mock_cfg.index_batch_size = 100
-        mock_cfg.enable_web_search = False
-        mock_cfg.web_search_max_results = 5
-        mock_cfg.search_provider = "google"
-        mock_cfg.fetch_timeout = 10
-        mock_cfg.fetch_max_size = 1048576
-        mock_cfg.fetch_max_pages = 3
-        mock_cfg.fetch_retries = 1
-        mock_cfg.web_chunk_size = 1000
-        mock_cfg.web_chunk_overlap = 200
-        mock_cfg.enable_planner = False
-        mock_cfg.db_connection_string = None
-        mock_cfg.db_tables = None
         mock_cfg.google_drive_folder_id = ""
         mock_cfg.google_drive_dest_dir = "/tmp/test_drive"
         mock_cfg.google_drive_sync_timeout = 30
+        mock_cfg.metrics_db = str(tmp_path / "metrics.db")
         mock_cfg.api_auth_token = ""
         yield mock_cfg
 
@@ -76,17 +64,6 @@ class TestHealthEndpoint:
         data = response.json()
         assert data["status"] == "ok"
         assert data["ollama_model"] == "test-model"
-
-    def test_health_shows_db_not_configured(self, client, mock_env):
-        response = client.get("/api/health")
-        data = response.json()
-        assert data["db_configured"] is False
-
-    def test_health_shows_db_configured(self, client, mock_env):
-        mock_env.db_connection_string = "mysql://localhost/test"
-        response = client.get("/api/health")
-        data = response.json()
-        assert data["db_configured"] is True
 
 
 class TestChatEndpoint:
@@ -169,7 +146,9 @@ class TestChatEndpoint:
         assert data["success"] is True
         assert data["answer"] == "Resposta baseada nos documentos."
         from rag.response import Mode
-        mock_chatbot.ask.assert_called_with("Quais servidores estao cadastrados?", mode=Mode.auto)
+        mock_chatbot.ask.assert_called_with(
+            "Quais servidores estao cadastrados?", mode=Mode.auto, analyze=False
+        )
 
     @patch("api.chatbot")
     def test_chat_stream_with_auto_mode(self, mock_chatbot, client):
@@ -310,17 +289,12 @@ class TestUploadEndpoint:
 
 
 class TestIndexEndpoints:
-    @patch("api.DatabaseLoader")
     @patch("api.indexer")
     @patch("api.cfg")
-    def test_index_all(self, mock_cfg, mock_indexer, mock_db_loader_cls, client, tmp_path):
-        mock_db_loader = MagicMock()
-        mock_db_loader.load.return_value = []
-        mock_db_loader_cls.return_value = mock_db_loader
+    def test_index_all(self, mock_cfg, mock_indexer, client, tmp_path):
         mock_indexer.has_pending_changes.return_value = (False, [], set())
         mock_indexer.index.return_value = 0
         mock_cfg.documents_dir = str(tmp_path)
-        mock_cfg.db_connection_string = "mysql+pymysql://localhost/test"
 
         response = client.post("/api/index")
         assert response.status_code == status.HTTP_200_OK
@@ -334,7 +308,7 @@ class TestIndexEndpoints:
         assert data["status"] == "started"
         assert data["job_id"] == "job123"
         mock_start.assert_called_once_with(
-            index_documents=True, index_database=False, sync_drive=False
+            index_documents=True, sync_drive=False
         )
 
     def test_index_async_sync_drive_true(self, client):
@@ -346,7 +320,7 @@ class TestIndexEndpoints:
             )
         assert response.status_code == status.HTTP_200_OK
         mock_start.assert_called_once_with(
-            index_documents=True, index_database=True, sync_drive=True
+            index_documents=True, sync_drive=True
         )
 
     def test_index_async_prunes_old_jobs(self, client):
@@ -389,7 +363,6 @@ class TestIndexEndpoints:
                 "result": {
                     "status": "ok",
                     "documents_indexed": 3,
-                    "db_indexed": 0,
                     "total_chunks": 42,
                 },
                 "error": None,
@@ -406,6 +379,7 @@ class TestIndexEndpoints:
         with patch("api._get_index_job", return_value=None):
             response = client.post("/api/index/cancel/inexistente")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
 
     def test_index_cancel_not_running(self, client):
         with patch("api._get_index_job") as mock_get:
@@ -582,3 +556,40 @@ class TestAuthMiddleware:
         mock_env.api_auth_token = "secret-token"
         response = client.get("/api/health")
         assert response.status_code == status.HTTP_200_OK
+
+
+class TestMetricsEndpoints:
+    def test_metrics_summary(self, client, mock_env):
+        from metrics.store import MetricsStore
+        store = MetricsStore(db_path=mock_env.metrics_db)
+        store.record_llm_call(model="m", prompt_tokens=10, completion_tokens=5)
+        store.record_request(question="olá")
+        response = client.get("/api/metrics/summary?hours=24")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["llm_calls"] == 1
+        assert data["total_prompt_tokens"] == 10
+        assert data["requests"] == 1
+
+    def test_metrics_tokens(self, client, mock_env):
+        response = client.get("/api/metrics/tokens?hours=24")
+        assert response.status_code == status.HTTP_200_OK
+        assert "series" in response.json()
+
+    def test_metrics_models(self, client, mock_env):
+        response = client.get("/api/metrics/models?hours=24")
+        assert response.status_code == status.HTTP_200_OK
+        assert "models" in response.json()
+
+    def test_metrics_documents(self, client, mock_env):
+        from metrics.store import MetricsStore
+        store = MetricsStore(db_path=mock_env.metrics_db)
+        store.record_documents(documents=3, chunks=9)
+        response = client.get("/api/metrics/documents")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["history"]
+
+    def test_dashboard_page(self, client, mock_env):
+        response = client.get("/dashboard")
+        assert response.status_code == status.HTTP_200_OK
+        assert "Chart" in response.text

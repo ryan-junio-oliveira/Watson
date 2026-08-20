@@ -3,12 +3,13 @@ from pathlib import Path
 
 from config import Config, config
 from ingestion.embeddings import EmbeddingGenerator
+from metrics.store import MetricsStore
 from llm.ollama_client import OllamaClient
+from rag.analyst import Analyst
 from rag.chatbot import ChatBot
 from rag.prompt import PromptBuilder
 from rag.reranker import Reranker as RagReranker
 from rag.retriever import Retriever
-from tools.sql_tool import SqlQueryTool
 from utils.logger import setup_logger
 
 
@@ -18,12 +19,6 @@ def ensure_directories(cfg: Config) -> None:
 
 
 def main() -> None:
-    if "--voice-test" in sys.argv:
-        from voice.diagnostics import run_self_test
-
-        run_self_test()
-        return
-
     cfg = config
     ensure_directories(cfg)
 
@@ -31,6 +26,7 @@ def main() -> None:
         name="ai_agent",
         log_level=cfg.log_level,
         log_file=cfg.log_file,
+        console=False,
     )
 
     logger.info("Starting Watson RAG")
@@ -56,6 +52,7 @@ def main() -> None:
             logger=logger,
         )
         prompt_builder = PromptBuilder()
+        metrics = MetricsStore(db_path=cfg.metrics_db, logger=logger)
         ollama_client = OllamaClient(
             model=cfg.ollama_model,
             base_url=cfg.ollama_base_url,
@@ -63,6 +60,7 @@ def main() -> None:
             max_tokens=cfg.max_tokens,
             request_timeout=cfg.ollama_timeout,
             logger=logger,
+            metrics=metrics,
         )
         rag_reranker = (
             RagReranker(
@@ -74,14 +72,14 @@ def main() -> None:
             else None
         )
 
-        sql_tool = (
-            SqlQueryTool(
-                connection_string=cfg.db_connection_string,
-                tables=cfg.db_tables,
-                max_rows=cfg.db_max_rows_per_query,
+        analyst = (
+            Analyst(
+                retriever=retriever,
+                ollama_client=ollama_client,
                 logger=logger,
+                max_followups=cfg.analyst_max_followups,
             )
-            if cfg.db_connection_string
+            if cfg.enable_analyst
             else None
         )
 
@@ -90,51 +88,18 @@ def main() -> None:
             rag_reranker._load_model()
         logger.info("Models preloaded successfully")
 
-        stt = None
-        tts = None
-        if cfg.voice_enabled:
-            try:
-                from voice.stt import SpeechToText
-                from voice.tts import TextToSpeech
-
-                stt = SpeechToText(
-                    model_name=cfg.voice_stt_model,
-                    language=cfg.voice_language,
-                    device=cfg.voice_stt_device,
-                    logger=logger,
-                )
-                tts = TextToSpeech(
-                    voice=cfg.voice_name,
-                    rate=cfg.voice_rate,
-                    volume=cfg.voice_volume,
-                    output_dir=cfg.voice_output_dir,
-                    logger=logger,
-                )
-                print(
-                    f"\n[VOZ] Modo voz ATIVADO (mic -> {cfg.voice_stt_model} | "
-                    f"voz: {cfg.voice_name})"
-                )
-                print("[VOZ] Fale sua pergunta. Diga 'sair' ou 'encerrar' para sair.\n")
-                logger.info("Voice mode enabled (STT + TTS)")
-            except Exception as e:
-                print(f"\n[AVISO] Modo voz NAO pode ser iniciado: {e}")
-                print(
-                    "[AVISO] Continuando no modo texto. Rode "
-                    "'python app.py --voice-test' para diagnosticar.\n"
-                )
-                logger.warning(f"Voice modules unavailable, falling back to text: {e}")
-
         chatbot = ChatBot(
             retriever=retriever,
             prompt_builder=prompt_builder,
             ollama_client=ollama_client,
             reranker=rag_reranker,
-            sql_tool=sql_tool,
             logger=logger,
-            stt=stt,
-            tts=tts,
+            enable_reasoning=cfg.enable_reasoning,
+            analyst=analyst,
+            agent_name=cfg.agent_name,
+            metrics=metrics,
         )
-        chatbot.chat_loop(use_voice=cfg.voice_enabled)
+        chatbot.chat_loop()
 
     except Exception as e:
         logger.exception(f"Unexpected error: {e}")

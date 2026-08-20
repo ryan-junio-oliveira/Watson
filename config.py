@@ -1,8 +1,6 @@
-import json
 import os
 from dataclasses import dataclass, field
-from typing import List, Optional
-from urllib.parse import quote_plus
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -120,50 +118,21 @@ class Config:
     log_file: str = field(
         default_factory=lambda: os.getenv("LOG_FILE", "logs/ai_agent.log")
     )
-
-    db_host: str = field(default_factory=lambda: os.getenv("DB_HOST", ""))
-    db_port: str = field(default_factory=lambda: os.getenv("DB_PORT", "3306"))
-    db_user: str = field(default_factory=lambda: os.getenv("DB_USER", ""))
-    db_password: str = field(default_factory=lambda: os.getenv("DB_PASSWORD", ""))
-    db_name: str = field(default_factory=lambda: os.getenv("DB_NAME", ""))
-    db_connection_string: Optional[str] = field(default=None)
-    db_tables: Optional[List[str]] = field(default=None)
-    db_mode: str = field(
-        default_factory=lambda: os.getenv("DB_MODE", "both").lower()
+    agent_name: str = field(
+        default_factory=lambda: os.getenv("AGENT_NAME", "Watson")
     )
-    db_max_rows_per_query: int = field(
-        default_factory=lambda: int(os.getenv("DB_MAX_ROWS_PER_QUERY", "200"))
+    metrics_db: str = field(
+        default_factory=lambda: os.getenv("METRICS_DB", "database/metrics.db")
     )
 
-    enable_web_search: bool = field(
-        default_factory=lambda: os.getenv("ENABLE_WEB_SEARCH", "true").lower() == "true"
+    enable_reasoning: bool = field(
+        default_factory=lambda: os.getenv("ENABLE_REASONING", "false").lower() == "true"
     )
-    web_search_max_results: int = field(
-        default_factory=lambda: int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))
+    enable_analyst: bool = field(
+        default_factory=lambda: os.getenv("ENABLE_ANALYST", "true").lower() == "true"
     )
-    search_provider: str = field(
-        default_factory=lambda: os.getenv("SEARCH_PROVIDER", "google")
-    )
-    fetch_timeout: int = field(
-        default_factory=lambda: int(os.getenv("FETCH_TIMEOUT", "10"))
-    )
-    fetch_max_size: int = field(
-        default_factory=lambda: int(os.getenv("FETCH_MAX_SIZE", "1048576"))
-    )
-    fetch_max_pages: int = field(
-        default_factory=lambda: int(os.getenv("FETCH_MAX_PAGES", "3"))
-    )
-    fetch_retries: int = field(
-        default_factory=lambda: int(os.getenv("FETCH_RETRIES", "1"))
-    )
-    web_chunk_size: int = field(
-        default_factory=lambda: int(os.getenv("WEB_CHUNK_SIZE", "1000"))
-    )
-    web_chunk_overlap: int = field(
-        default_factory=lambda: int(os.getenv("WEB_CHUNK_OVERLAP", "200"))
-    )
-    enable_planner: bool = field(
-        default_factory=lambda: os.getenv("ENABLE_PLANNER", "true").lower() == "true"
+    analyst_max_followups: int = field(
+        default_factory=lambda: int(os.getenv("ANALYST_MAX_FOLLOWUPS", "3"))
     )
 
     api_host: str = field(
@@ -175,58 +144,6 @@ class Config:
     api_auth_token: str = field(
         default_factory=lambda: os.getenv("API_AUTH_TOKEN", "").strip()
     )
-
-    voice_enabled: bool = field(
-        default_factory=lambda: os.getenv("VOICE_ENABLED", "false").lower() == "true"
-    )
-    voice_stt_model: str = field(
-        default_factory=lambda: os.getenv("VOICE_STT_MODEL", "base")
-    )
-    voice_stt_device: str = field(
-        default_factory=lambda: os.getenv("VOICE_STT_DEVICE", "cpu")
-    )
-    voice_language: str = field(
-        default_factory=lambda: os.getenv("VOICE_LANGUAGE", "pt")
-    )
-    voice_name: str = field(
-        default_factory=lambda: os.getenv("VOICE_NAME", "pt-BR-FranciscaNeural")
-    )
-    voice_rate: str = field(
-        default_factory=lambda: os.getenv("VOICE_RATE", "+0%")
-    )
-    voice_volume: str = field(
-        default_factory=lambda: os.getenv("VOICE_VOLUME", "+0%")
-    )
-    voice_silence_limit: float = field(
-        default_factory=lambda: float(os.getenv("VOICE_SILENCE_LIMIT", "1.5"))
-    )
-    voice_max_duration: float = field(
-        default_factory=lambda: float(os.getenv("VOICE_MAX_DURATION", "20.0"))
-    )
-    voice_speech_timeout: float = field(
-        default_factory=lambda: float(os.getenv("VOICE_SPEECH_TIMEOUT", "10.0"))
-    )
-    voice_output_dir: Optional[str] = field(
-        default_factory=lambda: os.getenv("VOICE_OUTPUT_DIR") or None
-    )
-
-    def __post_init__(self):
-        raw = os.getenv("DB_CONNECTION_STRING")
-        if raw:
-            self.db_connection_string = raw
-        elif self.db_user and self.db_host and self.db_name:
-            encoded_password = quote_plus(self.db_password)
-            self.db_connection_string = (
-                f"mysql+pymysql://{self.db_user}:{encoded_password}"
-                f"@{self.db_host}:{self.db_port}/{self.db_name}"
-            )
-
-        tables_env = os.getenv("DB_TABLES")
-        if tables_env:
-            try:
-                self.db_tables = json.loads(tables_env)
-            except json.JSONDecodeError:
-                self.db_tables = [t.strip() for t in tables_env.split(",") if t.strip()]
 
 
 config = Config()
