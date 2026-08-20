@@ -14,11 +14,49 @@
 from __future__ import annotations
 
 import logging
+import os
+import warnings
 from typing import Dict, List, Optional
 
 from ingestion.embedding_cache import EmbeddingCache
 
 _E5_MODEL_HINTS = ("e5", "multilingual-e5")
+
+
+def _silence_hf_noise() -> None:
+    """Suprime avisos/progresso do Hugging Face Hub e do transformers que
+    poluem o terminal (sem afetar logs do arquivo). Chamada no import para
+    valer antes de qualquer download/modelo."""
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
+    warnings.filterwarnings("ignore", category=UserWarning)
+    # O aviso de "unauthenticated requests" vem do logger huggingface_hub.utils._http.
+    for _name in (
+        "huggingface_hub",
+        "huggingface_hub.hf_api",
+        "huggingface_hub.utils._http",
+        "urllib3",
+        "PIL",
+        "sentence_transformers",
+        "transformers",
+    ):
+        logging.getLogger(_name).setLevel(logging.CRITICAL)
+    try:
+        import transformers.utils.logging as _tf_logging
+
+        _tf_logging.set_verbosity_error()
+    except Exception:
+        pass
+    try:
+        import huggingface_hub
+
+        huggingface_hub.constants.HF_HUB_DISABLE_PROGRESS_BARS = True
+    except Exception:
+        pass
+
+
+_silence_hf_noise()
 
 
 class EmbeddingGenerator:

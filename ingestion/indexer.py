@@ -27,6 +27,7 @@ from ingestion.loader import LoadedDocument
 from ingestion.manifest import ManifestStore
 from ingestion.quality import QualityGate
 from ingestion.vector_store import ChromaVectorStore, VectorStore
+from metrics.store import MetricsStore
 
 
 def compute_metadata_hash(doc: LoadedDocument) -> str:
@@ -56,12 +57,14 @@ class DocumentIndexer:
         deduplicator: Optional[Deduplicator] = None,
         logger: Optional[logging.Logger] = None,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        metrics: Optional[MetricsStore] = None,
     ):
         self.embedding_generator = embedding_generator
         self.splitter = splitter
         self.chroma_persist_dir = chroma_persist_dir
         self.batch_size = batch_size
         self.logger = logger
+        self.metrics = metrics or MetricsStore(logger=logger)
         self.progress_callback = progress_callback
 
         embeddings = embedding_generator.get_embeddings()
@@ -189,7 +192,40 @@ class DocumentIndexer:
 
         if errors and self.logger:
             self.logger.error(f"{len(errors)} documents failed: {errors}")
+
+        try:
+            self.metrics.record_index_event(
+                documents_processed=len(pending),
+                chunks_indexed=total_chunks,
+                error=("; ".join(f"{n}: {e}" for n, e in errors) if errors else None),
+            )
+            self.record_indexed_snapshot()
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Metrics index record failed: {e}")
+
         return total_chunks
+
+    def record_indexed_snapshot(self) -> None:
+        """Registra o snapshot atual de documentos/chunks indexados (por tipo)."""
+        try:
+            entries = self.manifest.entries()
+            total_docs = 0
+            total_chunks = 0
+            by_type: Dict[str, Dict[str, int]] = {}
+            for e in entries:
+                st = e.get("source_type", "unknown")
+                d = by_type.setdefault(st, {"documents": 0, "chunks": 0})
+                d["documents"] += 1
+                d["chunks"] += e.get("chunks", 0)
+                total_docs += 1
+                total_chunks += e.get("chunks", 0)
+            self.metrics.record_documents(
+                documents=total_docs, chunks=total_chunks, by_type=by_type
+            )
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Metrics snapshot failed: {e}")
 
     def _process_document(self, doc: LoadedDocument) -> Dict:
         """Processa um documento de forma atômica e registra no manifest.
@@ -445,7 +481,7 @@ class DocumentIndexer:
 
     def _compute_file_hash(self, filepath: str, content: str = "") -> str:
         hasher = hashlib.sha256()
-        if filepath.startswith("db://") or not Path(filepath).exists():
+        if not Path(filepath).exists():
             hasher.update(content.encode("utf-8"))
         else:
             with open(filepath, "rb") as f:

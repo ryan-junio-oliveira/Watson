@@ -119,7 +119,7 @@ class DocumentSplitter:
             for page in doc.pages:
                 blocks.extend(self._parse_content_lines(page.text, page.number))
             return blocks
-        if doc.source_type in ("database", "image"):
+        if doc.source_type in ("image",):
             return [Block(kind="text", text=doc.content)]
         return self._parse_content_lines(doc.content, None)
 
@@ -308,6 +308,7 @@ class DocumentSplitter:
             filename=doc.filename,
             parser_version=self.parser_version,
             chunking_version=self.chunking_version,
+            metadata=dict(doc.metadata),
         )
         metadata = contract.to_metadata()
         # Chaves legadas usadas pelo indexer/retriever atuais
