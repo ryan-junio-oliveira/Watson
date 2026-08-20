@@ -93,6 +93,31 @@ Se `API_AUTH_TOKEN` estiver vazio, a autenticação fica desativada (apenas para
 
 ---
 
+## Modo voz (terminal / "2. Prompt")
+
+O chat interativo pode capturar suas perguntas via microfone (Whisper local) e
+responder **falando** com uma voz neural humana (edge-tts, ex: `pt-BR-FranciscaNeural`).
+
+```bash
+pip install faster-whisper sounddevice edge-tts miniaudio
+```
+
+Depois habilite no `.env`:
+
+```env
+VOICE_ENABLED=true
+VOICE_STT_MODEL=base      # quanto maior, melhor (tiny/base/small/medium/large-v3)
+VOICE_LANGUAGE=pt
+VOICE_NAME=pt-BR-FranciscaNeural
+```
+
+Ao iniciar `python app.py`, o chat passa a ouvir suas perguntas pelo microfone
+(detecta silêncio automaticamente) e fala as respostas. Diga "sair" ou
+"encerrar" para sair. O pipeline RAG não muda: apenas as pontas (entrada de
+áudio / saída de voz) foram adicionadas.
+
+---
+
 ## Endpoints da API
 
 | Endpoint | Método | Descrição |

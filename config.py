@@ -176,6 +176,40 @@ class Config:
         default_factory=lambda: os.getenv("API_AUTH_TOKEN", "").strip()
     )
 
+    voice_enabled: bool = field(
+        default_factory=lambda: os.getenv("VOICE_ENABLED", "false").lower() == "true"
+    )
+    voice_stt_model: str = field(
+        default_factory=lambda: os.getenv("VOICE_STT_MODEL", "base")
+    )
+    voice_stt_device: str = field(
+        default_factory=lambda: os.getenv("VOICE_STT_DEVICE", "cpu")
+    )
+    voice_language: str = field(
+        default_factory=lambda: os.getenv("VOICE_LANGUAGE", "pt")
+    )
+    voice_name: str = field(
+        default_factory=lambda: os.getenv("VOICE_NAME", "pt-BR-FranciscaNeural")
+    )
+    voice_rate: str = field(
+        default_factory=lambda: os.getenv("VOICE_RATE", "+0%")
+    )
+    voice_volume: str = field(
+        default_factory=lambda: os.getenv("VOICE_VOLUME", "+0%")
+    )
+    voice_silence_limit: float = field(
+        default_factory=lambda: float(os.getenv("VOICE_SILENCE_LIMIT", "1.5"))
+    )
+    voice_max_duration: float = field(
+        default_factory=lambda: float(os.getenv("VOICE_MAX_DURATION", "20.0"))
+    )
+    voice_speech_timeout: float = field(
+        default_factory=lambda: float(os.getenv("VOICE_SPEECH_TIMEOUT", "10.0"))
+    )
+    voice_output_dir: Optional[str] = field(
+        default_factory=lambda: os.getenv("VOICE_OUTPUT_DIR") or None
+    )
+
     def __post_init__(self):
         raw = os.getenv("DB_CONNECTION_STRING")
         if raw:

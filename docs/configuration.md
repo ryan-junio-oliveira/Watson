@@ -43,6 +43,17 @@ cp .env.example .env
 | `DB_PASSWORD` | — | Senha do MySQL (qualquer caractere especial funciona) |
 | `DB_NAME` | — | Nome do banco de dados |
 | `DB_TABLES` | — | Lista JSON de tabelas para indexar |
+| `VOICE_ENABLED` | `false` | Ativa o modo voz no terminal (captura de perguntas + respostas faladas) |
+| `VOICE_STT_MODEL` | `base` | Modelo Whisper para transcricao (tiny/base/small/medium/large-v3) |
+| `VOICE_STT_DEVICE` | `cpu` | Dispositivo do Whisper (cpu ou cuda) |
+| `VOICE_LANGUAGE` | `pt` | Idioma da transcricao |
+| `VOICE_NAME` | `pt-BR-FranciscaNeural` | Voz neural do edge-tts |
+| `VOICE_RATE` | `+0%` | Velocidade da fala (ex: `+10%`) |
+| `VOICE_VOLUME` | `+0%` | Volume da fala |
+| `VOICE_SILENCE_LIMIT` | `1.5` | Segundos de silencio para considerar fim da pergunta |
+| `VOICE_MAX_DURATION` | `20` | Duracao maxima da captura em segundos |
+| `VOICE_SPEECH_TIMEOUT` | `10` | Segundos aguardando fala antes de desistir |
+| `VOICE_OUTPUT_DIR` | — | Diretorio para salvar os audios gerados |
 
 ---
 

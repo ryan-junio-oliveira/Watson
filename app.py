@@ -84,6 +84,30 @@ def main() -> None:
             rag_reranker._load_model()
         logger.info("Models preloaded successfully")
 
+        stt = None
+        tts = None
+        if cfg.voice_enabled:
+            try:
+                from voice.stt import SpeechToText
+                from voice.tts import TextToSpeech
+
+                stt = SpeechToText(
+                    model_name=cfg.voice_stt_model,
+                    language=cfg.voice_language,
+                    device=cfg.voice_stt_device,
+                    logger=logger,
+                )
+                tts = TextToSpeech(
+                    voice=cfg.voice_name,
+                    rate=cfg.voice_rate,
+                    volume=cfg.voice_volume,
+                    output_dir=cfg.voice_output_dir,
+                    logger=logger,
+                )
+                logger.info("Voice mode enabled (STT + TTS)")
+            except Exception as e:
+                logger.warning(f"Voice modules unavailable, falling back to text: {e}")
+
         chatbot = ChatBot(
             retriever=retriever,
             prompt_builder=prompt_builder,
@@ -91,8 +115,10 @@ def main() -> None:
             reranker=rag_reranker,
             sql_tool=sql_tool,
             logger=logger,
+            stt=stt,
+            tts=tts,
         )
-        chatbot.chat_loop()
+        chatbot.chat_loop(use_voice=cfg.voice_enabled)
 
     except Exception as e:
         logger.exception(f"Unexpected error: {e}")

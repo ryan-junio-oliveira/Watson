@@ -1,7 +1,7 @@
 import logging
 import re
 import time
-from typing import Generator, List, Optional
+from typing import Any, Generator, List, Optional
 
 from langchain_core.documents import Document
 
@@ -50,6 +50,8 @@ class ChatBot:
         reranker: Optional[Retriever] = None,
         sql_tool: Optional[SqlQueryTool] = None,
         logger: Optional[logging.Logger] = None,
+        stt: Optional[Any] = None,
+        tts: Optional[Any] = None,
     ):
         self.retriever = retriever
         self.prompt_builder = prompt_builder
@@ -57,6 +59,8 @@ class ChatBot:
         self._rag_reranker = reranker
         self.sql_tool = sql_tool
         self.logger = logger
+        self._stt = stt
+        self._tts = tts
         self.aggregator = EvidenceAggregator(logger=logger)
 
     # ------------------------------------------------------------------ #
@@ -311,17 +315,40 @@ class ChatBot:
         result = yield from self._stream_evidence(prompt, evidence)
         return result
 
-    def chat_loop(self) -> None:
+    def _speak(self, text: str) -> None:
+        if self._tts is None or not text:
+            return
+        if self.logger:
+            self.logger.info(f"Speaking ({len(text)} chars) via TTS")
+        self._tts.speak(text)
+
+    def chat_loop(self, use_voice: bool = False) -> None:
         from presentation.formatter import CliFormatter
 
         formatter = CliFormatter()
 
         print("\n=== Watson RAG ===")
-        print("Digite 'exit' ou 'quit' para sair.\n")
+        voice_active = use_voice and self._stt is not None
+        if voice_active:
+            print(
+                "Modo voz ativado. Fale sua pergunta. "
+                "Diga 'sair' ou 'encerrar' para encerrar.\n"
+            )
+        else:
+            print("Digite 'exit' ou 'quit' para sair.\n")
 
         while True:
             try:
-                question = input("\n> ").strip()
+                if voice_active:
+                    print("\n[Ouvindo...]", flush=True)
+                    question = self._stt.listen()
+                    if question is None:
+                        if self.logger:
+                            self.logger.debug("No speech captured, continuing loop")
+                        continue
+                    print(f"\n> {question}")
+                else:
+                    question = input("\n> ").strip()
             except (EOFError, KeyboardInterrupt):
                 print("\nEncerrando...")
                 break
@@ -329,7 +356,7 @@ class ChatBot:
             if not question:
                 continue
 
-            if question.lower() in ("exit", "quit"):
+            if question.lower() in ("exit", "quit", "sair", "encerrar", "parar"):
                 print("Encerrando...")
                 break
 
@@ -349,6 +376,7 @@ class ChatBot:
                 if result:
                     print()
                     print(formatter.format(result))
+                    self._speak(result.answer)
 
                 if self.logger:
                     self.logger.info(
@@ -357,5 +385,6 @@ class ChatBot:
             except Exception as e:
                 error_msg = f"Erro ao processar pergunta: {e}"
                 print(f"\n{error_msg}")
+                self._speak(error_msg)
                 if self.logger:
                     self.logger.error(error_msg)

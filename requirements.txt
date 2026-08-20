@@ -31,3 +31,10 @@ ddgs>=9.0.0
 # Build / Deploy
 pyinstaller>=6.0.0
 pywin32>=306; sys_platform == "win32"
+
+# Voice (Speech-to-Text: captura de perguntas)
+faster-whisper>=1.0.0
+sounddevice>=0.4.6
+# Voice (Text-to-Speech: respostas faladas com voz humana)
+edge-tts>=6.1.0
+miniaudio>=1.55
