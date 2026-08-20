@@ -15,13 +15,10 @@ if errorlevel 1 (
 
 set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
 
-for /f "usebackq tokens=1,2" %%a in (`"%PYTHON_EXE%" -c "from config import config; print(config.api_host, config.api_port)" 2^>nul`) do (
-    set API_HOST=%%a
-    set API_PORT=%%b
-)
-
-if "%API_HOST%"=="" set API_HOST=0.0.0.0
-if "%API_PORT%"=="" set API_PORT=9000
+:: Host/porta para exibicao do menu. O uvicorn/app.py leem o .env por conta
+:: propria, entao aqui usamos apenas valores informativos (robusto no Windows).
+set "API_HOST=0.0.0.0"
+set "API_PORT=9000"
 
 :menu
 cls

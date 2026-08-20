@@ -1,6 +1,6 @@
 # Watson — Agente RAG Local
 
-Sistema de **Retrieval-Augmented Generation (RAG)** que indexa documentos (PDF, DOCX, TXT, imagens), arquivos do Google Drive e dados de banco MySQL em vetores (ChromaDB), permitindo perguntas em linguagem natural com respostas geradas por LLM local via **Ollama**.
+Sistema de **Retrieval-Augmented Generation (RAG)** que indexa documentos (PDF, DOCX, TXT, imagens) e arquivos do Google Drive em vetores (ChromaDB), permitindo perguntas em linguagem natural com respostas geradas por LLM local via **Ollama**.
 
 A interface web fica no **DokViewerManager** (Laravel), que consome a API do Watson.
 
@@ -11,7 +11,6 @@ A interface web fica no **DokViewerManager** (Laravel), que consome a API do Wat
 - Python 3.10+
 - [Ollama](https://ollama.com) com modelo LLM baixado (ex.: `ollama pull qwen3:8b`)
 - [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) (opcional, para PDFs escaneados)
-- MySQL (opcional, para indexação de banco)
 
 ## Início rápido
 
@@ -44,7 +43,7 @@ Documentação interativa da API: http://localhost:9000/docs
 |---|---|---|
 | 1. API | `uvicorn api:app` | Servidor FastAPI (http://0.0.0.0:9000) |
 | 2. Prompt | `python app.py` | Chat interativo no terminal |
-| 3. Index | `python index.py` | Indexa `documents/` + banco (sem Drive) |
+| 3. Index | `python index.py` | Indexa `documents/` (sem Drive) |
 | 4. Drive + Index | `python drive_index.py` | Sincroniza Drive e indexa tudo |
 | 5. Drive Sync | `python drive_index.py --sync-only` | Só baixa os arquivos do Drive |
 | 6. Seleção Drive | `python drive_select.py` | Escolhe pastas do Drive a indexar |
@@ -64,14 +63,11 @@ Copie `.env.example` para `.env` e ajuste. Principais variáveis:
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | URL do Ollama |
 | `OLLAMA_MODEL` | `qwen3:8b` | Modelo de geração |
 | `EMBEDDING_MODEL` | `intfloat/multilingual-e5-base` | Modelo de embeddings |
-| `DB_CONNECTION_STRING` | — | Conexão MySQL (`mysql+pymysql://user:senha%40encoded@host/db`) |
 | `GOOGLE_DRIVE_FOLDER_ID` | — | ID da pasta raiz do Drive público |
 | `GOOGLE_DRIVE_DEST_DIR` | `documents/drive` | Onde os arquivos do Drive são salvos |
 | `API_HOST` / `API_PORT` | `0.0.0.0` / `9000` | Bind da API |
 | `API_AUTH_TOKEN` | vazio | **Token de auth da API** (ver abaixo) |
 | `OCR_*` | — | Configuração de OCR (Tesseract) |
-
-> **Senhas com caracteres especiais**: use URL-encoding (ex.: `@` vira `%40`). Veja `docs/configuration.md`.
 
 ### Autenticação da API (opcional)
 
@@ -93,28 +89,25 @@ Se `API_AUTH_TOKEN` estiver vazio, a autenticação fica desativada (apenas para
 
 ---
 
-## Modo voz (terminal / "2. Prompt")
+## Prompt interativo (terminal / "2. Prompt")
 
-O chat interativo pode capturar suas perguntas via microfone (Whisper local) e
-responder **falando** com uma voz neural humana (edge-tts, ex: `pt-BR-FranciscaNeural`).
+O chat interativo (`python app.py`) apresenta uma interface limpa: você digita a
+pergunta, o Watson exibe mensagens de status enquanto analisa e responde em
+tempo real. A resposta é exibida uma única vez, seguida das fontes utilizadas.
 
-```bash
-pip install faster-whisper sounddevice edge-tts miniaudio
+```
+> Qual o erro E123 da E52645?
+
+Watson está analisando sua resposta...
+[resposta é exibida em tempo real]
+
+Sources
+-------
+  • HP LASER JET E52645.pdf
 ```
 
-Depois habilite no `.env`:
-
-```env
-VOICE_ENABLED=true
-VOICE_STT_MODEL=base      # quanto maior, melhor (tiny/base/small/medium/large-v3)
-VOICE_LANGUAGE=pt
-VOICE_NAME=pt-BR-FranciscaNeural
-```
-
-Ao iniciar `python app.py`, o chat passa a ouvir suas perguntas pelo microfone
-(detecta silêncio automaticamente) e fala as respostas. Diga "sair" ou
-"encerrar" para sair. O pipeline RAG não muda: apenas as pontas (entrada de
-áudio / saída de voz) foram adicionadas.
+Diga "exit", "quit", "sair" ou "encerrar" para sair. Digite "aprofundar" após
+uma resposta para ver conclusões e perguntas de acompanhamento.
 
 ---
 
@@ -152,7 +145,7 @@ curl http://localhost:9000/api/index/status/abc123
 # → {"status": "running", "progress": 4, "total": 10, "message": "manual.pdf", ...}
 ```
 
-- `mode`: `all` | `documents` | `database`
+- `mode`: `all` | `documents`
 - `sync_drive`: `true`/`false` (padrão `false` — a indexação de documentos NÃO sincroniza o Drive por padrão; use o endpoint `/api/drive/sync` ou a opção 4 do menu para isso)
 - Se já houver um job rodando, retorna **409 Conflict**.
 - `POST /api/index/cancel/{job_id}` solicita cancelamento cooperativo (o status vira `cancelled`).
@@ -176,7 +169,7 @@ Usa polling leve (tamanho + mtime por arquivo), sem dependências externas. O es
 ## Fluxos
 
 ```
-Indexação:  Documentos/Drive/MySQL → Loader → Splitter → Embeddings → ChromaDB
+Indexação:  Documentos/Drive → Loader → Splitter → Embeddings → ChromaDB
 Consulta:   Pergunta → Embedding → ChromaDB (top-k) → Prompt Builder → Ollama → Resposta
 ```
 
@@ -189,7 +182,6 @@ Consulta:   Pergunta → Embedding → ChromaDB (top-k) → Prompt Builder → O
 | [Instalação](docs/installation.md) | Guia completo (Ollama, Python, Tesseract) |
 | [Configuração](docs/configuration.md) | Variáveis de ambiente, URL-encoding em senhas |
 | [Referência da API](docs/api-reference.md) | Todos os endpoints com request/response |
-| [Indexação de Banco](docs/database-indexing.md) | MySQL, colunas sensíveis, incremental |
 | [Integração](docs/integration.md) | Exemplos em Python, Node.js, PHP, cURL, cron |
 | [Estrutura do Projeto](docs/project-structure.md) | Arquitetura de pastas e módulos |
 
@@ -201,7 +193,7 @@ Consulta:   Pergunta → Embedding → ChromaDB (top-k) → Prompt Builder → O
 Watson/
 ├── api.py                  # API FastAPI (chat, indexação async, drive, auth)
 ├── app.py                  # Chat interativo no terminal
-├── index.py                # Indexação CLI (documentos locais + banco)
+├── index.py                # Indexação CLI (documentos locais)
 ├── drive_index.py          # Sincronização do Drive + indexação
 ├── drive_select.py         # Seleção de pastas do Drive no terminal
 ├── watch.py                # Watcher de documentos (reindexação automática)

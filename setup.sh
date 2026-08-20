@@ -77,6 +77,15 @@ else
     echo "[4/4] .env ja existe."
 fi
 
+# 5. Garantir diretorio de dados (metrics/chroma/images)
+mkdir -p "$SCRIPT_DIR/database"
+
+# 6. Garantir METRICS_DB no .env (valor padrao)
+if [ -f "$SCRIPT_DIR/.env" ] && ! grep -q "^METRICS_DB=" "$SCRIPT_DIR/.env"; then
+    echo "METRICS_DB=database/metrics.db" >> "$SCRIPT_DIR/.env"
+    echo "[INFO] METRICS_DB adicionado ao .env (database/metrics.db)."
+fi
+
 # Validar dotenv instalado no venv
 if ! "$PYTHON_EXE" -c "import dotenv" >/dev/null 2>&1; then
     echo "[ERRO] python-dotenv nao instalado no venv."
