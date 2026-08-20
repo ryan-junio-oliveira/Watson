@@ -57,6 +57,19 @@ class SpeechToText:
             self.logger.info(f"Transcribed ({len(audio) / 16000:.1f}s): {text[:120]}")
         return text
 
+    @staticmethod
+    def _trim_silence(audio: np.ndarray, threshold: float = 0.005) -> np.ndarray:
+        """Remove silencio no inicio/fim para o Whisper focar na fala."""
+        if audio is None or len(audio) == 0:
+            return audio
+        indices = np.where(np.abs(audio) > threshold)[0]
+        if len(indices) == 0:
+            return audio
+        pad = 800  # ~50ms de margem em cada lado
+        start = max(0, indices[0] - pad)
+        end = min(len(audio), indices[-1] + pad)
+        return audio[start:end]
+
     def listen(
         self,
         sample_rate: int = 16000,
@@ -68,7 +81,8 @@ class SpeechToText:
         """Grava do microfone ate o silencio e retorna a transcricao.
 
         Retorna None se nenhuma fala for detectada dentro de `speech_timeout`
-        segundos (util para o loop continuar sem travar).
+        segundos (util para o loop continuar sem travar). Retorna string vazia
+        se houve audio mas nao foi possivel transcrever (ruido, fala baixa).
         """
         import sounddevice as sd
 
@@ -95,7 +109,7 @@ class SpeechToText:
             while True:
                 block = q.get()
                 now = time.monotonic()
-                rms = float(np.sqrt(np.mean(block**2)))
+                rms = float(np.sqrt(np.mean(block ** 2)))
 
                 if rms >= rms_threshold:
                     frames.append(block)
@@ -117,5 +131,12 @@ class SpeechToText:
             return None
 
         audio = np.concatenate(frames)
+        audio = self._trim_silence(audio)
         text = self.transcribe(audio)
-        return text or None
+        if not text:
+            if self.logger:
+                self.logger.warning(
+                    f"Audio captured ({len(audio) / sample_rate:.1f}s) but could not transcribe"
+                )
+            return ""
+        return text

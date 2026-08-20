@@ -3,8 +3,6 @@ chcp 65001 >nul 2>nul
 setlocal enabledelayedexpansion
 title Watson RAG
 
-pause
-
 :: Chamar setup automatico (sem pausa) para garantir venv + dependencias
 call "%~dp0setup.bat" silent
 if errorlevel 1 (
@@ -17,15 +15,11 @@ if errorlevel 1 (
 
 set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
 
-
-pause
-
 for /f "usebackq tokens=1,2" %%a in (`"%PYTHON_EXE%" -c "from config import config; print(config.api_host, config.api_port)" 2^>nul`) do (
     set API_HOST=%%a
     set API_PORT=%%b
 )
 
-pause 
 if "%API_HOST%"=="" set API_HOST=0.0.0.0
 if "%API_PORT%"=="" set API_PORT=9000
 

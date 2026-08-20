@@ -37,6 +37,13 @@ class TestSpeechToText:
                     t.side_effect = [0.0, 11.0]
                     assert stt.listen(speech_timeout=1.0) is None
 
+    def test_trim_silence_removes_edges(self):
+        audio = np.zeros(16000, dtype=np.float32)
+        audio[4000:12000] = 0.5
+        trimmed = SpeechToText._trim_silence(audio)
+        assert len(trimmed) < len(audio)
+        assert float(np.abs(trimmed).max()) > 0.0
+
 
 class TestTextToSpeech:
     def test_speak_empty_returns_false(self):

@@ -5,7 +5,6 @@ que soam naturais e nao roboticas. O audio MP3 gerado e reproduzido com
 `miniaudio` + `sounddevice` (fallback para `pygame`).
 """
 import asyncio
-import io
 import logging
 import os
 import tempfile
@@ -86,10 +85,14 @@ class TextToSpeech:
     def _play(self, audio: bytes) -> None:
         try:
             import miniaudio
+            import numpy as np
             import sounddevice as sd
 
-            sample = miniaudio.decode_fp(io.BytesIO(audio))
-            sd.play(sample.samples, samplerate=sample.sample_rate)
+            sample = miniaudio.decode(audio)
+            samples = np.frombuffer(bytes(sample.samples), dtype=np.int16)
+            if sample.nchannels > 1:
+                samples = samples.reshape(-1, sample.nchannels)
+            sd.play(samples, samplerate=sample.sample_rate)
             sd.wait()
             return
         except ImportError:

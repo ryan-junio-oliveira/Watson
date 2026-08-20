@@ -346,6 +346,11 @@ class ChatBot:
                         if self.logger:
                             self.logger.debug("No speech captured, continuing loop")
                         continue
+                    if not question:
+                        print(
+                            "\nNão entendi. Fale novamente.", flush=True
+                        )
+                        continue
                     print(f"\n> {question}")
                 else:
                     question = input("\n> ").strip()
