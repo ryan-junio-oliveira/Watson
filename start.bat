@@ -9,7 +9,7 @@ if errorlevel 1 exit /b 1
 
 set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
 
-for /f "tokens=1,2" %%a in ('"%PYTHON_EXE%" -c "from config import config; print(config.api_host, config.api_port)"' 2^>nul) do (
+for /f "usebackq tokens=1,2" %%a in (`"%PYTHON_EXE%" -c "from config import config; print(config.api_host, config.api_port)" 2^>nul`) do (
     set API_HOST=%%a
     set API_PORT=%%b
 )
