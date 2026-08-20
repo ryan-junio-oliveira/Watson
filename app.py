@@ -18,6 +18,12 @@ def ensure_directories(cfg: Config) -> None:
 
 
 def main() -> None:
+    if "--voice-test" in sys.argv:
+        from voice.diagnostics import run_self_test
+
+        run_self_test()
+        return
+
     cfg = config
     ensure_directories(cfg)
 
@@ -104,8 +110,18 @@ def main() -> None:
                     output_dir=cfg.voice_output_dir,
                     logger=logger,
                 )
+                print(
+                    f"\n[VOZ] Modo voz ATIVADO (mic -> {cfg.voice_stt_model} | "
+                    f"voz: {cfg.voice_name})"
+                )
+                print("[VOZ] Fale sua pergunta. Diga 'sair' ou 'encerrar' para sair.\n")
                 logger.info("Voice mode enabled (STT + TTS)")
             except Exception as e:
+                print(f"\n[AVISO] Modo voz NAO pode ser iniciado: {e}")
+                print(
+                    "[AVISO] Continuando no modo texto. Rode "
+                    "'python app.py --voice-test' para diagnosticar.\n"
+                )
                 logger.warning(f"Voice modules unavailable, falling back to text: {e}")
 
         chatbot = ChatBot(
