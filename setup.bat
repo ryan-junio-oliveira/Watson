@@ -11,7 +11,6 @@ setlocal enabledelayedexpansion
 
 set "VENV_DIR=.venv"
 set "PYTHON_EXE=%VENV_DIR%\Scripts\python.exe"
-set "PIP_EXE=%VENV_DIR%\Scripts\pip.exe"
 
 :: Verifica se o Python existe no sistema
 where python >nul 2>nul
@@ -34,18 +33,16 @@ if not exist "%PYTHON_EXE%" (
     echo [1/4] Venv ja existe em %VENV_DIR%.
 )
 
-:: 2. Atualizar pip
+:: 2. Atualizar pip (via python -m pip para nao travar o pip.exe em uso no Windows)
 echo [2/4] Atualizando pip...
-"%PIP_EXE%" install --upgrade pip
+"%PYTHON_EXE%" -m pip install --upgrade pip
 if errorlevel 1 (
-    echo [ERRO] Falha ao atualizar pip.
-    if not "%~1"=="silent" pause
-    exit /b 1
+    echo [AVISO] Nao foi possivel atualizar o pip. Continuando com a versao atual...
 )
 
 :: 3. Instalar dependencias
 echo [3/4] Instalando dependencias (requirements.txt)...
-"%PIP_EXE%" install -r requirements.txt
+"%PYTHON_EXE%" -m pip install -r requirements.txt
 if errorlevel 1 (
     echo [ERRO] Falha ao instalar dependencias.
     if not "%~1"=="silent" pause
