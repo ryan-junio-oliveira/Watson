@@ -1,228 +1,140 @@
-# Watson — Agente RAG Local
+<div align="center">
 
-Sistema de **Retrieval-Augmented Generation (RAG)** que indexa documentos (PDF, DOCX, TXT, imagens) e arquivos do Google Drive em vetores (ChromaDB), permitindo perguntas em linguagem natural com respostas geradas por LLM local via **Ollama**.
+# 🤖 Watson RAG
 
-A interface web fica no **DokViewerManager** (Laravel), que consome a API do Watson.
+**Agente de IA de Retrieval-Augmented Generation (RAG) 100% local para documentos técnicos**
+
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://python.org)
+[![Ollama](https://img.shields.io/badge/LLM-Ollama-000000?logo=ollama)](https://ollama.com)
+[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi)](https://fastapi.tiangolo.com)
+[![ChromaDB](https://img.shields.io/badge/Vector-ChromaDB-4B8BBE)](https://www.trychroma.com)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+**Indexa** PDFs, DOCX, planilhas, imagens e arquivos do Google Drive em vetores; **entende** perguntas em linguagem natural e **responde** com fontes citadas — tudo processado localmente, sem enviar dados para a nuvem.
+
+</div>
 
 ---
 
-## Requisitos
+## ✨ Destaques
 
-- Python 3.10+
-- [Ollama](https://ollama.com) com modelo LLM baixado (ex.: `ollama pull qwen3:8b`)
-- [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) (opcional, para PDFs escaneados)
+- **100% local** — LLM (Ollama), embeddings e banco vetorial (ChromaDB) rodam na sua máquina. Nenhum dado sai do ambiente.
+- **RAG com fontes citadas** — cada resposta referencia seção, página, fabricante e modelo dos documentos.
+- **Indexação incremental** — reindexa apenas arquivos novos ou alterados (hash + versões de parser/chunking/embedding).
+- **OCR embutido** — Tesseract aplicado seletivamente apenas em páginas/ imagens sem texto nativo.
+- **Google Drive (público, sem OAuth)** — sincroniza pastas públicas e indexa automaticamente.
+- **Modo Analista** — análise proativa sob demanda: conclusões, perguntas de acompanhamento e busca adicional no acervo.
+- **Cálculo verificado** — a camada de cálculo determinística resolve percentuais/somas/médias sem depender de aritmética do LLM.
+- **Dashboard de métricas** — acompanhe uso de tokens, chamadas de LLM, documentos e histórico em uma UI web.
+- **Múltiplas interfaces** — API REST (FastAPI), streaming SSE, chat no terminal e watcher de reindexação.
+- **Multi-plataforma** — scripts para Windows e Linux/macOS, incluindo serviço Windows e gerenciamento por supervisord.
 
-## Início rápido
+---
 
-**Windows:** rode `start.bat` — ele executa o `setup.bat` automaticamente (cria o venv `.venv`, instala dependências e gera o `.env` a partir do exemplo) e abre o menu de operações.
+## 🚀 Início rápido
 
-**Linux/macOS:** rode `./start.sh` — ele executa o `setup.sh` automaticamente (cria o venv `.venv`, instala dependências e gera o `.env`) e abre o mesmo menu.
+> Pré-requisito: [Python 3.10+](https://python.org) e [Ollama](https://ollama.com) rodando com um modelo baixado (ex.: `ollama pull gemma3:4b`).
 
-Para configurar manualmente:
+**Windows:**
+
+```bat
+start.bat
+```
+
+**Linux / macOS:**
+
+```bash
+./start.sh
+```
+
+O inicializador cria o ambiente (`.venv`), instala dependências, gera o `.env` e abre o menu de operações (API, chat, indexação, Drive, etc.).
+
+Documentação interativa da API: <http://localhost:9000/docs>
+
+### Instalação manual
 
 ```bash
 # 1. Ambiente Python
-python3 -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 # 2. Configurar
-cp .env.example .env   # edite com suas credenciais
+cp .env.example .env             # edite com suas credenciais
 
-# 3. Executar (use o inicializador ou direto)
-python app.py                              # chat no terminal
-uvicorn api:app --host 0.0.0.0 --port 9000 # API REST
-```
-
-Documentação interativa da API: http://localhost:9000/docs
-
----
-
-## Menu do inicializador (start.bat / start.sh)
-
-| Opção | Comando | Descrição |
-|---|---|---|
-| 1. API | `uvicorn api:app` | Servidor FastAPI (http://0.0.0.0:9000) |
-| 2. Prompt | `python app.py` | Chat interativo no terminal |
-| 3. Index | `python index.py` | Indexa `documents/` (sem Drive) |
-| 4. Drive + Index | `python drive_index.py` | Sincroniza Drive e indexa tudo |
-| 5. Drive Sync | `python drive_index.py --sync-only` | Só baixa os arquivos do Drive |
-| 6. Seleção Drive | `python drive_select.py` | Escolhe pastas do Drive a indexar |
-| 7. Reset Total | `python reset_app.py --yes` | Apaga vetores e `documents/` |
-| 8. Watcher | `python watch.py` | Reindexa automaticamente ao detectar mudanças |
-
-> **Drive público**: o Google Drive da "AREA TECNICA" é público (sem OAuth). O Watson lista as pastas via `embeddedfolderview` e baixa os arquivos por `uc?export=download`. A seleção de pastas fica em `.drive_selection.json` e é compartilhada com a API (`/api/drive/selection`).
-
----
-
-## Configuração (.env)
-
-Copie `.env.example` para `.env` e ajuste. Principais variáveis:
-
-| Variável | Padrão | Descrição |
-|---|---|---|
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | URL do Ollama |
-| `OLLAMA_MODEL` | `qwen3:8b` | Modelo de geração |
-| `EMBEDDING_MODEL` | `intfloat/multilingual-e5-base` | Modelo de embeddings |
-| `GOOGLE_DRIVE_FOLDER_ID` | — | ID da pasta raiz do Drive público |
-| `GOOGLE_DRIVE_DEST_DIR` | `documents/drive` | Onde os arquivos do Drive são salvos |
-| `API_HOST` / `API_PORT` | `0.0.0.0` / `9000` | Bind da API |
-| `API_AUTH_TOKEN` | vazio | **Token de auth da API** (ver abaixo) |
-| `OCR_*` | — | Configuração de OCR (Tesseract) |
-
-### Autenticação da API (opcional)
-
-A API expõe endpoints de escrita (`/api/index`, `/api/clear`, `/api/documents/upload`, `/api/chat`) na rede. Para proteger, defina um token:
-
-```env
-API_AUTH_TOKEN=qualquer-texto-longo-e-aleatorio
-```
-
-Toda chamada a `/api/*` (exceto `/api/health`) passa a exigir o header:
-
-```bash
-curl -H "X-API-Token: SEU_TOKEN" http://localhost:9000/api/models
-# ou
-curl -H "Authorization: Bearer SEU_TOKEN" http://localhost:9000/api/models
-```
-
-Se `API_AUTH_TOKEN` estiver vazio, a autenticação fica desativada (apenas para dev local).
-
----
-
-## Prompt interativo (terminal / "2. Prompt")
-
-O chat interativo (`python app.py`) apresenta uma interface limpa: você digita a
-pergunta, o Watson exibe mensagens de status enquanto analisa e responde em
-tempo real. A resposta é exibida uma única vez, seguida das fontes utilizadas.
-
-```
-> Qual o erro E123 da E52645?
-
-Watson está analisando sua resposta...
-[resposta é exibida em tempo real]
-
-Sources
--------
-  • HP LASER JET E52645.pdf
-```
-
-Diga "exit", "quit", "sair" ou "encerrar" para sair. Digite "aprofundar" após
-uma resposta para ver conclusões e perguntas de acompanhamento.
-
----
-
-## Endpoints da API
-
-| Endpoint | Método | Descrição |
-|---|---|---|
-| `/api/health` | GET | Status da API + conexão com Ollama (público) |
-| `/api/models` | GET | Lista modelos disponíveis no Ollama |
-| `/api/chat` | POST | Pergunta/resposta com RAG |
-| `/api/chat/stream` | POST | Chat com streaming (SSE) |
-| `/api/index/async` | POST | **Indexação em segundo plano** (retorna `job_id`) |
-| `/api/index/status/{job_id}` | GET | Status/progresso do job (`progress`, `total`, `message`) |
-| `/api/index/cancel/{job_id}` | POST | Cancela um job em andamento |
-| `/api/documents/upload` | POST | Upload de arquivo (novo doc → indexado) |
-| `/api/drive/folder/{id}` | GET | Lista pastas/arquivos do Drive |
-| `/api/drive/selection` | GET/POST | Lê/salva a seleção de pastas do Drive |
-| `/api/drive/sync` | POST | Sincroniza Drive (pode demorar) |
-| `/api/drive/clear` | POST | Remove arquivos baixados do Drive |
-| `/api/clear` | POST | Limpa tudo (docs + vetores) |
-| `/api/clear/documents` | POST | Limpa apenas documentos |
-| `/api/clear/vectorstore` | POST | Limpa apenas banco vetorial |
-
-### Indexação assíncrona (jobs)
-
-`POST /api/index/async` não bloqueia a requisição — o trabalho roda em thread de fundo:
-
-```bash
-curl -X POST http://localhost:9000/api/index/async \
-  -H "Content-Type: application/json" \
-  -d '{"mode": "all"}'
-# → {"status": "started", "job_id": "abc123"}
-
-curl http://localhost:9000/api/index/status/abc123
-# → {"status": "running", "progress": 4, "total": 10, "message": "manual.pdf", ...}
-```
-
-- `mode`: `all` | `documents`
-- `sync_drive`: `true`/`false` (padrão `false` — a indexação de documentos NÃO sincroniza o Drive por padrão; use o endpoint `/api/drive/sync` ou a opção 4 do menu para isso)
-- Se já houver um job rodando, retorna **409 Conflict**.
-- `POST /api/index/cancel/{job_id}` solicita cancelamento cooperativo (o status vira `cancelled`).
-- Jobs com mais de 1h são descartados automaticamente (prune a cada novo job).
-
----
-
-## Watcher de documentos
-
-Monitora `documents/` (incluindo `documents/drive`) e reindexa automaticamente quando há arquivos novos, alterados ou removidos:
-
-```bash
-python watch.py                 # verifica a cada 30s
-python watch.py --interval 60   # intervalo customizado
-```
-
-Usa polling leve (tamanho + mtime por arquivo), sem dependências externas. O estado fica em `logs/.watch_state.json`.
-
----
-
-## Fluxos
-
-```
-Indexação:  Documentos/Drive → Loader → Splitter → Embeddings → ChromaDB
-Consulta:   Pergunta → Embedding → ChromaDB (top-k) → Prompt Builder → Ollama → Resposta
+# 3. Executar
+python app.py                    # chat no terminal
+uvicorn api:app --host 0.0.0.0 --port 9000   # API REST
 ```
 
 ---
 
-## Documentação detalhada
+## 📚 Documentação
 
-| Arquivo | Conteúdo |
+| Área | Conteúdo |
 |---|---|
-| [Instalação](docs/installation.md) | Guia completo (Ollama, Python, Tesseract) |
-| [Configuração](docs/configuration.md) | Variáveis de ambiente, URL-encoding em senhas |
-| [Referência da API](docs/api-reference.md) | Todos os endpoints com request/response |
-| [Integração](docs/integration.md) | Exemplos em Python, Node.js, PHP, cURL, cron |
-| [Estrutura do Projeto](docs/project-structure.md) | Arquitetura de pastas e módulos |
+| **[Início](docs/index.md)** | Página principal da documentação e guia de navegação |
+| **[Instalação](docs/getting-started/installation.md)** | Guia completo — Ollama, Python, Tesseract |
+| **[Início rápido](docs/getting-started/quickstart.md)** | Primeira indexação e primeira pergunta |
+| **[Configuração](docs/getting-started/configuration.md)** | Todas as variáveis de ambiente e defaults |
+| **[Arquitetura](docs/architecture/overview.md)** | Visão geral do sistema e fluxo de dados |
+| **[Guia de Uso](docs/guides/usage.md)** | Menu do inicializador, chat, watcher, reset |
+| **[Google Drive](docs/guides/google-drive.md)** | Sincronização de pastas públicas |
+| **[Modo Analista](docs/guides/analyst-mode.md)** | Análise proativa e raciocínio |
+| **[Monitoramento](docs/guides/monitoring.md)** | Dashboard de métricas e logs |
+| **[Referência da API](docs/api/api-reference.md)** | Todos os endpoints, modelos e erros |
+| **[Integração](docs/api/integration.md)** | Exemplos em Python, Node.js, PHP e cURL |
+| **[Implantação](docs/operations/deployment.md)** | Supervisord, serviço Windows, build executável |
+| **[Solução de problemas](docs/operations/troubleshooting.md)** | Guia de diagnóstico e correções |
+| **[Estrutura do Projeto](docs/development/project-structure.md)** | Arquitetura de pastas e módulos |
+| **[Desenvolvimento](docs/development/development.md)** | Contribuindo e boas práticas |
+| **[Testes](docs/development/testing.md)** | Como rodar e estender a suíte |
 
 ---
 
-## Estrutura do projeto
+## 🗺️ Visão geral do fluxo
 
 ```
-Watson/
-├── api.py                  # API FastAPI (chat, indexação async, drive, auth)
-├── app.py                  # Chat interativo no terminal
-├── index.py                # Indexação CLI (documentos locais)
-├── drive_index.py          # Sincronização do Drive + indexação
-├── drive_select.py         # Seleção de pastas do Drive no terminal
-├── watch.py                # Watcher de documentos (reindexação automática)
-├── reset_app.py            # Reset total (vetores + documents/)
-├── config.py               # Configurações (.env)
-├── ingestion/              # Pipeline de indexação (loader, splitter, embeddings, indexer, drive_sync)
-├── rag/                    # Pipeline de consulta (retriever, prompt)
-├── llm/                    # Integração Ollama
-├── tests/                  # Testes unitários
-└── docs/                   # Documentação detalhada
+Indexação:  Documentos/Drive → Loader → Splitter → Quality/Dedup → Embeddings → ChromaDB
+Consulta:   Pergunta → Retriever (top-k) → Evidências → Prompt Builder → Ollama → Resposta + Fontes
 ```
+
+Saiba mais em [Arquitetura](docs/architecture/overview.md).
 
 ---
 
-## Testes
+## 📦 Componentes principais
+
+| Componente | Descrição |
+|---|---|
+| `api.py` | API REST FastAPI (chat, indexação assíncrona, Drive, métricas) |
+| `app.py` | Chat interativo no terminal |
+| `index.py` | Indexação de documentos locais (CLI) |
+| `drive_index.py` / `drive_select.py` | Sincronização e seleção de pastas do Drive |
+| `watch.py` | Watcher — reindexa automaticamente ao detectar mudanças |
+| `reset_app.py` | Reset total do índice e documentos |
+| `ingestion/` | Pipeline de indexação (adapters, loader, splitter, embeddings, indexer) |
+| `rag/` | Pipeline de consulta (retriever, chatbot, analyst, calculator) |
+| `llm/` | Cliente Ollama (geração e streaming) |
+| `metrics/` | Armazenamento de métricas (SQLite) + dashboard |
+| `presentation/` | Dashboard web e formatação de saída |
+
+---
+
+## 🧪 Testes
 
 ```bash
 pytest tests/ -q
 ```
 
-Suíte cobre: API (endpoints, auth, jobs, drive), indexação incremental, embeddings, OCR, splitter, retriever, chat e watcher.
+Suíte com mais de 300 testes cobrindo API, indexação incremental, embeddings, OCR, splitter, retriever, chat, analista, métricas e watcher.
 
 ---
 
-## Limpeza e manutenção
+## 📄 Licença
 
-```bash
-./cleanup.sh   # Linux/macOS
-cleanup.bat    # Windows
-```
+Este projeto é distribuído sob a licença **MIT**.
 
-Remove logs antigos, caches de embeddings, `.ruff_cache`, `.mypy_cache`, imagens temporárias e artefatos de testes.
+---
+
+*Documentação detalhada disponível em [`docs/`](docs/index.md).*
