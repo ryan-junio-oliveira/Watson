@@ -71,19 +71,25 @@ class ChatBot:
         return any(h in q for h in self._LISTING_HINTS)
 
     def _wants_full_context(self, question: str) -> bool:
-        """Detecta pedido de resposta completa/completa (TOP_K ampliado):
-        por padrão retornamos menos, e o contexto aumenta dinamicamente quando
-        o usuário pede 'mais informações', 'todos', 'completo', etc."""
+        """Detecta pedido EXPLÍCITO de resposta completa (TOP_K ampliado):
+        'todos', 'completo', 'mais informações', etc. Perguntas de listagem
+        genéricas ('quais sao ...') NÃO disparam a expansão total, para não
+        inchar o prompt e demorar demais em CPU."""
         q = question.lower()
-        return any(h in q for h in self._FULL_CONTEXT_HINTS) or self._is_listing(q)
+        return any(h in q for h in self._FULL_CONTEXT_HINTS)
 
     def _retrieve_rag(self, question: str) -> List[Evidence]:
         # Padrão: contexto normal (rápido). Aumenta dinamicamente quando o
         # usuário pede a resposta completa (mais informações, todos, completo).
+        # Perguntas de listagem genéricas usam o TOP_K padrão — sem bump e sem
+        # expansão por documento (que geraria prompts enormes e lentos em CPU).
         full = self._wants_full_context(question)
-        top_k = self.retriever.top_k * 4 if full else (
-            self.retriever.top_k * 2 if self._is_analytical(question) else None
-        )
+        if full:
+            top_k = self.retriever.top_k * 4
+        elif self._is_analytical(question):
+            top_k = self.retriever.top_k * 2
+        else:
+            top_k = None
         docs: List[Document] = self.retriever.retrieve(question, k=top_k)
         if self._rag_reranker and docs:
             from rag.reranker import Reranker as RagReranker

@@ -121,11 +121,14 @@ class TestChatBot:
         # Por padrão não quer contexto completo...
         assert not chatbot._wants_full_context("qual o erro E123?")
         assert not chatbot._wants_full_context("como faço para imprimir?")
+        # Listagens genéricas NÃO disparam expansão total (evita prompt gigante).
+        assert not chatbot._wants_full_context("quais são os modelos?")
+        assert not chatbot._wants_full_context("quais sao os pins das impressoras hp")
         # ...mas aumenta dinamicamente quando o usuário pede mais/amplitude.
         assert chatbot._wants_full_context("me dê todos os PINs disponíveis")
         assert chatbot._wants_full_context("quero a lista completa")
         assert chatbot._wants_full_context("preciso de mais informações sobre isso")
-        assert chatbot._wants_full_context("quais são os modelos?")
+        assert chatbot._wants_full_context("todos os modelos disponíveis")
 
     def test_ask_stream_auto_mode(self, chatbot):
         gen = chatbot.ask_stream("Pergunta?", mode=Mode.auto)
