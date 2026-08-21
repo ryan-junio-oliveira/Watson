@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import List
 
 from config import Config, config
-from ingestion.db_loader import DatabaseLoader
 from ingestion.drive_sync import GoogleDriveSync
 from ingestion.embeddings import EmbeddingGenerator
 from ingestion.indexer import DocumentIndexer
@@ -19,7 +18,7 @@ def ensure_directories(cfg: Config) -> None:
 
 
 def run_index(cfg: Config, logger, sync_drive: bool = True) -> int:
-    """Executa a indexação completa (Drive + documentos + banco).
+    """Executa a indexação completa (Drive + documentos).
 
     Retorna o número de chunks indexados. `sync_drive=False` pula a
     sincronização do Google Drive (útil quando já foi feita).
@@ -74,25 +73,6 @@ def run_index(cfg: Config, logger, sync_drive: bool = True) -> int:
     logger.info(f"Found {len(file_docs)} file documents")
     all_documents.extend(file_docs)
     print(f"  Documentos: {len(file_docs)} arquivos encontrados")
-
-    if cfg.db_connection_string:
-        try:
-            db_loader = DatabaseLoader(
-                connection_string=cfg.db_connection_string,
-                tables=cfg.db_tables,
-                logger=logger,
-            )
-            logger.info("Loading data from database...")
-            db_docs = db_loader.load()
-            logger.info(f"Loaded {len(db_docs)} records from database")
-            all_documents.extend(db_docs)
-            print(f"  Banco de dados: {len(db_docs)} registros carregados")
-        except Exception as e:
-            logger.error(f"Database loading failed: {e}")
-            print(f"  Banco de dados: ERRO - {e}")
-    else:
-        logger.info("No database configured, skipping database")
-        print("  Banco de dados: nao configurado, pulando")
 
     if not all_documents:
         logger.warning("No documents found to index")

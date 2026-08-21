@@ -9,13 +9,12 @@ from typing import AsyncGenerator, Callable, Dict, List, Optional
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 
 from config import Config, config as app_config
-from ingestion.db_loader import DatabaseLoader
 from ingestion.drive_sync import (
     GoogleDriveSync,
     SelectedFolder as _SelectedFolder,
@@ -26,12 +25,12 @@ from ingestion.loader import DocumentLoader
 from ingestion.splitter import DocumentSplitter
 from llm.ollama_client import OllamaClient
 from presentation.formatter import ApiFormatter
+from rag.analyst import Analyst
 from rag.chatbot import ChatBot
 from rag.prompt import PromptBuilder
 from rag.reranker import Reranker as RagReranker
 from rag.response import Mode
 from rag.retriever import Retriever
-from tools.sql_tool import SqlQueryTool
 from utils.logger import setup_logger
 
 
@@ -49,6 +48,14 @@ class ChatRequest(BaseModel):
                     "ambos respondem com base nos documentos e dados indexados (RAG). "
                     "Modos: auto | rag.",
         examples=["auto", "rag"],
+    )
+    analyze: bool = Field(
+        False,
+        description="Se true, roda a análise proativa (reflexão sobre a própria "
+                    "resposta, conclusões e perguntas de acompanhamento) e busca "
+                    "mais informação no acervo. Respostas chegam em "
+                    "`follow_up`, `conclusions` e `additional_info`.",
+        examples=[True],
     )
 
 
@@ -77,6 +84,18 @@ class ChatSuccessResponse(BaseModel):
     confidence: float = Field(0.0, description="Nível de confiança na resposta (0.0 a 1.0)")
     sources: List[SourceItem] = Field(default_factory=list, description="Documentos utilizados como fonte")
     metadata: ChatMetadata = Field(default_factory=ChatMetadata, description="Metadados da execução")
+    follow_up: Optional[List[str]] = Field(
+        None, description="Perguntas de acompanhamento (análise proativa, `analyze=true`)",
+        examples=[["Quer saber a previsão de manutenção?"]],
+    )
+    conclusions: Optional[List[str]] = Field(
+        None, description="Conclusões da análise proativa sobre a própria resposta",
+        examples=[["O volume está acima do recomendado pelo manual."]],
+    )
+    additional_info: Optional[List[str]] = Field(
+        None, description="Informação adicional buscada no acervo indexado",
+        examples=[["O manual também cita a troca do kit de fusão nesse volume."]],
+    )
 
 
 class ChatErrorDetail(BaseModel):
@@ -96,7 +115,6 @@ class ErrorResponse(BaseModel):
 class IndexResponse(BaseModel):
     status: str = Field(..., description="Status da operação", examples=["ok"])
     documents_indexed: int = Field(0, description="Quantidade de documentos indexados")
-    db_indexed: int = Field(0, description="Quantidade de registros do banco indexados")
     total_chunks: int = Field(0, description="Total de chunks processados")
 
 
@@ -116,7 +134,6 @@ class HealthResponse(BaseModel):
     status: str = Field(..., description="Status geral da API", examples=["ok"])
     documents_dir: str = Field(..., description="Diretório de documentos")
     chroma_dir: str = Field(..., description="Diretório do banco vetorial ChromaDB")
-    db_configured: bool = Field(..., description="Se o banco MySQL está configurado")
     ollama_model: str = Field(..., description="Modelo Ollama em uso")
 
 
@@ -196,7 +213,6 @@ class _IndexJobCancelled(Exception):
 
 def _start_index_job(
     index_documents: bool,
-    index_database: bool,
     sync_drive: bool = False,
 ) -> str:
     """Inicia a indexação em uma thread de fundo e retorna o job_id.
@@ -240,7 +256,6 @@ def _start_index_job(
                 result = asyncio.run(
                     _run_index(
                         index_documents,
-                        index_database,
                         sync_drive,
                         on_progress=_update_job,
                     )
@@ -305,6 +320,9 @@ def _preload_models(_chatbot: ChatBot, _emb_gen, _logger) -> None:
 
 
 def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
+    from metrics.store import MetricsStore
+
+    _metrics = MetricsStore(db_path=cfg.metrics_db, logger=_logger)
     _embedding_generator = EmbeddingGenerator(
         model_name=cfg.embedding_model,
         device=cfg.embedding_device,
@@ -331,6 +349,7 @@ def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
         max_tokens=cfg.max_tokens,
         request_timeout=cfg.ollama_timeout,
         logger=_logger,
+        metrics=_metrics,
     )
     _rag_reranker = (
         RagReranker(
@@ -341,14 +360,14 @@ def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
         if cfg.use_reranker
         else None
     )
-    _sql_tool = (
-        SqlQueryTool(
-            connection_string=cfg.db_connection_string,
-            tables=cfg.db_tables,
-            max_rows=cfg.db_max_rows_per_query,
+    _analyst = (
+        Analyst(
+            retriever=_retriever,
+            ollama_client=_ollama_client,
             logger=_logger,
+            max_followups=cfg.analyst_max_followups,
         )
-        if cfg.db_connection_string
+        if cfg.enable_analyst
         else None
     )
     return ChatBot(
@@ -356,12 +375,18 @@ def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
         prompt_builder=_prompt_builder,
         ollama_client=_ollama_client,
         reranker=_rag_reranker,
-        sql_tool=_sql_tool,
         logger=_logger,
+        enable_reasoning=cfg.enable_reasoning,
+        analyst=_analyst,
+        agent_name=cfg.agent_name,
+        metrics=_metrics,
     )
 
 
 def build_indexer(cfg: Config, _logger: logging.Logger):
+    from metrics.store import MetricsStore
+
+    _metrics = MetricsStore(db_path=cfg.metrics_db, logger=_logger)
     _embedding_generator = EmbeddingGenerator(
         model_name=cfg.embedding_model,
         device=cfg.embedding_device,
@@ -381,6 +406,7 @@ def build_indexer(cfg: Config, _logger: logging.Logger):
         chroma_persist_dir=cfg.vector_db_dir,
         batch_size=cfg.index_batch_size,
         logger=_logger,
+        metrics=_metrics,
     )
     return _embedding_generator, _splitter, _indexer
 
@@ -419,14 +445,14 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Watson RAG API",
     description="""
-    API de Retrieval-Augmented Generation (RAG) para indexação de documentos,
-    imagens e dados de banco, com consultas inteligentes via LLM (Ollama).
+    API de Retrieval-Augmented Generation (RAG) para indexação de documentos e
+    imagens, com consultas inteligentes via LLM (Ollama).
 
     ## Arquitetura (Knowledge Ingestion & Indexing Pipeline)
     O Watson transforma fontes de conhecimento em uma base pesquisável:
 
     1. **Ingestão** — adapters por fonte (PDF com OCR seletivo, DOCX, CSV, XLSX,
-       TXT, imagens e banco de dados), extraindo estrutura (páginas, seções,
+       TXT, imagens), extraindo estrutura (páginas, seções,
        tabelas, imagens).
     2. **Indexação** — chunking semântico por tipo, deduplicação, quality gate,
        embeddings multilíngues (padrão `intfloat/multilingual-e5-base`) com
@@ -439,10 +465,9 @@ app = FastAPI(
     5. **Geração** — LLM sintetiza a resposta com base nas evidências.
 
     ## Funcionalidades
-    - **Chat**: perguntas sobre documentos e banco indexados (RAG).
+    - **Chat**: perguntas sobre documentos indexados (RAG).
     - **Streaming (SSE)**: tokens da resposta em tempo real + metadados finais.
-    - **Indexação**: `POST /api/index` (documentos + banco), com endpoints
-      separados para documentos e banco; respeita `DB_MODE` (rag | sql | both).
+    - **Indexação**: `POST /api/index` (documentos).
     - **Upload**: envie novos documentos (PDF, TXT, DOCX, XLSX, CSV, imagens).
     - **Reindexação**: incremental por hash/versão; use `DELETE` de fontes via
       limpeza ou reindexação controlada.
@@ -574,7 +599,6 @@ async def health():
         status=overall,
         documents_dir=cfg.documents_dir,
         chroma_dir=cfg.vector_db_dir,
-        db_configured=bool(cfg.db_connection_string),
         ollama_model=cfg.ollama_model,
     )
 
@@ -618,7 +642,7 @@ async def list_models():
     },
 )
 async def chat(request: ChatRequest, req: Request):
-    """Responde uma pergunta usando RAG (documentos + banco indexados).
+    """Responde uma pergunta usando RAG (documentos indexados).
 
     Retorna `answer`, `confidence`, `sources` (com metadata rica: fabricante,
     modelo, seção, página e códigos de erro) e `metadata` de execução.
@@ -640,9 +664,13 @@ async def chat(request: ChatRequest, req: Request):
                 role = msg.get("role", "user")
                 content = msg.get("content", "")
                 context += f"{role}: {content}\n"
-            result = chatbot.ask_with_context(question, context, mode=request.mode)
+            result = chatbot.ask_with_context(
+                question, context, mode=request.mode, analyze=request.analyze
+            )
         else:
-            result = chatbot.ask(question, mode=request.mode)
+            result = chatbot.ask(
+                question, mode=request.mode, analyze=request.analyze
+            )
 
         logger.info(
             f"[{request_id}] Chat completed: {len(result.answer)} chars, "
@@ -715,9 +743,13 @@ async def chat_stream(request: ChatRequest, req: Request):
                     content = msg.get("content", "")
                     context += f"{role}: {content}\n"
             gen = (
-                chatbot.ask_stream_with_history(question, context, mode=request.mode)
+                chatbot.ask_stream_with_history(
+                    question, context, mode=request.mode, analyze=request.analyze
+                )
                 if request.history
-                else chatbot.ask_stream(question, mode=request.mode)
+                else chatbot.ask_stream(
+                    question, mode=request.mode, analyze=request.analyze
+                )
             )
             try:
                 while True:
@@ -922,7 +954,7 @@ async def drive_clear(req: Request):
     "/api/index",
     response_model=IndexResponse,
     tags=["Indexação"],
-    summary="Indexar documentos e banco de dados",
+    summary="Indexar documentos",
     response_description="Resultado da indexação incluindo documentos e chunks processados",
     responses={
         200: {"description": "Indexação concluída", "model": IndexResponse},
@@ -930,13 +962,11 @@ async def drive_clear(req: Request):
     },
 )
 async def index_all():
-    """Indexa documentos e banco de forma incremental (por hash/versão).
+    """Indexa documentos de forma incremental (por hash/versão).
 
-    Processa apenas documentos/registros alterados ou novos. Respeita
-    `DB_MODE`: em `sql`, os dados do banco são consultados via SQL Tool e não
-    são indexados em embeddings.
+    Processa apenas documentos alterados ou novos.
     """
-    return await _run_index(index_documents=True, index_database=True)
+    return await _run_index(index_documents=True)
 
 
 @app.post(
@@ -953,30 +983,12 @@ async def index_all():
 async def index_documents():
     """Indexa apenas documentos (PDF, DOCX, CSV, XLSX, TXT, imagens) do
     diretório configurado, com OCR seletivo e incremental por hash."""
-    return await _run_index(index_documents=True, index_database=False)
-
-
-@app.post(
-    "/api/index/database",
-    response_model=IndexResponse,
-    tags=["Indexação"],
-    summary="Indexar apenas banco de dados",
-    response_description="Resultado da indexação do banco de dados",
-    responses={
-        200: {"description": "Indexação concluída", "model": IndexResponse},
-        400: {"description": "Banco de dados não configurado", "model": ErrorResponse},
-        503: {"description": "Indexador não foi inicializado", "model": ErrorResponse},
-    },
-)
-async def index_database():
-    """Indexa registros do banco (tabelas úteis configuradas) como conhecimento
-    RAG. Em `DB_MODE=sql`, não indexa — dados são consultados via SQL Tool."""
-    return await _run_index(index_documents=False, index_database=True)
+    return await _run_index(index_documents=True)
 
 
 class IndexJobRequest(BaseModel):
     mode: str = Field(
-        "all", description="O que indexar: all | documents | database",
+        "all", description="O que indexar: all | documents",
         examples=["documents"],
     )
     sync_drive: bool = Field(
@@ -1027,14 +1039,13 @@ async def index_async(payload: IndexJobRequest):
         raise HTTPException(status_code=503, detail="Indexer not initialized")
 
     mode = payload.mode or "all"
-    if mode not in {"all", "documents", "database"}:
+    if mode not in {"all", "documents"}:
         raise HTTPException(status_code=400, detail=f"Invalid mode: {mode}")
 
     _prune_index_jobs()
 
     job_id = _start_index_job(
         index_documents=mode in {"all", "documents"},
-        index_database=mode in {"all", "database"},
         sync_drive=payload.sync_drive,
     )
     logger.info(f"Background index job started: {job_id} ({mode})")
@@ -1109,7 +1120,6 @@ async def index_cancel(job_id: str):
 
 async def _run_index(
     index_documents: bool,
-    index_database: bool,
     sync_drive: bool = False,
     on_progress: Optional[Callable[..., None]] = None,
 ) -> IndexResponse:
@@ -1120,7 +1130,6 @@ async def _run_index(
 
     total_chunks = 0
     docs_indexed = 0
-    db_indexed = 0
 
     if index_documents:
         try:
@@ -1180,49 +1189,9 @@ async def _run_index(
             logger.exception(f"Document indexing error: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    if index_database:
-        try:
-            if not cfg.db_connection_string:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Database not configured. Set DB_CONNECTION_STRING in config.",
-                )
-
-            if cfg.db_mode == "sql":
-                # §12: dados estruturados são consultados via SQL Tool,
-                # não são transformados em embeddings.
-                logger.info("DB_MODE=sql: skipping RAG indexing of database records")
-                return IndexResponse(
-                    status="ok",
-                    documents_indexed=docs_indexed,
-                    db_indexed=0,
-                    total_chunks=total_chunks,
-                )
-
-            loader = DatabaseLoader(
-                connection_string=cfg.db_connection_string,
-                tables=cfg.db_tables,
-                logger=logger,
-            )
-            db_documents = loader.load()
-
-            if db_documents:
-                chunks = indexer.index(db_documents)
-                total_chunks += chunks
-                db_indexed = len(db_documents)
-                logger.info(f"Indexed {chunks} chunks from {len(db_documents)} database records")
-            else:
-                logger.info("No database records to index")
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.exception(f"Database indexing error: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
     return IndexResponse(
         status="ok",
         documents_indexed=docs_indexed,
-        db_indexed=db_indexed,
         total_chunks=total_chunks,
     )
 
@@ -1340,6 +1309,14 @@ async def _run_clear(clear_docs: bool, clear_vectorstore: bool) -> ClearResponse
             vec_removed = indexer.clear_vectorstore()
         if clear_docs:
             docs_removed = indexer.clear_documents(cfg.documents_dir)
+        # Limpar a "memória" (vetores) também zera as métricas registradas,
+        # já que os dados de origem foram apagados.
+        if clear_vectorstore:
+            try:
+                from metrics.store import MetricsStore
+                MetricsStore(db_path=cfg.metrics_db, logger=logger).clear()
+            except Exception as e:
+                logger.warning(f"Metrics clear failed: {e}")
         logger.info(f"Clear completed: {docs_removed} docs, {vec_removed} vectorstore files")
         return ClearResponse(
             status="ok",
@@ -1349,6 +1326,104 @@ async def _run_clear(clear_docs: bool, clear_vectorstore: bool) -> ClearResponse
     except Exception as e:
         logger.exception(f"Clear error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ------------------------------------------------------------------ #
+# Métricas e Dashboard
+# ------------------------------------------------------------------ #
+
+def _get_metrics_store():
+    from metrics.store import MetricsStore
+    return MetricsStore(db_path=cfg.metrics_db, logger=logger)
+
+
+@app.get(
+    "/api/metrics/summary",
+    tags=["Métricas"],
+    summary="Resumo das métricas do Watson",
+)
+async def metrics_summary(hours: Optional[float] = 24.0):
+    store = _get_metrics_store()
+    since = None
+    if hours:
+        import time
+        since = time.time() - hours * 3600
+    return store.summary(since_ts=since)
+
+
+@app.get(
+    "/api/metrics/tokens",
+    tags=["Métricas"],
+    summary="Série temporal de tokens (input/output)",
+)
+async def metrics_tokens(hours: float = 24.0):
+    store = _get_metrics_store()
+    return {"hours": hours, "series": store.token_series(hours)}
+
+
+@app.get(
+    "/api/metrics/requests",
+    tags=["Métricas"],
+    summary="Série temporal de requisições de chat",
+)
+async def metrics_requests(hours: float = 24.0):
+    store = _get_metrics_store()
+    return {"hours": hours, "series": store.request_series(hours)}
+
+
+@app.get(
+    "/api/metrics/models",
+    tags=["Métricas"],
+    summary="Tokens por modelo",
+)
+async def metrics_models(hours: float = 24.0):
+    store = _get_metrics_store()
+    return {"models": store.by_model(hours)}
+
+
+@app.get(
+    "/api/metrics/llm-calls",
+    tags=["Métricas"],
+    summary="Últimas chamadas ao LLM",
+)
+async def metrics_llm_calls(limit: int = 50):
+    store = _get_metrics_store()
+    return {"calls": store.recent_llm_calls(limit)}
+
+
+@app.get(
+    "/api/metrics/requests-log",
+    tags=["Métricas"],
+    summary="Últimas requisições de chat",
+)
+async def metrics_requests_log(limit: int = 50):
+    store = _get_metrics_store()
+    return {"requests": store.recent_requests(limit)}
+
+
+@app.get(
+    "/api/metrics/documents",
+    tags=["Métricas"],
+    summary="Histórico de dados indexados",
+)
+async def metrics_documents():
+    store = _get_metrics_store()
+    return {"history": store.document_history()}
+
+
+@app.get(
+    "/api/metrics/index-events",
+    tags=["Métricas"],
+    summary="Eventos recentes de indexação",
+)
+async def metrics_index_events(limit: int = 50):
+    store = _get_metrics_store()
+    return {"events": store.recent_index_events(limit)}
+
+
+@app.get("/dashboard", include_in_schema=False)
+async def dashboard():
+    return FileResponse(Path(__file__).parent / "presentation" / "dashboard.html")
 
 
 if __name__ == "__main__":

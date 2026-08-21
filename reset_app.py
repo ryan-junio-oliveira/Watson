@@ -58,12 +58,14 @@ def main() -> None:
     selection_path = drive_dir / ".drive_selection.json"
     embedding_cache = Path(cfg.embedding_cache_path)
     image_dir = Path(cfg.image_dir)
+    metrics_db = Path(cfg.metrics_db)
 
     print("== Reset total do Watson ==")
     print(f"  Banco vetorial : {vector_db}")
     print(f"  Manifesto      : {manifest_path}")
     print(f"  Cache emb.     : {embedding_cache}")
     print(f"  Imagens OCR    : {image_dir}")
+    print(f"  Métricas       : {metrics_db}")
     if not args.no_docs:
         print(f"  Documentos     : {docs_dir}")
         print(f"  Google Drive   : {drive_dir} (inclui seleção)")
@@ -74,7 +76,7 @@ def main() -> None:
             print("Cancelado.")
             return
 
-    removed = {"chunks": 0, "manifest": 0, "docs": 0, "drive": 0, "cache": 0, "images": 0}
+    removed = {"chunks": 0, "manifest": 0, "docs": 0, "drive": 0, "cache": 0, "images": 0, "metrics": 0}
 
     # 1) Banco vetorial + manifesto (reutiliza o indexer quando possível)
     try:
@@ -107,10 +109,13 @@ def main() -> None:
         if vector_db.exists():
             shutil.rmtree(vector_db, ignore_errors=True)
 
-    # 2) Caches regeneráveis: cache de embeddings e imagens OCR
+    # 2) Caches regeneráveis: cache de embeddings, imagens OCR e métricas
     if embedding_cache.exists():
         embedding_cache.unlink()
         removed["cache"] = 1
+    if metrics_db.exists():
+        metrics_db.unlink()
+        removed["metrics"] = 1
     if image_dir.exists():
         for item in image_dir.rglob("*"):
             if item.is_file():
@@ -151,6 +156,7 @@ def main() -> None:
     print(f"  Manifesto     : limpo")
     print(f"  Cache emb.    : {removed['cache']} arquivo removido")
     print(f"  Imagens OCR   : {removed['images']} arquivos removidos")
+    print(f"  Métricas      : {removed['metrics']} arquivo removido")
     if not args.no_docs:
         print(f"  Documentos    : pasta {docs_dir} removida inteira "
               f"({removed['docs']} arquivos)")

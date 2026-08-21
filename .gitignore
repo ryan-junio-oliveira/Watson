@@ -44,8 +44,10 @@ chroma/
 # Dados gerados localmente
 database/embedding_cache.sqlite3
 database/images/
+database/metrics.db
 *.sqlite3
 *.sqlite
+*.db
 
 # Artefatos de teste (mocks gravando em disco)
 MagicMock/

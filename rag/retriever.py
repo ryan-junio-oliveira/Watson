@@ -108,3 +108,49 @@ class Retriever:
             )
 
         return results
+
+    def retrieve_all_from_source(
+        self,
+        source: str,
+        exclude_ids: Optional[set] = None,
+        max_chunks: int = 50,
+    ) -> List[Document]:
+        """Retorna TODOS os chunks de uma mesma fonte (ex.: um documento PDF),
+        sem limite por similaridade — usado em perguntas de listagem para não
+        omitir itens espalhados pelo arquivo."""
+        try:
+            vector_store = self._get_vector_store()
+            collection = vector_store._collection
+            if collection.count() == 0:
+                return []
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Could not query source chunks: {e}")
+            return []
+
+        # O `get` do Chroma não suporta `$contains` no where nesta versão;
+        # então lemos o índice inteiro (pequeno) e filtramos por source aqui.
+        try:
+            raw = collection.get(limit=100000, include=["documents", "metadatas"])
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Source chunk query failed: {e}")
+            return []
+
+        needle = source.strip().lower()
+        results: List[Document] = []
+        docs = raw.get("documents") or []
+        metas = raw.get("metadatas") or []
+        for content, meta in zip(docs, metas):
+            meta = dict(meta or {})
+            meta_source = str(meta.get("source", "")).lower()
+            if needle not in meta_source:
+                continue
+            chunk_id = meta.get("chunk_id", "")
+            if exclude_ids and chunk_id in exclude_ids:
+                continue
+            meta["relevance_score"] = meta.get("relevance_score", 0.5)
+            results.append(Document(page_content=content or "", metadata=meta))
+            if len(results) >= max_chunks:
+                break
+        return results

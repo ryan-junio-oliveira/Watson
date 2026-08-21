@@ -21,13 +21,20 @@ class ResponseFormatter(ABC):
 class ApiFormatter(ResponseFormatter):
 
     def format(self, response: AgentResponse) -> dict:
-        return {
+        data = {
             "success": True,
             "answer": response.answer,
             "confidence": round(response.confidence, 2),
             "sources": self._serialize_sources(response.sources),
             "metadata": self._build_metadata(response),
         }
+        if response.follow_up:
+            data["follow_up"] = response.follow_up
+        if response.conclusions:
+            data["conclusions"] = response.conclusions
+        if response.additional_info:
+            data["additional_info"] = response.additional_info
+        return data
 
     def format_error(self, code: str, message: str) -> dict:
         return {
@@ -36,11 +43,18 @@ class ApiFormatter(ResponseFormatter):
         }
 
     def format_stream_metadata(self, response: AgentResponse) -> dict:
-        return {
+        data = {
             "confidence": round(response.confidence, 2),
             "sources": self._serialize_sources(response.sources),
             "metadata": self._build_metadata(response),
         }
+        if response.follow_up:
+            data["follow_up"] = response.follow_up
+        if response.conclusions:
+            data["conclusions"] = response.conclusions
+        if response.additional_info:
+            data["additional_info"] = response.additional_info
+        return data
 
     def _error(self, code: str, message: str) -> dict:
         return self.format_error(code, message)

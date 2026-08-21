@@ -62,6 +62,18 @@ if not exist ".env" (
     echo [4/4] .env ja existe.
 )
 
+:: 5. Garantir diretorio de dados (metrics/chroma/images)
+if not exist "database" mkdir "database"
+
+:: 6. Garantir METRICS_DB no .env (valor padrao)
+if exist ".env" (
+    findstr /B /C:"METRICS_DB=" ".env" >nul 2>nul
+    if errorlevel 1 (
+        echo [INFO] Adicionando METRICS_DB ao .env
+        echo METRICS_DB=database/metrics.db>> ".env"
+    )
+)
+
 :: Validar dotenv instalado no venv
 "%PYTHON_EXE%" -c "import dotenv" >nul 2>nul
 if errorlevel 1 (
