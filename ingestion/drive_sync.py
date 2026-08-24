@@ -144,7 +144,7 @@ class GoogleDriveSync:
         self.dest_dir = Path(dest_dir)
         self.logger = logger
         self.timeout = timeout
-        self.max_workers = int(os.getenv("GOOGLE_DRIVE_WORKERS", "8"))
+        self.max_workers = max(1, int(os.getenv("GOOGLE_DRIVE_WORKERS", "8")))
         self.extensions = extensions or {
             ".pdf", ".docx", ".txt", ".md", ".markdown",
             ".csv", ".xlsx", ".xls", ".jpg", ".jpeg", ".png",

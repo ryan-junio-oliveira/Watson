@@ -20,6 +20,16 @@ Watson/
 ├── requirements.txt          # Dependências Python
 ├── pyproject.toml            # Configuração de build/lint/type
 ├── .env.example              # Exemplo de configuração
+├── start.bat / start.sh      # Inicializador com menu de operações
+├── setup.bat / setup.sh      # Setup do ambiente (.venv + dependências)
+├── stop.bat / stop.sh        # Parada da API (por porta)
+├── cleanup.bat / cleanup.sh  # Limpeza de artefatos de build/teste
+├── build.bat                 # Build executável Windows (PyInstaller)
+├── watson.spec               # Spec do PyInstaller
+├── setup_supervisor.sh       # Instalação do serviço no Linux (supervisord)
+├── watson-supervisord.conf   # Configuração do supervisord
+├── CHANGELOG.md              # Histórico de versões
+└── NEW_VERSION.md            # Notas da versão atual
 │
 ├── ingestion/                # PIPELINE DE INDEXAÇÃO
 │   ├── loader.py             # Descoberta e carregamento de documentos
@@ -77,7 +87,7 @@ Watson/
 │   ├── test_indexer.py       # Indexação incremental
 │   ├── test_chatbot.py       # Chat/RAG
 │   ├── test_retriever.py     # Recuperação
-│   └── ...                   # (30+ arquivos)
+│   └── ...                   # (29 arquivos test_*.py + 2 scripts e2e)
 │
 ├── docs/                     # DOCUMENTAÇÃO
 │   ├── index.md

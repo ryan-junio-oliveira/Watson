@@ -23,7 +23,7 @@ Edite conforme necessário. O arquivo é re-lido a cada inicialização do proce
 | Variável | Padrão | Descrição |
 |---|---|---|
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | URL do servidor Ollama |
-| `OLLAMA_MODEL` | `qwen3:8b` | Modelo de geração. `.env.example` e cliente sugerem `gemma3:4b` |
+| `OLLAMA_MODEL` | `gemma3:4b` | Modelo de geração |
 | `OLLAMA_TIMEOUT` | `300` | Timeout (s) por chamada ao Ollama |
 | `TEMPERATURE` | `0.1` | Temperatura (0 = determinístico, 1 = criativo) |
 | `MAX_TOKENS` | `2048` | Máximo de tokens por resposta |
@@ -53,7 +53,7 @@ Edite conforme necessário. O arquivo é re-lido a cada inicialização do proce
 | Variável | Padrão | Descrição |
 |---|---|---|
 | `TOP_K` | `5` | Chunks recuperados por consulta |
-| `SIMILARITY_THRESHOLD` | `0.0` | Score mínimo (0 = sem filtro) |
+| `SIMILARITY_THRESHOLD` | *(vazio)* | Score mínimo de similaridade. Vazio/ausente = sem filtro; um valor como `0.0` filtra scores negativos |
 | `USE_MMR` | `false` | Usa Max Marginal Relevance (diversidade) |
 | `MMR_FETCH_K` | `20` | Candidatos para MMR |
 | `MMR_LAMBDA` | `0.5` | Equilíbrio relevância × diversidade |
@@ -86,6 +86,7 @@ Edite conforme necessário. O arquivo é re-lido a cada inicialização do proce
 | `GOOGLE_DRIVE_FOLDER_ID` | *(vazio)* | ID da pasta pública raiz |
 | `GOOGLE_DRIVE_DEST_DIR` | `documents/drive` | Onde os arquivos do Drive são salvos |
 | `GOOGLE_DRIVE_SYNC_TIMEOUT` | `60` | Timeout (s) por requisição de download |
+| `GOOGLE_DRIVE_WORKERS` | `8` | Downloads paralelos durante o sync (mínimo 1) |
 
 ### 🔌 API
 

@@ -48,6 +48,8 @@ O `MetricsStore` usa SQLite (`METRICS_DB`, padrão `database/metrics.db`) com qu
 | `/api/metrics/documents` | GET | Histórico de documentos/chunks indexados |
 | `/api/metrics/index-events` | GET | Eventos recentes de indexação — `?limit=` |
 
+> **Retenção:** o banco de métricas mantém os registros dos últimos **30 dias** (`MetricsStore.prune()`); registros mais antigos são removidos automaticamente.
+
 ---
 
 ## Logs

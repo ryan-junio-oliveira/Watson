@@ -10,7 +10,7 @@ load_dotenv()
 @dataclass
 class Config:
     ollama_model: str = field(
-        default_factory=lambda: os.getenv("OLLAMA_MODEL", "qwen3:8b")
+        default_factory=lambda: os.getenv("OLLAMA_MODEL", "gemma3:4b")
     )
     ollama_base_url: str = field(
         default_factory=lambda: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -85,6 +85,9 @@ class Config:
     )
     google_drive_sync_timeout: int = field(
         default_factory=lambda: int(os.getenv("GOOGLE_DRIVE_SYNC_TIMEOUT", "60"))
+    )
+    google_drive_workers: int = field(
+        default_factory=lambda: max(1, int(os.getenv("GOOGLE_DRIVE_WORKERS", "8")))
     )
     vector_db_dir: str = field(
         default_factory=lambda: os.getenv("VECTOR_DB_DIR", "database/chroma")

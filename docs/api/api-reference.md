@@ -2,7 +2,7 @@
 
 Servidor FastAPI, padrão na porta `9000`. Documentação interativa em `/docs` (Swagger) e `/redoc`.
 
-**Versão atual:** `3.0.0`
+**Versão atual:** `0.0.1`
 
 ---
 
@@ -268,7 +268,7 @@ Indexa documentos de forma **incremental** (hash + versões de parser/chunking/e
 
 ### `POST /api/index/documents`
 
-Indexa apenas documentos do diretório configurado (sem sincronizar o Drive).
+Indexa apenas documentos do diretório configurado, sem sincronizar o Drive. Comportamento idêntico ao `POST /api/index` — a sincronização do Drive só ocorre via `/api/index/async` com `sync_drive=true`.
 
 ---
 
@@ -330,10 +330,12 @@ Solicita cancelamento cooperativo de um job.
 **Response (200):**
 ```json
 {
-  "status": "cancelled",
+  "status": "cancelling",
   "job_id": "abc123def456"
 }
 ```
+
+> O status do job passa a `cancelled` no polling de `GET /api/index/status/{job_id}`, assim que o worker abortar entre documentos.
 
 ---
 
@@ -531,7 +533,8 @@ Serve o dashboard de métricas (HTML single-page). Excluído do schema OpenAPI.
     "evidence_count": "integer",
     "execution_time_ms": "integer",
     "verdict": "string",
-    "issues": ["string (opcional)"]
+    "issues": ["string (opcional)"],
+    "fallback": "\"no_documents\" (presente apenas quando não há documentos indexados)"
   },
   "follow_up": ["string (opcional)"],
   "conclusions": ["string (opcional)"],

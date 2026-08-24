@@ -510,7 +510,7 @@ app = FastAPI(
 
     Diagnósticos internos **nunca** são expostos na resposta.
     """,
-    version="3.0.0",
+    version="0.0.1",
     contact={
         "name": "Watson Team",
         "url": "http://localhost:9000",

@@ -7,9 +7,9 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/spec/v2.0.
 
 ---
 
-## [v1.0.0] — 2026-08-21
+## [v0.0.1] — 2026-08-24
 
-Primeira versão estável do **Watson RAG** — um agente de IA de Retrieval-Augmented
+Primeira versão oficial do **Watson RAG** — um agente de IA de Retrieval-Augmented
 Generation (RAG) 100% local para consulta de documentos técnicos (PDF, DOCX,
 planilhas, imagens e arquivos do Google Drive).
 
@@ -25,12 +25,15 @@ planilhas, imagens e arquivos do Google Drive).
 - **Detecção inteligente de contexto:** o `top_k` se ajusta dinamicamente —
   padrão para perguntas simples, `top_k × 2` para perguntas analíticas e
   `top_k × 4` + expansão por documento apenas em pedidos explícitos de
-  completude (`todos`, `completo`, `mais informações`).
+  completude (`todos`, `completo`, `mais informações`). Listagens genéricas
+  mantêm o `top_k` padrão, evitando prompts gigantes e respostas lentas.
 - **Cálculo verificado:** camada determinística (`rag/calculator.py`) resolve
   percentuais, somas, médias, máximos e mínimos sem depender da aritmética do
   LLM, reduzindo alucinações numéricas.
 - **Modo Analista (análise proativa):** sob demanda, gera conclusões, perguntas
   de acompanhamento e busca informação adicional no acervo (`analyze=true`).
+- **Raciocínio opcional (thinking):** modo `think` para modelos compatíveis
+  (qwen3/qwq) com remoção do bloco de pensamento da resposta final.
 
 ### 🖥️ Pipeline de Indexação
 
@@ -51,7 +54,8 @@ planilhas, imagens e arquivos do Google Drive).
   por `uc?export=download`.
 - **Seleção de pastas:** navegação e marcação de pastas a indexar, persistida em
   `.drive_selection.json` e compartilhada com a API.
-- **Sincronização incremental** com manifesto local e download paralelo.
+- **Sincronização incremental** com manifesto local e download paralelo
+  (configurável via `GOOGLE_DRIVE_WORKERS`, padrão 8).
 
 ### 🔌 API REST (FastAPI)
 
@@ -69,7 +73,7 @@ planilhas, imagens e arquivos do Google Drive).
 ### 📊 Dashboard e Métricas
 
 - **MetricsStore (SQLite):** registra chamadas de LLM, requisições, documentos
-  e eventos de indexação de forma unificada.
+  e eventos de indexação de forma unificada, com retenção de 30 dias.
 - **Dashboard web** em `/dashboard`: KPIs, gráficos de tokens/requisições/modelos,
   histórico de documentos e tabelas de eventos recentes, com auto-refresh.
 
@@ -80,7 +84,8 @@ planilhas, imagens e arquivos do Google Drive).
 - **Indexação** (`index.py`), **Drive + Index** (`drive_index.py`),
   **Seleção do Drive** (`drive_select.py`).
 - **Watcher** (`watch.py`): reindexação automática ao detectar mudanças.
-- **Reset total** (`reset_app.py`).
+- **Reset total** (`reset_app.py`): índice vetorial, cache de embeddings,
+  imagens OCR, métricas e documentos.
 - **Inicializador** (`start.bat`/`start.sh`) com menu de operações e setup automático.
 
 ### 🖥️ Implantação
@@ -101,9 +106,12 @@ planilhas, imagens e arquivos do Google Drive).
 
 ### 📄 Documentação
 
-- `README.md` reescrito como landing page profissional.
-- Documentação reestruturada em `docs/` por jornada de uso (instalação,
+- `README.md` como landing page profissional.
+- Documentação estruturada em `docs/` por jornada de uso (instalação,
   configuração, arquitetura, guias, API, operações e desenvolvimento).
+- Referência da API auditada contra o código (27 endpoints documentados).
+- Configuração documentada com todas as variáveis de ambiente, incluindo
+  `GOOGLE_DRIVE_WORKERS` e `VECTOR_DB_DIR`.
 
 ### 🔌 Dependências Principais
 
