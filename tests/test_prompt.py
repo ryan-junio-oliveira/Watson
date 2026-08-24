@@ -1,5 +1,6 @@
 from rag.evidence import Evidence
 from rag.prompt import PromptBuilder
+from rag.response import Mode
 
 
 class TestPromptBuilder:
@@ -14,7 +15,7 @@ class TestPromptBuilder:
             url=url,
             content=content,
             score=1.0,
-            source_type="web",
+            source_type="rag",
         )
 
     def test_build_returns_string(self):
@@ -26,7 +27,7 @@ class TestPromptBuilder:
 
     def test_build_includes_system_prompt(self):
         prompt = self.builder.build("Pergunta?", [self._ev("teste")])
-        assert "assistente especializado" in prompt
+        assert "analista meticuloso" in prompt
 
     def test_build_with_history(self):
         prompt = self.builder.build_with_history(
@@ -45,12 +46,12 @@ class TestPromptBuilder:
 
     def test_build_without_evidence_uses_no_evidence_prompt(self):
         prompt = self.builder.build("Pergunta?", None)
-        assert "Não foram encontradas evidências" in prompt
+        assert "Não foram encontradas informações" in prompt
         assert "Pergunta?" in prompt
 
     def test_build_without_evidence_and_history_uses_no_evidence_prompt(self):
         prompt = self.builder.build_with_history("Pergunta?", None, "user: Oi")
-        assert "Não foram encontradas evidências" in prompt
+        assert "Não foram encontradas informações" in prompt
         assert "Histórico da conversa:" in prompt
         assert "user: Oi" in prompt
 
@@ -58,8 +59,7 @@ class TestPromptBuilder:
         prompt = self.builder.build(
             "Pergunta?", [self._ev("Algo importante.", "Fonte")]
         )
-        assert "EXCLUSIVAMENTE nas evidências" in prompt
-        assert "Não foram encontradas evidências" not in prompt
+        assert "analista meticuloso" in prompt
 
     def test_build_includes_evidence_in_prompt(self):
         e1 = self._ev("O céu é azul.", "Fonte A", "https://a.com")
@@ -69,3 +69,27 @@ class TestPromptBuilder:
         assert "A grama é verde" in prompt
         assert "a.com" in prompt
         assert "b.com" in prompt
+
+    def test_build_auto_mode_no_evidence_uses_no_evidence_prompt(self):
+        prompt = self.builder.build("Pergunta?", mode=Mode.auto)
+        assert "Não foram encontradas informações" in prompt
+        assert "base de conhecimento indexada" in prompt
+
+    def test_build_rag_mode_no_evidence_uses_no_evidence_prompt(self):
+        prompt = self.builder.build("Pergunta?", mode=Mode.rag)
+        assert "Não foram encontradas informações" in prompt
+        assert "base de conhecimento indexada" in prompt
+
+    def test_build_rag_mode_with_evidence_uses_system_prompt(self):
+        prompt = self.builder.build(
+            "Pergunta?", [self._ev("Algo importante.", "Fonte")], mode=Mode.rag
+        )
+        assert "analista meticuloso" in prompt
+        assert "Evidências:" in prompt
+
+    def test_build_with_history_and_mode(self):
+        prompt = self.builder.build_with_history(
+            "Pergunta?", mode=Mode.rag, history_context="user: Oi"
+        )
+        assert "Histórico da conversa:" in prompt
+        assert "user: Oi" in prompt

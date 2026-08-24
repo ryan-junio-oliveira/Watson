@@ -33,8 +33,8 @@ class TestDocumentLoader:
         assert docs == []
 
     def test_load_unsupported_file(self, tmp_documents_dir: Path):
-        unsupported = tmp_documents_dir / "test.csv"
-        unsupported.write_text("a,b,c\n1,2,3")
+        unsupported = tmp_documents_dir / "test.xyz"
+        unsupported.write_text("conteudo invalido")
         loader = DocumentLoader()
         docs = loader.load(str(tmp_documents_dir))
         assert docs == []

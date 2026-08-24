@@ -11,7 +11,8 @@ __pycache__/
 *.egg-info/
 *.egg
 .pytest_cache/
-*.mypy_cache/
+.mypy_cache/
+.ruff_cache/
 *.dmypy.json
 dmypy.json
 
@@ -40,6 +41,26 @@ database/chroma/
 chroma_db/
 chroma/
 
+# Dados gerados localmente
+database/embedding_cache.sqlite3
+database/images/
+database/metrics.db
+*.sqlite3
+*.sqlite
+*.db
+
+# Artefatos de teste (mocks gravando em disco)
+MagicMock/
+database/chroma_test*/
+database/test_images/
+
+# Estado do watcher de documentos
+logs/.watch_state.json
+
+# Binários de terceiros (Tesseract - instalar via libs/)
+libs/
+
 # OS
 .DS_Store
 Thumbs.db
+.coverage

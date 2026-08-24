@@ -3,7 +3,8 @@ from unittest.mock import MagicMock
 import pytest
 from langchain_core.documents import Document
 
-from rag.chatbot import ChatBot, ChatResult
+from rag.chatbot import ChatBot
+from rag.response import AgentResponse, Mode
 
 
 class TestChatBot:
@@ -41,9 +42,9 @@ class TestChatBot:
             ollama_client=mock_ollama_client,
         )
 
-    def test_ask_returns_chat_result(self, chatbot):
+    def test_ask_returns_agent_response(self, chatbot):
         result = chatbot.ask("Qual a capital do Brasil?")
-        assert isinstance(result, ChatResult)
+        assert isinstance(result, AgentResponse)
         assert isinstance(result.answer, str)
         assert isinstance(result.confidence, float)
         assert isinstance(result.verdict, str)
@@ -57,7 +58,7 @@ class TestChatBot:
             ollama_client=mock_ollama_client,
         )
         result = chatbot.ask("Pergunta sem contexto")
-        assert isinstance(result, ChatResult)
+        assert isinstance(result, AgentResponse)
 
     def test_chat_loop_exit(self, chatbot, monkeypatch):
         monkeypatch.setattr("builtins.input", lambda _: "exit")
@@ -82,7 +83,7 @@ class TestChatBot:
         assert len(tokens) > 0
         assert all(isinstance(t, str) for t in tokens)
 
-    def test_ask_stream_returns_chat_result(self, chatbot):
+    def test_ask_stream_returns_agent_response(self, chatbot):
         gen = chatbot.ask_stream("Pergunta?")
         tokens = []
         try:
@@ -90,5 +91,74 @@ class TestChatBot:
                 tokens.append(next(gen))
         except StopIteration as e:
             result = e.value
-        assert isinstance(result, ChatResult)
+        assert isinstance(result, AgentResponse)
         assert result.answer == "".join(tokens)
+
+    def test_ask_auto_mode_retrieves_rag(self, mock_prompt_builder, mock_ollama_client):
+        retriever = MagicMock()
+        retriever.retrieve.return_value = []
+        chatbot = ChatBot(
+            retriever=retriever,
+            prompt_builder=mock_prompt_builder,
+            ollama_client=mock_ollama_client,
+        )
+        result = chatbot.ask("Pergunta?", mode=Mode.auto)
+        retriever.retrieve.assert_called_once()
+        assert isinstance(result, AgentResponse)
+
+    def test_ask_rag_mode(self, chatbot):
+        result = chatbot.ask("Pergunta?", mode=Mode.rag)
+        assert isinstance(result, AgentResponse)
+
+    def test_is_listing_detects_enumeration_questions(self, chatbot):
+        assert chatbot._is_listing("quais são os PINs disponíveis?")
+        assert chatbot._is_listing("liste os clientes")
+        assert chatbot._is_listing("me liste os modelos")
+        assert not chatbot._is_listing("como resolver o erro E123?")
+        assert not chatbot._is_listing("qual a causa do problema?")
+
+    def test_wants_full_context_detects_completeness_requests(self, chatbot):
+        # Por padrão não quer contexto completo...
+        assert not chatbot._wants_full_context("qual o erro E123?")
+        assert not chatbot._wants_full_context("como faço para imprimir?")
+        # Listagens genéricas NÃO disparam expansão total (evita prompt gigante).
+        assert not chatbot._wants_full_context("quais são os modelos?")
+        assert not chatbot._wants_full_context("quais sao os pins das impressoras hp")
+        # ...mas aumenta dinamicamente quando o usuário pede mais/amplitude.
+        assert chatbot._wants_full_context("me dê todos os PINs disponíveis")
+        assert chatbot._wants_full_context("quero a lista completa")
+        assert chatbot._wants_full_context("preciso de mais informações sobre isso")
+        assert chatbot._wants_full_context("todos os modelos disponíveis")
+
+    def test_ask_stream_auto_mode(self, chatbot):
+        gen = chatbot.ask_stream("Pergunta?", mode=Mode.auto)
+        tokens = []
+        try:
+            while True:
+                tokens.append(next(gen))
+        except StopIteration as e:
+            result = e.value
+        assert isinstance(result, AgentResponse)
+
+    def test_ask_stream_survives_llm_timeout(self, mock_retriever, mock_prompt_builder):
+        client = MagicMock()
+        def failing_stream(*args, **kwargs):
+            yield "token1 "
+            raise TimeoutError("LLM timed out")
+        client.ask_stream = failing_stream
+        client.ask.return_value = "fallback"
+        client._strip_thinking.return_value = "fallback"
+        chatbot = ChatBot(
+            retriever=mock_retriever,
+            prompt_builder=mock_prompt_builder,
+            ollama_client=client,
+        )
+        gen = chatbot.ask_stream("Pergunta?")
+        tokens = []
+        try:
+            while True:
+                tokens.append(next(gen))
+        except StopIteration as e:
+            result = e.value
+        assert isinstance(result, AgentResponse)
+        assert "token1 " in result.answer

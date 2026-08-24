@@ -87,4 +87,4 @@ class TestOllamaClient:
         with patch("ollama.Client") as mock:
             mock.return_value = MagicMock()
             client = OllamaClient()
-            assert client.model == "qwen3:8b"
+            assert client.model == "gemma3:4b"

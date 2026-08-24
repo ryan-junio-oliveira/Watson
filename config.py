@@ -1,8 +1,6 @@
-import json
 import os
 from dataclasses import dataclass, field
-from typing import List, Optional
-from urllib.parse import quote_plus
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -12,7 +10,7 @@ load_dotenv()
 @dataclass
 class Config:
     ollama_model: str = field(
-        default_factory=lambda: os.getenv("OLLAMA_MODEL", "qwen3:8b")
+        default_factory=lambda: os.getenv("OLLAMA_MODEL", "gemma3:4b")
     )
     ollama_base_url: str = field(
         default_factory=lambda: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -24,10 +22,23 @@ class Config:
         default_factory=lambda: int(os.getenv("MAX_TOKENS", "2048"))
     )
     ollama_timeout: int = field(
-        default_factory=lambda: int(os.getenv("OLLAMA_TIMEOUT", "120"))
+        default_factory=lambda: int(os.getenv("OLLAMA_TIMEOUT", "300"))
     )
     embedding_model: str = field(
-        default_factory=lambda: os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+        default_factory=lambda: os.getenv(
+            "EMBEDDING_MODEL", "intfloat/multilingual-e5-base"
+        )
+    )
+    embedding_batch_size: int = field(
+        default_factory=lambda: int(os.getenv("EMBEDDING_BATCH_SIZE", "32"))
+    )
+    embedding_normalize: bool = field(
+        default_factory=lambda: os.getenv("EMBEDDING_NORMALIZE", "true").lower() == "true"
+    )
+    embedding_cache_path: str = field(
+        default_factory=lambda: os.getenv(
+            "EMBEDDING_CACHE_PATH", "database/embedding_cache.sqlite3"
+        )
     )
     chunk_size: int = field(
         default_factory=lambda: int(os.getenv("CHUNK_SIZE", "1000"))
@@ -66,11 +77,43 @@ class Config:
     documents_dir: str = field(
         default_factory=lambda: os.getenv("DOCUMENTS_DIR", "documents")
     )
+    google_drive_folder_id: str = field(
+        default_factory=lambda: os.getenv("GOOGLE_DRIVE_FOLDER_ID", "")
+    )
+    google_drive_dest_dir: str = field(
+        default_factory=lambda: os.getenv("GOOGLE_DRIVE_DEST_DIR", "documents/drive")
+    )
+    google_drive_sync_timeout: int = field(
+        default_factory=lambda: int(os.getenv("GOOGLE_DRIVE_SYNC_TIMEOUT", "60"))
+    )
+    google_drive_workers: int = field(
+        default_factory=lambda: max(1, int(os.getenv("GOOGLE_DRIVE_WORKERS", "8")))
+    )
     vector_db_dir: str = field(
         default_factory=lambda: os.getenv("VECTOR_DB_DIR", "database/chroma")
     )
     embedding_device: str = field(
         default_factory=lambda: os.getenv("EMBEDDING_DEVICE", "cpu")
+    )
+    ocr_lang: str = field(
+        default_factory=lambda: os.getenv("OCR_LANG", "por+eng")
+    )
+    ocr_dpi: int = field(
+        default_factory=lambda: int(os.getenv("OCR_DPI", "300"))
+    )
+    ocr_min_text_chars: int = field(
+        default_factory=lambda: int(os.getenv("OCR_MIN_TEXT_CHARS", "20"))
+    )
+    tesseract_cmd: str = field(
+        default_factory=lambda: os.getenv(
+            "TESSERACT_CMD", "libs/tesseract"
+        )
+    )
+    image_dir: str = field(
+        default_factory=lambda: os.getenv("IMAGE_DIR", "database/images")
+    )
+    vision_model: str = field(
+        default_factory=lambda: os.getenv("VISION_MODEL", "")
     )
     log_level: str = field(
         default_factory=lambda: os.getenv("LOG_LEVEL", "INFO")
@@ -78,50 +121,21 @@ class Config:
     log_file: str = field(
         default_factory=lambda: os.getenv("LOG_FILE", "logs/ai_agent.log")
     )
+    agent_name: str = field(
+        default_factory=lambda: os.getenv("AGENT_NAME", "Watson")
+    )
+    metrics_db: str = field(
+        default_factory=lambda: os.getenv("METRICS_DB", "database/metrics.db")
+    )
 
-    db_host: str = field(default_factory=lambda: os.getenv("DB_HOST", ""))
-    db_port: str = field(default_factory=lambda: os.getenv("DB_PORT", "3306"))
-    db_user: str = field(default_factory=lambda: os.getenv("DB_USER", ""))
-    db_password: str = field(default_factory=lambda: os.getenv("DB_PASSWORD", ""))
-    db_name: str = field(default_factory=lambda: os.getenv("DB_NAME", ""))
-    db_connection_string: Optional[str] = field(default=None)
-    db_tables: Optional[List[str]] = field(default=None)
-
-    enable_web_search: bool = field(
-        default_factory=lambda: os.getenv("ENABLE_WEB_SEARCH", "true").lower() == "true"
+    enable_reasoning: bool = field(
+        default_factory=lambda: os.getenv("ENABLE_REASONING", "false").lower() == "true"
     )
-    web_search_max_results: int = field(
-        default_factory=lambda: int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))
+    enable_analyst: bool = field(
+        default_factory=lambda: os.getenv("ENABLE_ANALYST", "true").lower() == "true"
     )
-    search_provider: str = field(
-        default_factory=lambda: os.getenv("SEARCH_PROVIDER", "google")
-    )
-    fetch_timeout: int = field(
-        default_factory=lambda: int(os.getenv("FETCH_TIMEOUT", "10"))
-    )
-    fetch_max_size: int = field(
-        default_factory=lambda: int(os.getenv("FETCH_MAX_SIZE", "1048576"))
-    )
-    fetch_max_pages: int = field(
-        default_factory=lambda: int(os.getenv("FETCH_MAX_PAGES", "3"))
-    )
-    fetch_retries: int = field(
-        default_factory=lambda: int(os.getenv("FETCH_RETRIES", "1"))
-    )
-    web_chunk_size: int = field(
-        default_factory=lambda: int(os.getenv("WEB_CHUNK_SIZE", "1000"))
-    )
-    web_chunk_overlap: int = field(
-        default_factory=lambda: int(os.getenv("WEB_CHUNK_OVERLAP", "200"))
-    )
-    enable_planner: bool = field(
-        default_factory=lambda: os.getenv("ENABLE_PLANNER", "true").lower() == "true"
-    )
-    enable_validator: bool = field(
-        default_factory=lambda: os.getenv("ENABLE_VALIDATOR", "true").lower() == "true"
-    )
-    min_confidence: float = field(
-        default_factory=lambda: float(os.getenv("MIN_CONFIDENCE", "0.5"))
+    analyst_max_followups: int = field(
+        default_factory=lambda: int(os.getenv("ANALYST_MAX_FOLLOWUPS", "3"))
     )
 
     api_host: str = field(
@@ -130,24 +144,9 @@ class Config:
     api_port: int = field(
         default_factory=lambda: int(os.getenv("API_PORT", "9000"))
     )
-
-    def __post_init__(self):
-        raw = os.getenv("DB_CONNECTION_STRING")
-        if raw:
-            self.db_connection_string = raw
-        elif self.db_user and self.db_host and self.db_name:
-            encoded_password = quote_plus(self.db_password)
-            self.db_connection_string = (
-                f"mysql+pymysql://{self.db_user}:{encoded_password}"
-                f"@{self.db_host}:{self.db_port}/{self.db_name}"
-            )
-
-        tables_env = os.getenv("DB_TABLES")
-        if tables_env:
-            try:
-                self.db_tables = json.loads(tables_env)
-            except json.JSONDecodeError:
-                self.db_tables = [t.strip() for t in tables_env.split(",") if t.strip()]
+    api_auth_token: str = field(
+        default_factory=lambda: os.getenv("API_AUTH_TOKEN", "").strip()
+    )
 
 
 config = Config()

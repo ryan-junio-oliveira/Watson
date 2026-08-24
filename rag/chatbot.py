@@ -1,32 +1,20 @@
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Dict, Generator, List, Optional
+import re
+import sys
+import threading
+import time
+from typing import Generator, List, Optional
 
 from langchain_core.documents import Document
 
 from llm.ollama_client import OllamaClient
+from metrics.store import MetricsStore
+from rag.analyst import Analyst
+from rag.calculator import Calculator
 from rag.evidence import Evidence, EvidenceAggregator, EvidenceNormalizer
-from rag.planner import IntentClassifier, Plan
 from rag.prompt import PromptBuilder
+from rag.response import AgentResponse, Mode
 from rag.retriever import Retriever
-from rag.validator import ConfidenceScorer, FactValidator, ValidationResult
-from search.chunker import Chunker
-from search.cleaner import ContentCleaner
-from search.extractor import ContentExtractor
-from search.fetcher import PageFetcher
-from search.google_provider import GoogleProvider
-from search.provider import SearchProvider, SearchResult
-from search.reranker import Reranker as SearchReranker
-
-
-@dataclass
-class ChatResult:
-    answer: str
-    confidence: float
-    verdict: str
-    issues: List[str] = field(default_factory=list)
-    sources: str = ""
-    evidence_count: int = 0
 
 
 class ChatBot:
@@ -36,342 +24,485 @@ class ChatBot:
         prompt_builder: PromptBuilder,
         ollama_client: OllamaClient,
         reranker: Optional[Retriever] = None,
-        web_search: Optional = None,
-        intent_classifier: Optional[IntentClassifier] = None,
-        fact_validator: Optional[FactValidator] = None,
         logger: Optional[logging.Logger] = None,
-        fetcher: Optional[PageFetcher] = None,
-        extractor: Optional[ContentExtractor] = None,
-        cleaner: Optional[ContentCleaner] = None,
-        chunker: Optional[Chunker] = None,
-        search_reranker: Optional[SearchReranker] = None,
-        search_provider: Optional[SearchProvider] = None,
-        max_pages_per_query: int = 3,
-        max_chunks_per_query: int = 30,
+        enable_reasoning: bool = False,
+        analyst: Optional[Analyst] = None,
+        agent_name: str = "Watson",
+        metrics: Optional[MetricsStore] = None,
     ):
         self.retriever = retriever
         self.prompt_builder = prompt_builder
         self.ollama_client = ollama_client
         self._rag_reranker = reranker
-        self._intent_classifier = intent_classifier
-        self.fact_validator = fact_validator
         self.logger = logger
-        self.max_pages = max_pages_per_query
-        self._fetcher = fetcher
-        self._extractor = extractor
-        self._cleaner = cleaner
-        self._chunker = chunker
-        self._search_reranker = search_reranker
-        self._search_provider = search_provider
-        self._enable_web_search = search_provider is not None or web_search is not None
-        self._max_chunks = max_chunks_per_query
         self.aggregator = EvidenceAggregator(logger=logger)
+        self.calculator = Calculator()
+        self.enable_reasoning = enable_reasoning
+        self.analyst = analyst
+        self.agent_name = agent_name
+        self.metrics = metrics or MetricsStore(logger=logger)
+
+    def _is_analytical(self, question: str) -> bool:
+        q = question.lower()
+        return self.calculator.detector.detect(question) is not None or any(
+            v in q
+            for v in (
+                "comparar", "comparação", "comparacao", "tendência",
+                "tendencia", "evolução", "evolucao", "ao longo",
+            )
+        )
+
+    _LISTING_HINTS = (
+        "list", "liste", "lista", "quais", "quais são", "quais sao",
+        "disponíve", "disponive", "enumer", "relacione",
+        "me mostre", "me liste", "catálogo", "catalogo", "tabela de",
+    )
+
+    _FULL_CONTEXT_HINTS = (
+        "todos", "todas", "tudo", "complet", "completo", "todas as",
+        "todos os", "mais informa", "mais detalhe", "aprofund", "ampli",
+        "integral", "por extenso", "lista completa", "relacione todos",
+        "me da todos", "me dê todos", "não omita", "sem omitir",
+        "não deixe de fora", "todos os disponíve", "todas as disponíve",
+    )
+
+    def _is_listing(self, question: str) -> bool:
+        q = question.lower()
+        return any(h in q for h in self._LISTING_HINTS)
+
+    def _wants_full_context(self, question: str) -> bool:
+        """Detecta pedido EXPLÍCITO de resposta completa (TOP_K ampliado):
+        'todos', 'completo', 'mais informações', etc. Perguntas de listagem
+        genéricas ('quais sao ...') NÃO disparam a expansão total, para não
+        inchar o prompt e demorar demais em CPU."""
+        q = question.lower()
+        return any(h in q for h in self._FULL_CONTEXT_HINTS)
 
     def _retrieve_rag(self, question: str) -> List[Evidence]:
-        docs: List[Document] = self.retriever.retrieve(question)
+        # Padrão: contexto normal (rápido). Aumenta dinamicamente quando o
+        # usuário pede a resposta completa (mais informações, todos, completo).
+        # Perguntas de listagem genéricas usam o TOP_K padrão — sem bump e sem
+        # expansão por documento (que geraria prompts enormes e lentos em CPU).
+        full = self._wants_full_context(question)
+        if full:
+            top_k = self.retriever.top_k * 4
+        elif self._is_analytical(question):
+            top_k = self.retriever.top_k * 2
+        else:
+            top_k = None
+        docs: List[Document] = self.retriever.retrieve(question, k=top_k)
         if self._rag_reranker and docs:
             from rag.reranker import Reranker as RagReranker
+
             docs = RagReranker.rerank(
                 self._rag_reranker, question, docs, top_k=len(docs)
             )
-        return [EvidenceNormalizer.from_chroma_document(d) for d in docs]
+        evidence = [EvidenceNormalizer.from_chroma_document(d) for d in docs]
 
-    def _ensure_search_provider(self) -> None:
-        if self._search_provider is None:
-            if not self._enable_web_search:
-                return
-            from search.google_provider import GoogleProvider
-            self._search_provider = GoogleProvider(logger=self.logger)
+        if full:
+            evidence = self._expand_document_context(evidence)
 
-    def _ensure_fetcher(self) -> None:
-        if self._fetcher is None:
-            self._fetcher = PageFetcher(logger=self.logger)
-
-    def _ensure_extractor(self) -> None:
-        if self._extractor is None:
-            self._extractor = ContentExtractor(logger=self.logger)
-
-    def _ensure_cleaner(self) -> None:
-        if self._cleaner is None:
-            self._cleaner = ContentCleaner(logger=self.logger)
-
-    def _ensure_chunker(self) -> None:
-        if self._chunker is None:
-            self._chunker = Chunker(logger=self.logger)
-
-    def _ensure_search_reranker(self) -> None:
-        if self._search_reranker is None:
-            self._search_reranker = SearchReranker(logger=self.logger)
-
-    def _search_web(self, question: str) -> List[SearchResult]:
-        if self.logger:
-            self.logger.info(f"Searching web: '{question[:60]}'")
-        from search.ddgs_provider import DDGSProvider
-        results = DDGSProvider(logger=self.logger).search(
-            question, self.max_pages * 3
-        )
-        if not results:
-            results = self._search_provider.search(question, self.max_pages * 3)
-            if self.logger:
-                self.logger.info(
-                    f"Google fallback returned {len(results)} results"
-                )
-        deduped: Dict[str, SearchResult] = {}
-        for r in results:
-            if r.url not in deduped:
-                deduped[r.url] = r
-        return list(deduped.values())[: self.max_pages]
-
-    def _fetch_and_extract(
-        self, results: List[SearchResult]
-    ) -> List[Evidence]:
-        self._ensure_fetcher()
-        self._ensure_extractor()
-        self._ensure_cleaner()
-        self._ensure_chunker()
-        fetched: List[Evidence] = []
-        for sr in results:
-            if self.logger:
-                self.logger.info(f"Fetching: {sr.url[:80]}")
-            fetch_result = self._fetcher.fetch(sr.url)
-            if fetch_result is None or fetch_result.status_code != 200:
-                continue
-            raw_text = self._extractor.extract_from_fetch(fetch_result)
-            if not raw_text:
-                if self.logger:
-                    self.logger.info(f"No content extracted from {sr.url[:60]}")
-                continue
-            cleaned = self._cleaner.clean(raw_text)
-            if len(cleaned) < 50:
-                if self.logger:
-                    self.logger.info(
-                        f"Content too short ({len(cleaned)} chars), skipping {sr.url[:60]}"
-                    )
-                continue
-            chunks = self._chunker.chunk(cleaned)
-            for i, chunk in enumerate(chunks):
-                ev = EvidenceNormalizer.from_extracted_content(
-                    url=sr.url,
-                    title=sr.title,
-                    content=chunk,
-                    provider=f"web:{sr.source}",
-                    score=0.7,
-                )
-                ev.metadata["chunk_index"] = i
-                ev.metadata["total_chunks"] = len(chunks)
-                fetched.append(ev)
-            if self.logger:
-                self.logger.info(
-                    f"Extracted {len(cleaned)} chars, {len(chunks)} chunks from {sr.url[:60]}"
-                )
-        return fetched
-
-    def _handle_rag(self, question: str) -> List[Evidence]:
-        if self.logger:
-            self.logger.info("Retrieving from local documents")
-        return self._retrieve_rag(question)
-
-    def _handle_web(self, question: str) -> List[Evidence]:
-        self._ensure_search_provider()
-        if self._search_provider is None:
-            if self.logger:
-                self.logger.info("Web search not configured, skipping")
-            return []
-        if self.logger:
-            self.logger.info("Searching the internet")
-        results = self._search_web(question)
-        if not results:
-            return []
-        evidence = self._fetch_and_extract(results)
-        if not evidence:
-            return []
-        if len(evidence) > self._max_chunks:
-            if self.logger:
-                self.logger.info(f"Truncating {len(evidence)} chunks to {self._max_chunks}")
-            evidence = evidence[:self._max_chunks]
-        self._ensure_search_reranker()
-        if self.logger:
-            self.logger.info(f"Reranking {len(evidence)} web evidence chunks")
-        evidence = self._search_reranker.rerank(question, evidence, top_k=5)
         return evidence
 
-    def _collect_evidence(self, question: str, plan: Plan) -> List[Evidence]:
-        rag_evidence: List[Evidence] = []
-        web_evidence: List[Evidence] = []
+    def _expand_document_context(self, evidence: List[Evidence]) -> List[Evidence]:
+        """Para perguntas de listagem, junta TODOS os chunks do mesmo
+        documento/fonte para garantir que a resposta não omita itens
+        (ex.: todos os PINs disponíveis). Expande apenas as fontes mais
+        relevantes (maior score) para não poluir o contexto."""
+        if not evidence:
+            return evidence
 
-        if plan.need_rag:
-            rag_evidence = self._handle_rag(question)
+        # Fontes mais relevantes primeiro (por score) — expande as top 2.
+        ranked = sorted(evidence, key=lambda e: e.score, reverse=True)
+        sources: list = []
+        seen: set = set()
+        for ev in ranked:
+            source = ev.metadata.get("source", "") or ev.source or ""
+            if source and source not in seen:
+                seen.add(source)
+                sources.append(source)
+            if len(sources) >= 2:
+                break
 
-        if plan.need_web:
-            web_evidence = self._handle_web(question)
+        if not sources:
+            return evidence
 
-        if not plan.need_rag and not plan.need_web:
-            if self.logger:
-                self.logger.info("Plan says no source; trying web as fallback")
-            web_evidence = self._handle_web(question)
+        exclude = {ev.metadata.get("chunk_id", "") for ev in evidence}
+        extra_docs: List[Document] = []
+        # Limita o contexto para não estourar o tempo de geração em CPU.
+        MAX_EXTRA_CHUNKS = 12
+        for source in sources:
+            if len(extra_docs) >= MAX_EXTRA_CHUNKS:
+                break
+            try:
+                related = self.retriever.retrieve_all_from_source(
+                    source, exclude_ids=exclude
+                )
+                extra_docs.extend(related[: MAX_EXTRA_CHUNKS - len(extra_docs)])
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"Document expansion failed: {e}")
 
-        if not rag_evidence and not web_evidence:
-            if self.logger:
-                self.logger.info("No evidence from plan, trying web fallback")
-            web_evidence = self._handle_web(question)
+        if not extra_docs:
+            return evidence
 
-        all_evidence = self.aggregator.collect(
-            rag_evidence=rag_evidence, web_evidence=web_evidence
+        extra = [EvidenceNormalizer.from_chroma_document(d) for d in extra_docs]
+        if self.logger:
+            self.logger.info(
+                f"Expanded listing context with {len(extra)} chunks from same source"
+            )
+        return evidence + extra
+
+    def _inject_computed_facts(
+        self, question: str, evidence: List[Evidence]
+    ) -> List[Evidence]:
+        """Injeta o resultado da calculadora determinística nas evidências."""
+        if not evidence:
+            return evidence
+        texts = [ev.content for ev in evidence]
+        computed = self.calculator.compute_for_question(question, texts)
+        if computed is None:
+            return evidence
+        if self.logger:
+            self.logger.info(f"Computed fact injected: {computed.kind}")
+        evidence = list(evidence)
+        evidence.append(
+            Evidence(
+                provider="computed",
+                source="cálculo verificado",
+                title="Cálculo verificado sobre os dados",
+                content=computed.prompt_block(),
+                metadata={"computed_kind": computed.kind, "computed": computed.human},
+                source_type="computed",
+            )
         )
-        return self.aggregator.rank(all_evidence)
+        return evidence
 
-    def _no_evidence_result(self) -> ChatResult:
-        return ChatResult(
-            answer=(
-                "Não encontrei informações suficientes nos documentos "
-                "indexados nem na internet para responder a esta pergunta. "
-                "Tente reformular a pergunta ou fornecer mais detalhes."
-            ),
-            confidence=0.0,
-            verdict="inconsistent",
-            issues=["Nenhuma evidência encontrada"],
-            sources="",
-            evidence_count=0,
-        )
-
-    def _call_llm(self, prompt: str) -> str:
-        answer = self.ollama_client.ask(prompt)
+    def _call_llm(self, prompt: str, reasoning: Optional[bool] = None) -> str:
+        kwargs: dict = {}
+        if reasoning is not None:
+            kwargs["think"] = reasoning
+        answer = self.ollama_client.ask(prompt, **kwargs)
         return self.ollama_client._strip_thinking(answer)
 
-    def _classify(self, question: str) -> Plan:
-        if self._intent_classifier:
-            try:
-                return self._intent_classifier.classify(question)
-            except Exception as e:
-                if self.logger:
-                    self.logger.warning(f"Classification failed: {e}")
-        return Plan(need_rag=True, need_web=True)
-
-    def _validate(
-        self, answer: str, evidence: List[Evidence]
-    ) -> ValidationResult:
-        if self.fact_validator:
-            try:
-                return self.fact_validator.validate(answer, evidence)
-            except Exception as e:
-                if self.logger:
-                    self.logger.warning(f"Validation failed: {e}")
-        return ValidationResult(
-            overall_verdict="unknown", overall_confidence=0.5
-        )
-
-    def _process(self, question: str, history_context: str = "") -> ChatResult:
-        plan = self._classify(question)
-        evidence = self._collect_evidence(question, plan)
-
-        if not evidence:
-            if self.logger:
-                self.logger.info("No evidence found")
-            return self._no_evidence_result()
-
-        prompt = (
-            self.prompt_builder.build_with_history(
-                question, evidence, history_context
+    def _should_reason(self, question: str) -> bool:
+        """Habilita raciocínio (think) para perguntas analíticas, se configurado
+        e o modelo suportar."""
+        if not self.enable_reasoning or not self.ollama_client.supports_thinking():
+            return False
+        q = question.lower()
+        return any(
+            kw in q
+            for kw in (
+                "quantos", "quantas", "por cento", "%", "variação", "media",
+                "média", "soma", "total", "comparar", "comparação", "diferença",
+                "analise", "análise", "conclus", "tendência", "tendencia",
             )
-            if history_context
-            else self.prompt_builder.build(question, evidence)
         )
 
-        answer_clean = self._call_llm(prompt)
-        validation = self._validate(answer_clean, evidence)
-        confidence = ConfidenceScorer.calculate(validation, evidence)
-        sources = self.aggregator.sources_text(evidence)
+    def _call_llm_stream(self, prompt: str) -> Generator[str, None, str]:
+        full_answer: List[str] = []
+        try:
+            for token in self.ollama_client.ask_stream(prompt):
+                full_answer.append(token)
+                yield token
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Stream interrupted: {e}")
+        return "".join(full_answer)
+
+    def _build_response(
+        self,
+        answer: str,
+        evidences: List[Evidence],
+        start_time: float,
+    ) -> AgentResponse:
+        elapsed = time.time() - start_time
+        return AgentResponse(
+            answer=answer,
+            evidences=evidences,
+            confidence=1.0 if evidences else 0.5,
+            verdict="ok",
+            metadata={
+                "provider": "rag",
+                "evidence_count": len(evidences),
+            },
+            execution_time=elapsed,
+        )
+
+    def _run_analyst(self, question: str, resp: AgentResponse) -> AgentResponse:
+        """Aplica a análise proativa (sob demanda) sobre a resposta gerada."""
+        if self.analyst is None:
+            return resp
+        try:
+            result = self.analyst.analyze(
+                question, resp.answer, resp.evidences
+            )
+            resp.conclusions = result.conclusions
+            resp.follow_up = result.follow_up
+            resp.additional_info = result.additional_info
+            if result.extra_sources:
+                resp.evidences = list(resp.evidences) + result.extra_sources
+            resp.metadata["analyzed"] = True
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Analyst pass failed: {e}")
+        return resp
+
+    def _process(
+        self,
+        question: str,
+        history_context: str = "",
+        mode: Mode = Mode.auto,
+        analyze: bool = False,
+    ) -> AgentResponse:
+        start = time.time()
+        provider = "rag"
 
         if self.logger:
-            self.logger.info(
-                f"ChatResult: confidence={confidence:.2f}, "
-                f"verdict={validation.overall_verdict}, "
-                f"evidence={len(evidence)}, issues={len(validation.issues)}"
+            self.logger.info(f"Question: {question}")
+
+        try:
+            evidence = self._retrieve_rag(question)
+            evidence = self.aggregator.collect(rag_evidence=evidence)
+            evidence = self.aggregator.rank(evidence)
+            evidence = self._inject_computed_facts(question, evidence)
+
+            if not evidence:
+                if self.logger:
+                    self.logger.info("No evidence found in indexed documents")
+                prompt = self.prompt_builder.build(question, mode=mode)
+                answer = self._call_llm(prompt)
+                resp = self._build_response(answer, [], start)
+                resp.metadata["fallback"] = "no_documents"
+                if analyze:
+                    resp = self._run_analyst(question, resp)
+                self._record_request(question, mode, provider, resp, start, analyze)
+                return resp
+
+            prompt = (
+                self.prompt_builder.build_with_history(
+                    question, evidence, history_context, mode=mode
+                )
+                if history_context
+                else self.prompt_builder.build(question, evidence, mode=mode)
             )
 
-        return ChatResult(
-            answer=answer_clean,
-            confidence=confidence,
-            verdict=validation.overall_verdict,
-            issues=validation.issues,
-            sources=sources,
-            evidence_count=len(evidence),
-        )
+            answer_clean = self._call_llm(prompt, reasoning=self._should_reason(question))
+            result = self._build_response(answer_clean, evidence, start)
 
-    def ask(self, question: str) -> ChatResult:
-        return self._process(question)
+            if self.logger:
+                self.logger.info(
+                    f"AgentResponse: evidence={len(evidence)}, "
+                    f"time={result.execution_time:.2f}s"
+                )
+
+            if analyze:
+                result = self._run_analyst(question, result)
+
+            self._record_request(question, mode, provider, result, start, analyze)
+            return result
+        except Exception as e:
+            self.metrics.record_request(
+                question=question, mode=str(mode), provider=provider,
+                execution_ms=(time.time() - start) * 1000,
+                analyze=analyze, success=False, error=str(e),
+            )
+            raise
+
+    def _record_request(
+        self, question: str, mode: Mode, provider: str,
+        resp: AgentResponse, start: float, analyze: bool,
+    ) -> None:
+        try:
+            self.metrics.record_request(
+                question=question, mode=str(mode), provider=provider,
+                evidence_count=len(resp.evidences),
+                execution_ms=resp.execution_time * 1000,
+                analyze=analyze, success=True,
+            )
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Metrics request record failed: {e}")
+
+    def ask(
+        self,
+        question: str,
+        mode: Mode = Mode.auto,
+        analyze: bool = False,
+    ) -> AgentResponse:
+        return self._process(question, mode=mode, analyze=analyze)
 
     def ask_with_context(
-        self, question: str, history_context: str = ""
-    ) -> ChatResult:
-        return self._process(question, history_context)
+        self,
+        question: str,
+        history_context: str = "",
+        mode: Mode = Mode.auto,
+        analyze: bool = False,
+    ) -> AgentResponse:
+        return self._process(question, history_context, mode, analyze=analyze)
 
     def _stream_evidence(
-        self, question: str, prompt: str, evidence: List[Evidence]
-    ) -> Generator[str, None, ChatResult]:
+        self, prompt: str, evidence: List[Evidence]
+    ) -> Generator[str, None, AgentResponse]:
+        start = time.time()
         full_answer: List[str] = []
-        for token in self.ollama_client.ask_stream(prompt):
-            full_answer.append(token)
-            yield token
+        try:
+            for token in self.ollama_client.ask_stream(prompt):
+                full_answer.append(token)
+                yield token
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Stream interrupted: {e}")
 
         answer_clean = "".join(full_answer)
-        validation = self._validate(answer_clean, evidence)
-        confidence = ConfidenceScorer.calculate(validation, evidence)
-        sources = self.aggregator.sources_text(evidence)
-
-        result = ChatResult(
-            answer=answer_clean,
-            confidence=confidence,
-            verdict=validation.overall_verdict,
-            issues=validation.issues,
-            sources=sources,
-            evidence_count=len(evidence),
-        )
+        result = self._build_response(answer_clean, evidence, start)
 
         if self.logger:
-            self.logger.info(
-                f"Stream result: confidence={confidence:.2f}, "
-                f"verdict={validation.overall_verdict}, "
-                f"evidence={len(evidence)}, issues={len(validation.issues)}"
-            )
+            self.logger.info(f"Stream result: time={result.execution_time:.2f}s")
 
         return result
+
+    def _stream_no_evidence(
+        self,
+        question: str,
+        history_context: str = "",
+        mode: Mode = Mode.auto,
+    ) -> Generator[str, None, AgentResponse]:
+        start = time.time()
+        prompt = (
+            self.prompt_builder.build_with_history(
+                question, None, history_context, mode=mode
+            )
+            if history_context
+            else self.prompt_builder.build(question, mode=mode)
+        )
+        full_answer = yield from self._call_llm_stream(prompt)
+        resp = self._build_response(full_answer, [], start)
+        resp.metadata["fallback"] = "no_documents"
+        return resp
 
     def ask_stream(
-        self, question: str
-    ) -> Generator[str, None, ChatResult]:
-        plan = self._classify(question)
-        evidence = self._collect_evidence(question, plan)
+        self,
+        question: str,
+        mode: Mode = Mode.auto,
+        analyze: bool = False,
+    ) -> Generator[str, None, AgentResponse]:
+        if self.logger:
+            self.logger.info(f"Question: {question}")
 
-        if not evidence:
-            if self.logger:
-                self.logger.info("No evidence found, returning no-evidence response")
-            return self._no_evidence_result()
+        start = time.time()
+        try:
+            evidence = self._retrieve_rag(question)
+            evidence = self.aggregator.collect(rag_evidence=evidence)
+            evidence = self.aggregator.rank(evidence)
+            evidence = self._inject_computed_facts(question, evidence)
 
-        prompt = self.prompt_builder.build(question, evidence)
-        result = yield from self._stream_evidence(question, prompt, evidence)
-        return result
+            if not evidence:
+                if self.logger:
+                    self.logger.info("No evidence found in indexed documents")
+                resp = yield from self._stream_no_evidence(question, mode=mode)
+                if analyze:
+                    resp = self._run_analyst(question, resp)
+                self._record_request(question, mode, "rag", resp, start, analyze)
+                return resp
+
+            prompt = self.prompt_builder.build(question, evidence, mode=mode)
+            result = yield from self._stream_evidence(prompt, evidence)
+            if analyze:
+                result = self._run_analyst(question, result)
+            self._record_request(question, mode, "rag", result, start, analyze)
+            return result
+        except Exception as e:
+            self.metrics.record_request(
+                question=question, mode=str(mode), provider="rag",
+                execution_ms=(time.time() - start) * 1000,
+                analyze=analyze, success=False, error=str(e),
+            )
+            raise
 
     def ask_stream_with_history(
-        self, question: str, history_context: str = ""
-    ) -> Generator[str, None, ChatResult]:
-        plan = self._classify(question)
-        evidence = self._collect_evidence(question, plan)
+        self,
+        question: str,
+        history_context: str = "",
+        mode: Mode = Mode.auto,
+        analyze: bool = False,
+    ) -> Generator[str, None, AgentResponse]:
+        if self.logger:
+            self.logger.info(f"Question: {question}")
 
-        if not evidence:
-            if self.logger:
-                self.logger.info("No evidence found, returning no-evidence response")
-            return self._no_evidence_result()
+        start = time.time()
+        try:
+            evidence = self._retrieve_rag(question)
+            evidence = self.aggregator.collect(rag_evidence=evidence)
+            evidence = self.aggregator.rank(evidence)
+            evidence = self._inject_computed_facts(question, evidence)
 
-        prompt = self.prompt_builder.build_with_history(
-            question, evidence, history_context
+            if not evidence:
+                if self.logger:
+                    self.logger.info("No evidence found in indexed documents")
+                resp = yield from self._stream_no_evidence(
+                    question, history_context, mode=mode
+                )
+                if analyze:
+                    resp = self._run_analyst(question, resp)
+                self._record_request(question, mode, "rag", resp, start, analyze)
+                return resp
+
+            prompt = self.prompt_builder.build_with_history(
+                question, evidence, history_context, mode=mode
+            )
+            result = yield from self._stream_evidence(prompt, evidence)
+            if analyze:
+                result = self._run_analyst(question, result)
+            self._record_request(question, mode, "rag", result, start, analyze)
+            return result
+        except Exception as e:
+            self.metrics.record_request(
+                question=question, mode=str(mode), provider="rag",
+                execution_ms=(time.time() - start) * 1000,
+                analyze=analyze, success=False, error=str(e),
+            )
+            raise
+
+    def _format_analyst(self, resp: AgentResponse) -> str:
+        parts: List[str] = []
+        if resp.conclusions:
+            parts.append("Conclusões da análise:")
+            for c in resp.conclusions:
+                parts.append(f"  - {c}")
+        if resp.additional_info:
+            parts.append("Informação adicional do acervo:")
+            for a in resp.additional_info:
+                parts.append(f"  - {a}")
+        if resp.follow_up:
+            parts.append("Perguntas de acompanhamento:")
+            for i, q in enumerate(resp.follow_up, 1):
+                parts.append(f"  {i}. {q}")
+        if not parts:
+            parts.append("(não foi possível aprofundar a análise)")
+        return "\n".join(parts)
+
+    def _greeting(self) -> str:
+        hour = time.localtime().tm_hour
+        if 5 <= hour < 12:
+            periodo = "bom dia"
+        elif 12 <= hour < 18:
+            periodo = "boa tarde"
+        else:
+            periodo = "boa noite"
+        return (
+            f"Olá, {periodo}! Sou o {self.agent_name}, seu agente de IA. "
+            "Como posso ajudar?"
         )
-        result = yield from self._stream_evidence(question, prompt, evidence)
-        return result
 
     def chat_loop(self) -> None:
         print("\n=== Watson RAG ===")
+        print(self._greeting())
         print("Digite 'exit' ou 'quit' para sair.\n")
+
+        last_question: Optional[str] = None
+        last_result: Optional[AgentResponse] = None
 
         while True:
             try:
@@ -383,39 +514,98 @@ class ChatBot:
             if not question:
                 continue
 
-            if question.lower() in ("exit", "quit"):
+            if question.lower() in ("exit", "quit", "sair", "encerrar", "parar"):
                 print("Encerrando...")
                 break
 
-            try:
-                if self.logger:
-                    self.logger.info(f"Question: {question}")
+            if question.lower() in ("aprofundar", "analisar", "aprofundar análise"):
+                if last_result is not None and last_question:
+                    print("\n[Analisando a resposta anterior...]", flush=True)
+                    result = self._run_analyst(last_question, last_result)
+                    print(self._format_analyst(result))
+                else:
+                    print("\nNenhuma resposta anterior para aprofundar.")
+                continue
 
-                answer_parts: List[str] = []
+            last_question = question
+            last_result = None
+
+            stop_status = threading.Event()
+            status_thread = threading.Thread(
+                target=self._status_loop, args=(stop_status,), daemon=True
+            )
+            status_thread.start()
+
+            try:
                 print()
                 gen = self.ask_stream(question)
+                tokens: List[str] = []
+                started = False
                 try:
                     while True:
                         token = next(gen)
+                        if not started:
+                            stop_status.set()
+                            started = True
+                            # Limpa a linha do status ANTES do primeiro token,
+                            # evitando sobrar "Watson está analisando..." na tela.
+                            sys.stdout.write("\r\033[K")
+                            sys.stdout.flush()
                         print(token, end="", flush=True)
-                        answer_parts.append(token)
+                        tokens.append(token)
                 except StopIteration as e:
                     result = e.value
+                stop_status.set()
                 print()
 
                 if result:
-                    print(
-                        f"\n[Confiança: {result.confidence:.0%} | "
-                        f"Veredito: {result.verdict}"
-                        f"{' | Avisos: ' + '; '.join(result.issues) if result.issues else ''}]"
-                    )
+                    last_result = result
+                    # A resposta já foi exibida no stream — mostramos apenas as
+                    # fontes e a análise proativa, sem repetir o texto.
+                    if result.sources:
+                        print("\nSources")
+                        print("-------")
+                        for s in result.sources:
+                            label = s.title or s.url
+                            print(f"  • {label}")
+                    if result.follow_up:
+                        print("\nPerguntas para aprofundar:")
+                        for i, q in enumerate(result.follow_up, 1):
+                            print(f"  {i}. {q}")
+                        print("  (digite 'aprofundar' para mais conclusões/busca)")
 
                 if self.logger:
                     self.logger.info(
-                        f"Answer provided ({len(''.join(answer_parts))} chars)"
+                        f"Answer provided ({len(''.join(tokens))} chars)"
                     )
             except Exception as e:
+                stop_status.set()
                 error_msg = f"Erro ao processar pergunta: {e}"
                 print(f"\n{error_msg}")
                 if self.logger:
                     self.logger.error(error_msg)
+
+    _STATUS_MESSAGES = (
+        "{agent} está analisando sua resposta...",
+        "{agent} está consultando a base de conhecimento...",
+        "{agent} está processando sua pergunta...",
+        "{agent} está buscando a melhor resposta...",
+    )
+
+    def _status_loop(self, stop_event: threading.Event) -> None:
+        """Exibe mensagens de status rotativas enquanto a IA gera a resposta,
+        mantendo o terminal limpo (sem logs)."""
+        msgs = [m.format(agent=self.agent_name) for m in self._STATUS_MESSAGES]
+        i = 0
+        try:
+            while True:
+                if stop_event.is_set():
+                    break
+                sys.stdout.write(f"\r{msgs[i % len(msgs)]}   ")
+                sys.stdout.flush()
+                if stop_event.wait(2.5):
+                    break
+                i += 1
+        finally:
+            sys.stdout.write("\r\033[K")
+            sys.stdout.flush()

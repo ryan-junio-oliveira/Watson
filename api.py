@@ -1,63 +1,120 @@
+import asyncio
 import logging
 import re
+import threading
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncGenerator, List, Optional
+from typing import AsyncGenerator, Callable, Dict, List, Optional
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile, status
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 
 from config import Config, config as app_config
-from ingestion.db_loader import DatabaseLoader
+from ingestion.drive_sync import (
+    GoogleDriveSync,
+    SelectedFolder as _SelectedFolder,
+)
 from ingestion.embeddings import EmbeddingGenerator
 from ingestion.indexer import DocumentIndexer
 from ingestion.loader import DocumentLoader
 from ingestion.splitter import DocumentSplitter
 from llm.ollama_client import OllamaClient
-from rag.chatbot import ChatBot, ChatResult
-from rag.planner import IntentClassifier
+from presentation.formatter import ApiFormatter
+from rag.analyst import Analyst
+from rag.chatbot import ChatBot
 from rag.prompt import PromptBuilder
 from rag.reranker import Reranker as RagReranker
+from rag.response import Mode
 from rag.retriever import Retriever
-from rag.validator import ConfidenceScorer, FactValidator
-from search.chunker import Chunker
-from search.cleaner import ContentCleaner
-from search.extractor import ContentExtractor
-from search.fetcher import PageFetcher
-from search.google_provider import GoogleProvider
-from search.reranker import Reranker as SearchReranker
 from utils.logger import setup_logger
 
 
 class ChatRequest(BaseModel):
     question: str = Field(
-        ..., description="Pergunta do usuário", examples=["Quais servidores estão cadastrados?"]
+        ..., description="Pergunta do usuário", examples=["Como corrigir o erro E123 na impressora E52645?"]
     )
     history: Optional[List[dict]] = Field(
         None, description="Histórico da conversa para contexto",
         examples=[[{"role": "user", "content": "Olá"}, {"role": "assistant", "content": "Olá! Como posso ajudar?"}]]
     )
-    model: Optional[str] = Field(None, description="Modelo Ollama a ser usado", examples=["qwen3:8b"])
+    mode: Mode = Field(
+        Mode.auto,
+        description="Modo de consulta. `auto` e `rag` são equivalentes: "
+                    "ambos respondem com base nos documentos e dados indexados (RAG). "
+                    "Modos: auto | rag.",
+        examples=["auto", "rag"],
+    )
+    analyze: bool = Field(
+        False,
+        description="Se true, roda a análise proativa (reflexão sobre a própria "
+                    "resposta, conclusões e perguntas de acompanhamento) e busca "
+                    "mais informação no acervo. Respostas chegam em "
+                    "`follow_up`, `conclusions` e `additional_info`.",
+        examples=[True],
+    )
 
 
-class ChatResponse(BaseModel):
+class SourceItem(BaseModel):
+    title: str = Field(..., description="Título da fonte", examples=["HP LASER JET E52645.pdf"])
+    url: str = Field("", description="URL da fonte (vazio para documentos internos)")
+    provider: Optional[str] = Field(None, description="Provedor da fonte", examples=["rag"])
+    page: Optional[int] = Field(None, description="Número da página onde o trecho foi encontrado", examples=[142])
+    section: Optional[str] = Field(None, description="Seção do documento (headings)", examples=["Troubleshooting"])
+    manufacturer: Optional[str] = Field(None, description="Fabricante inferido do documento", examples=["HP"])
+    model: Optional[str] = Field(None, description="Modelo do equipamento", examples=["E52645"])
+    error_codes: Optional[List[str]] = Field(None, description="Códigos de erro detectados no trecho", examples=[["E123"]])
+
+
+class ChatMetadata(BaseModel):
+    provider: Optional[str] = Field(None, description="Provedor da resposta (rag)", examples=["rag"])
+    evidence_count: int = Field(0, description="Quantidade de evidências utilizadas")
+    execution_time_ms: int = Field(0, description="Tempo de execução em milissegundos")
+    verdict: str = Field("ok", description="Status da resposta", examples=["ok"])
+    issues: Optional[List[str]] = Field(None, description="Problemas encontrados internamente")
+
+
+class ChatSuccessResponse(BaseModel):
+    success: bool = Field(True, description="Indica se a requisição foi bem-sucedida")
     answer: str = Field(..., description="Resposta gerada pelo Watson", examples=["Existem 5 servidores cadastrados."])
     confidence: float = Field(0.0, description="Nível de confiança na resposta (0.0 a 1.0)")
-    verdict: str = Field("unknown", description="Veredito da validação: consistent | partial | inconsistent | unknown")
-    issues: List[str] = Field(default_factory=list, description="Problemas encontrados na validação")
-    sources: str = Field("", description="Fontes utilizadas para gerar a resposta")
-    evidence_count: int = Field(0, description="Quantidade de evidências utilizadas")
+    sources: List[SourceItem] = Field(default_factory=list, description="Documentos utilizados como fonte")
+    metadata: ChatMetadata = Field(default_factory=ChatMetadata, description="Metadados da execução")
+    follow_up: Optional[List[str]] = Field(
+        None, description="Perguntas de acompanhamento (análise proativa, `analyze=true`)",
+        examples=[["Quer saber a previsão de manutenção?"]],
+    )
+    conclusions: Optional[List[str]] = Field(
+        None, description="Conclusões da análise proativa sobre a própria resposta",
+        examples=[["O volume está acima do recomendado pelo manual."]],
+    )
+    additional_info: Optional[List[str]] = Field(
+        None, description="Informação adicional buscada no acervo indexado",
+        examples=[["O manual também cita a troca do kit de fusão nesse volume."]],
+    )
+
+
+class ChatErrorDetail(BaseModel):
+    code: str = Field(..., description="Código do erro", examples=["INTERNAL_ERROR"])
+    message: str = Field(..., description="Mensagem de erro", examples=["O serviço não respondeu"])
+
+
+class ChatErrorResponse(BaseModel):
+    success: bool = False
+    error: ChatErrorDetail = Field(..., description="Detalhes do erro")
+
+
+class ErrorResponse(BaseModel):
+    detail: str = Field(..., description="Mensagem de erro")
 
 
 class IndexResponse(BaseModel):
     status: str = Field(..., description="Status da operação", examples=["ok"])
     documents_indexed: int = Field(0, description="Quantidade de documentos indexados")
-    db_indexed: int = Field(0, description="Quantidade de registros do banco indexados")
     total_chunks: int = Field(0, description="Total de chunks processados")
 
 
@@ -77,16 +134,57 @@ class HealthResponse(BaseModel):
     status: str = Field(..., description="Status geral da API", examples=["ok"])
     documents_dir: str = Field(..., description="Diretório de documentos")
     chroma_dir: str = Field(..., description="Diretório do banco vetorial ChromaDB")
-    db_configured: bool = Field(..., description="Se o banco MySQL está configurado")
     ollama_model: str = Field(..., description="Modelo Ollama em uso")
+
+
+class DriveItem(BaseModel):
+    id: str = Field(..., description="ID da pasta ou arquivo no Google Drive")
+    name: str = Field(..., description="Nome do item")
+    type: str = Field(..., description="`folder` ou `file`")
+    modified: Optional[str] = Field(None, description="Data de última modificação")
+
+
+class DriveFolderRequest(BaseModel):
+    folder_id: str = Field(..., description="ID da pasta no Google Drive")
+
+
+class SelectedFolderRequest(BaseModel):
+    folder_id: str = Field(..., description="ID da pasta selecionada")
+    path: str = Field("", description="Caminho relativo preservado (ex.: MANUAIS/HP)")
+
+
+class DriveSelectionResponse(BaseModel):
+    folders: List[SelectedFolderRequest] = Field(
+        default_factory=list, description="Pastas selecionadas para indexação"
+    )
+    selected: int = Field(0, description="Quantidade de pastas selecionadas")
+
+
+class DriveSelectionSaveRequest(BaseModel):
+    folders: List[SelectedFolderRequest] = Field(
+        ..., description="Nova lista de pastas selecionadas"
+    )
+
+
+class DriveSyncResponse(BaseModel):
+    status: str = Field(..., description="Status do sync", examples=["ok"])
+    files_remote: int = Field(0, description="Arquivos encontrados no Drive")
+    folders: int = Field(0, description="Pastas percorridas")
+    downloaded: int = Field(0, description="Arquivos baixados")
+    skipped: int = Field(0, description="Arquivos ignorados (não suportados ou já atuais)")
+    failed: int = Field(0, description="Falhas")
+    removed: int = Field(0, description="Arquivos removidos localmente")
+    bytes_downloaded: int = Field(0, description="Bytes baixados")
+    errors: List[str] = Field(default_factory=list, description="Erros ocorridos")
+
+
+class DriveClearResponse(BaseModel):
+    status: str = Field(..., description="Status da operação", examples=["ok"])
+    removed: int = Field(0, description="Quantidade de arquivos removidos")
 
 
 class ModelListResponse(BaseModel):
     models: List[str] = Field(..., description="Lista de modelos disponíveis no Ollama")
-
-
-class ErrorResponse(BaseModel):
-    detail: str = Field(..., description="Mensagem de erro")
 
 
 logger: logging.Logger = None
@@ -97,10 +195,142 @@ indexer: DocumentIndexer = None
 retriever: Retriever = None
 ollama_client: OllamaClient = None
 cfg: Config = None
+api_formatter: ApiFormatter = None
+
+
+# ------------------------------------------------------------------ #
+# Indexação assíncrona (jobs em segundo plano)
+# ------------------------------------------------------------------ #
+
+_index_jobs: Dict[str, dict] = {}
+_index_jobs_lock = threading.Lock()
+_index_exec_lock = threading.Lock()
+
+
+class _IndexJobCancelled(Exception):
+    """Sinaliza que um job de indexação foi cancelado pelo usuário."""
+
+
+def _start_index_job(
+    index_documents: bool,
+    sync_drive: bool = False,
+) -> str:
+    """Inicia a indexação em uma thread de fundo e retorna o job_id.
+
+    O resultado fica disponível em `GET /api/index/status/{job_id}`.
+    """
+    with _index_jobs_lock:
+        running = [
+            jid for jid, j in _index_jobs.items()
+            if j.get("status") == "running"
+        ]
+    if running:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Já existe uma indexação em andamento (job {running[0]}).",
+        )
+
+    job_id = uuid.uuid4().hex[:12]
+    with _index_jobs_lock:
+        _index_jobs[job_id] = {
+            "status": "running",
+            "result": None,
+            "error": None,
+            "created_at": __import__("time").time(),
+            "progress": 0,
+            "total": 0,
+            "message": "",
+            "cancel_requested": False,
+        }
+
+    def _update_job(**fields: object) -> None:
+        with _index_jobs_lock:
+            if job_id in _index_jobs:
+                _index_jobs[job_id].update(fields)
+                if _index_jobs[job_id].get("cancel_requested"):
+                    raise _IndexJobCancelled(job_id)
+
+    def _worker():
+        try:
+            with _index_exec_lock:
+                result = asyncio.run(
+                    _run_index(
+                        index_documents,
+                        sync_drive,
+                        on_progress=_update_job,
+                    )
+                )
+            with _index_jobs_lock:
+                _index_jobs[job_id] = {
+                    "status": "done",
+                    "result": result.model_dump(),
+                    "error": None,
+                    "progress": _index_jobs[job_id].get("progress", 0),
+                    "total": _index_jobs[job_id].get("total", 0),
+                    "message": _index_jobs[job_id].get("message", ""),
+                }
+        except _IndexJobCancelled:
+            logger.info(f"Background index job {job_id} cancelled")
+            with _index_jobs_lock:
+                _index_jobs[job_id] = {
+                    "status": "cancelled",
+                    "result": None,
+                    "error": None,
+                    "progress": _index_jobs[job_id].get("progress", 0),
+                    "total": _index_jobs[job_id].get("total", 0),
+                    "message": _index_jobs[job_id].get("message", ""),
+                }
+        except Exception as e:
+            logger.exception(f"Background index job {job_id} failed: {e}")
+            with _index_jobs_lock:
+                _index_jobs[job_id] = {
+                    "status": "error",
+                    "result": None,
+                    "error": str(e),
+                    "progress": _index_jobs[job_id].get("progress", 0),
+                    "total": _index_jobs[job_id].get("total", 0),
+                    "message": _index_jobs[job_id].get("message", ""),
+                }
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return job_id
+
+
+def _get_index_job(job_id: str) -> Optional[dict]:
+    with _index_jobs_lock:
+        return _index_jobs.get(job_id)
+
+
+def _prune_index_jobs(max_age_seconds: int = 3600) -> None:
+    """Remove jobs antigos para não vazar memória (chamado a cada novo job)."""
+    import time
+
+    now = time.time()
+    with _index_jobs_lock:
+        for jid in list(_index_jobs.keys()):
+            ts = _index_jobs[jid].get("created_at", 0)
+            if now - ts > max_age_seconds:
+                _index_jobs.pop(jid, None)
+
+
+def _preload_models(_chatbot: ChatBot, _emb_gen, _logger) -> None:
+    _emb_gen.get_embeddings()
+    if _chatbot._rag_reranker is not None:
+        _chatbot._rag_reranker._load_model()
 
 
 def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
-    _embedding_generator = EmbeddingGenerator(model_name=cfg.embedding_model, device=cfg.embedding_device)
+    from metrics.store import MetricsStore
+
+    _metrics = MetricsStore(db_path=cfg.metrics_db, logger=_logger)
+    _embedding_generator = EmbeddingGenerator(
+        model_name=cfg.embedding_model,
+        device=cfg.embedding_device,
+        batch_size=cfg.embedding_batch_size,
+        normalize=cfg.embedding_normalize,
+        cache_path=cfg.embedding_cache_path,
+        logger=_logger,
+    )
     _retriever = Retriever(
         embedding_generator=_embedding_generator,
         chroma_persist_dir=cfg.vector_db_dir,
@@ -119,6 +349,7 @@ def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
         max_tokens=cfg.max_tokens,
         request_timeout=cfg.ollama_timeout,
         logger=_logger,
+        metrics=_metrics,
     )
     _rag_reranker = (
         RagReranker(
@@ -129,59 +360,41 @@ def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
         if cfg.use_reranker
         else None
     )
-    _fetcher = PageFetcher(
-        timeout=cfg.fetch_timeout,
-        max_size=cfg.fetch_max_size,
-        max_retries=cfg.fetch_retries,
-        logger=_logger,
-    )
-    _extractor = ContentExtractor(logger=_logger)
-    _cleaner = ContentCleaner(logger=_logger)
-    _chunker = Chunker(
-        chunk_size=cfg.web_chunk_size,
-        chunk_overlap=cfg.web_chunk_overlap,
-        logger=_logger,
-    )
-    _search_reranker = SearchReranker(
-        model_name=cfg.reranker_model,
-        device=cfg.embedding_device,
-        logger=_logger,
-    )
-    _search_provider = GoogleProvider(logger=_logger)
-    _intent_classifier = (
-        IntentClassifier(ollama_client=_ollama_client, logger=_logger)
-        if cfg.enable_planner
+    _analyst = (
+        Analyst(
+            retriever=_retriever,
+            ollama_client=_ollama_client,
+            logger=_logger,
+            max_followups=cfg.analyst_max_followups,
+        )
+        if cfg.enable_analyst
         else None
     )
-    _fact_validator = (
-        FactValidator(ollama_client=_ollama_client, logger=_logger)
-        if cfg.enable_validator
-        else None
-    )
-    _conf_min = cfg.min_confidence
-    if hasattr(ConfidenceScorer, 'MIN_CONFIDENCE'):
-        ConfidenceScorer.MIN_CONFIDENCE = _conf_min
     return ChatBot(
         retriever=_retriever,
         prompt_builder=_prompt_builder,
         ollama_client=_ollama_client,
         reranker=_rag_reranker,
-        intent_classifier=_intent_classifier,
-        fact_validator=_fact_validator,
         logger=_logger,
-        fetcher=_fetcher,
-        extractor=_extractor,
-        cleaner=_cleaner,
-        chunker=_chunker,
-        search_reranker=_search_reranker,
-        search_provider=_search_provider,
-        max_pages_per_query=cfg.fetch_max_pages,
-        max_chunks_per_query=cfg.web_search_max_results * 6,
+        enable_reasoning=cfg.enable_reasoning,
+        analyst=_analyst,
+        agent_name=cfg.agent_name,
+        metrics=_metrics,
     )
 
 
 def build_indexer(cfg: Config, _logger: logging.Logger):
-    _embedding_generator = EmbeddingGenerator(model_name=cfg.embedding_model, device=cfg.embedding_device)
+    from metrics.store import MetricsStore
+
+    _metrics = MetricsStore(db_path=cfg.metrics_db, logger=_logger)
+    _embedding_generator = EmbeddingGenerator(
+        model_name=cfg.embedding_model,
+        device=cfg.embedding_device,
+        batch_size=cfg.embedding_batch_size,
+        normalize=cfg.embedding_normalize,
+        cache_path=cfg.embedding_cache_path,
+        logger=_logger,
+    )
     _splitter = DocumentSplitter(
         chunk_size=cfg.chunk_size,
         chunk_overlap=cfg.chunk_overlap,
@@ -193,13 +406,14 @@ def build_indexer(cfg: Config, _logger: logging.Logger):
         chroma_persist_dir=cfg.vector_db_dir,
         batch_size=cfg.index_batch_size,
         logger=_logger,
+        metrics=_metrics,
     )
     return _embedding_generator, _splitter, _indexer
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global logger, chatbot, embedding_generator, splitter, indexer, retriever, ollama_client, cfg
+    global logger, chatbot, embedding_generator, splitter, indexer, retriever, ollama_client, cfg, api_formatter
 
     cfg = app_config
 
@@ -217,6 +431,12 @@ async def lifespan(app: FastAPI):
     chatbot = build_chatbot(cfg, logger)
     embedding_generator, splitter, indexer = build_indexer(cfg, logger)
 
+    logger.info("Preloading models...")
+    _preload_models(chatbot, embedding_generator, logger)
+    logger.info("Models loaded successfully")
+
+    api_formatter = ApiFormatter()
+
     yield
 
     logger.info("Shutting down Watson API server")
@@ -226,15 +446,71 @@ app = FastAPI(
     title="Watson RAG API",
     description="""
     API de Retrieval-Augmented Generation (RAG) para indexação de documentos e
-    consultas inteligentes com modelos LLM via Ollama.
+    imagens, com consultas inteligentes via LLM (Ollama).
+
+    ## Arquitetura (Knowledge Ingestion & Indexing Pipeline)
+    O Watson transforma fontes de conhecimento em uma base pesquisável:
+
+    1. **Ingestão** — adapters por fonte (PDF com OCR seletivo, DOCX, CSV, XLSX,
+       TXT, imagens), extraindo estrutura (páginas, seções,
+       tabelas, imagens).
+    2. **Indexação** — chunking semântico por tipo, deduplicação, quality gate,
+       embeddings multilíngues (padrão `intfloat/multilingual-e5-base`) com
+       cache, e gravação em um índice vetorial (Chroma).
+    3. **Manifesto** — cada documento é registrado com hashes, versões de
+       parser/chunking/embedding e status, permitindo indexação incremental e
+       reindexação controlada (§versionamento).
+    4. **Recuperação** — busca vetorial com metadata rica (fabricante, modelo,
+       seção, página, códigos de erro) e rerank opcional.
+    5. **Geração** — LLM sintetiza a resposta com base nas evidências.
 
     ## Funcionalidades
-    - **Chat**: Faça perguntas sobre documentos indexados
-    - **Indexação**: Indexe documentos (PDF, TXT, DOCX, etc.) e dados de banco MySQL
-    - **Upload**: Envie novos documentos para indexação
-    - **Saúde**: Monitore o status da API e componentes
+    - **Chat**: perguntas sobre documentos indexados (RAG).
+    - **Streaming (SSE)**: tokens da resposta em tempo real + metadados finais.
+    - **Indexação**: `POST /api/index` (documentos).
+    - **Upload**: envie novos documentos (PDF, TXT, DOCX, XLSX, CSV, imagens).
+    - **Reindexação**: incremental por hash/versão; use `DELETE` de fontes via
+      limpeza ou reindexação controlada.
+    - **OCR seletivo**: Tesseract aplicado apenas em páginas sem texto nativo.
+    - **Saúde**: status da API e dependências.
+
+    ## Formato de Resposta
+    Todas as respostas seguem um contrato estável:
+    ```json
+    {
+      "success": true,
+      "answer": "texto da resposta",
+      "confidence": 0.94,
+      "sources": [
+        {
+          "title": "HP LASER JET E52645.pdf",
+          "provider": "rag",
+          "page": 142,
+          "section": "Troubleshooting",
+          "manufacturer": "HP",
+          "model": "E52645",
+          "error_codes": ["E123"]
+        }
+      ],
+      "metadata": {
+        "provider": "rag",
+        "evidence_count": 3,
+        "execution_time_ms": 814,
+        "verdict": "ok"
+      }
+    }
+    ```
+
+    ## Streaming (SSE)
+    O endpoint `POST /api/chat/stream` envia eventos:
+    1. `data: {"content": "<token>"}` — cada token da resposta (JSON preserva
+       newlines e formatação markdown);
+    2. `data: [DONE]` — fim do texto;
+    3. `data: {...}` — metadados finais (confidence, sources ricas, metadata).
+
+    Diagnósticos internos **nunca** são expostos na resposta.
     """,
-    version="1.1.0",
+    version="0.0.1",
     contact={
         "name": "Watson Team",
         "url": "http://localhost:9000",
@@ -247,7 +523,6 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# CORS configuration - allow all origins in development
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -259,11 +534,39 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
-    """Adds a unique request_id to each request for tracing."""
     request.state.request_id = str(uuid.uuid4())[:8]
     response = await call_next(request)
     response.headers["X-Request-ID"] = request.state.request_id
     return response
+
+
+@app.middleware("http")
+async def require_api_token(request: Request, call_next):
+    """Exige o header `X-API-Token` (ou `Authorization: Bearer`) em todos os
+    endpoints `/api/*`, exceto health/docs. Desativado se `API_AUTH_TOKEN`
+    estiver vazio (configuração local de desenvolvimento)."""
+    path = request.url.path
+    if not path.startswith("/api/") or path.startswith("/api/health"):
+        return await call_next(request)
+
+    token = getattr(app_config, "api_auth_token", "") or ""
+    if not token:
+        return await call_next(request)
+
+    header_token = request.headers.get("x-api-token", "")
+    if not header_token:
+        auth = request.headers.get("authorization", "")
+        if auth.lower().startswith("bearer "):
+            header_token = auth[7:].strip()
+
+    if header_token != token:
+        return JSONResponse(
+            status_code=401,
+            content={"success": False, "detail": "Token de API inválido ou ausente."},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return await call_next(request)
 
 
 @app.get(
@@ -278,7 +581,6 @@ async def add_request_id(request: Request, call_next):
     },
 )
 async def health():
-    """Retorna o status da API e verifica se o Ollama está acessível."""
     global cfg, ollama_client
     ollama_status = "unknown"
     try:
@@ -297,7 +599,6 @@ async def health():
         status=overall,
         documents_dir=cfg.documents_dir,
         chroma_dir=cfg.vector_db_dir,
-        db_configured=bool(cfg.db_connection_string),
         ollama_model=cfg.ollama_model,
     )
 
@@ -313,10 +614,6 @@ async def health():
     },
 )
 async def list_models():
-    """Lista todos os modelos disponíveis no servidor Ollama.
-
-    Em caso de falha de conexão, retorna apenas o modelo configurado como fallback.
-    """
     global ollama_client
     try:
         local_client = ollama_client or OllamaClient(
@@ -333,22 +630,24 @@ async def list_models():
 
 @app.post(
     "/api/chat",
-    response_model=ChatResponse,
+    response_model=ChatSuccessResponse,
     tags=["Chat"],
     summary="Fazer uma pergunta ao Watson",
-    response_description="Resposta gerada pelo modelo LLM com base nos documentos indexados",
+    response_description="Resposta gerada com sucesso no formato padronizado",
     responses={
-        200: {"description": "Resposta gerada com sucesso", "model": ChatResponse},
+        200: {"description": "Resposta gerada com sucesso", "model": ChatSuccessResponse},
         400: {"description": "Pergunta inválida ou vazia", "model": ErrorResponse},
+        500: {"description": "Erro interno do servidor", "model": ChatErrorResponse},
         503: {"description": "Chatbot não foi inicializado", "model": ErrorResponse},
     },
 )
 async def chat(request: ChatRequest, req: Request):
-    """Envia uma pergunta para o Watson e obtém uma resposta baseada nos documentos indexados.
+    """Responde uma pergunta usando RAG (documentos indexados).
 
-    Opcionalmente, envie `history` com o histórico da conversa para manter contexto.
+    Retorna `answer`, `confidence`, `sources` (com metadata rica: fabricante,
+    modelo, seção, página e códigos de erro) e `metadata` de execução.
     """
-    global chatbot, logger
+    global chatbot, logger, api_formatter
     request_id = getattr(req.state, "request_id", "unknown")
 
     if not chatbot:
@@ -365,44 +664,64 @@ async def chat(request: ChatRequest, req: Request):
                 role = msg.get("role", "user")
                 content = msg.get("content", "")
                 context += f"{role}: {content}\n"
-            result = chatbot.ask_with_context(question, context)
+            result = chatbot.ask_with_context(
+                question, context, mode=request.mode, analyze=request.analyze
+            )
         else:
-            result = chatbot.ask(question)
+            result = chatbot.ask(
+                question, mode=request.mode, analyze=request.analyze
+            )
 
-        logger.info(f"[{request_id}] Chat completed: {len(result.answer)} chars, "
-                    f"confidence={result.confidence:.2f}, verdict={result.verdict}")
-        return ChatResponse(
-            answer=result.answer,
-            confidence=result.confidence,
-            verdict=result.verdict,
-            issues=result.issues,
-            sources=result.sources,
-            evidence_count=result.evidence_count,
+        logger.info(
+            f"[{request_id}] Chat completed: {len(result.answer)} chars, "
+            f"confidence={result.confidence:.2f}, verdict={result.verdict}, "
+            f"time={result.execution_time:.2f}s"
         )
+
+        return api_formatter.format(result)
+
     except Exception as e:
         logger.exception(f"[{request_id}] Chat error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return JSONResponse(
+            status_code=500,
+            content=api_formatter.format_error(
+                code="INTERNAL_ERROR",
+                message=str(e),
+            ),
+        )
 
 
 @app.post(
     "/api/chat/stream",
     tags=["Chat"],
     summary="Fazer uma pergunta ao Watson com resposta em streaming (SSE)",
-    response_description="Stream da resposta gerada pelo modelo LLM",
+    response_description="Stream de eventos SSE com tokens JSON da resposta + metadados finais",
     responses={
-        200: {"description": "Stream de tokens da resposta"},
-        400: {"description": "Pergunta inválida ou vazia", "model": ErrorResponse},
-        503: {"description": "Chatbot não foi inicializado", "model": ErrorResponse},
+        200: {
+            "description": (
+                "Stream de eventos SSE:\n"
+                "1. `data: {\"content\": \"<token>\"}` — cada token da resposta "
+                "(JSON preserva newlines/ markdown);\n"
+                "2. `data: [DONE]` — fim do texto;\n"
+                "3. `data: {...}` — metadados finais com sources ricas "
+                "(confidence, sources, metadata)."
+            ),
+        },
+        400: {"description": "Pergunta inválida ou vazia"},
+        503: {"description": "Chatbot não foi inicializado"},
     },
 )
 async def chat_stream(request: ChatRequest, req: Request):
-    """Envia uma pergunta e recebe a resposta em tempo real via Server-Sent Events (SSE).
+    """Envia uma pergunta e recebe a resposta em tempo real via SSE.
 
-    Cada chunk da resposta é enviado como um evento SSE no formato:
-    `data: {"token": "texto_parcial"}\n\n`
-    O stream é finalizado com: `data: [DONE]\n\n`
+    Formato dos eventos:
+    - Tokens: `data: {"content": "<token>"}\\n\\n` (JSON — preserva quebras de
+      linha, espaços e formatação markdown).
+    - `[DONE]` sinaliza o fim do texto.
+    - Último evento: JSON com `confidence`, `sources` (metadata rica:
+      fabricante, modelo, seção, página, códigos de erro) e `metadata`.
     """
-    global chatbot, logger
+    global chatbot, logger, api_formatter
     request_id = getattr(req.state, "request_id", "unknown")
 
     if not chatbot:
@@ -414,6 +733,8 @@ async def chat_stream(request: ChatRequest, req: Request):
 
     async def event_generator() -> AsyncGenerator[str, None]:
         try:
+            import json as _json
+
             result = None
             context = ""
             if request.history:
@@ -422,14 +743,22 @@ async def chat_stream(request: ChatRequest, req: Request):
                     content = msg.get("content", "")
                     context += f"{role}: {content}\n"
             gen = (
-                chatbot.ask_stream_with_history(question, context)
+                chatbot.ask_stream_with_history(
+                    question, context, mode=request.mode, analyze=request.analyze
+                )
                 if request.history
-                else chatbot.ask_stream(question)
+                else chatbot.ask_stream(
+                    question, mode=request.mode, analyze=request.analyze
+                )
             )
             try:
                 while True:
                     token = next(gen)
-                    yield f"data: {token}\n\n"
+                    # Envia cada token como JSON ({"content": ...}) para que
+                    # newlines/ espaços do markdown sejam preservados com
+                    # segurança pelo consumidor (o delimitador SSE \n\n não
+                    # colide com o conteúdo).
+                    yield f"data: {_json.dumps({'content': token})}\n\n"
             except StopIteration as e:
                 result = e.value
 
@@ -437,14 +766,8 @@ async def chat_stream(request: ChatRequest, req: Request):
 
             if result:
                 import json
-                validation_event = json.dumps({
-                    "confidence": round(result.confidence, 2),
-                    "verdict": result.verdict,
-                    "issues": result.issues,
-                    "sources": result.sources,
-                    "evidence_count": result.evidence_count,
-                })
-                yield f"data: [VALIDATION] {validation_event}\n\n"
+                meta = api_formatter.format_stream_metadata(result)
+                yield f"data: {json.dumps(meta)}\n\n"
 
             logger.info(
                 f"[{request_id}] Stream completed: "
@@ -453,7 +776,7 @@ async def chat_stream(request: ChatRequest, req: Request):
             )
         except Exception as e:
             logger.exception(f"[{request_id}] Stream error: {e}")
-            yield f"data: [ERROR] {str(e)}\n\n"
+            yield "data: [DONE]\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -466,11 +789,172 @@ async def chat_stream(request: ChatRequest, req: Request):
     )
 
 
+@app.get(
+    "/api/drive/folder/{folder_id}",
+    response_model=List[DriveItem],
+    tags=["Google Drive"],
+    summary="Listar itens de uma pasta do Google Drive",
+    response_description="Lista de pastas e arquivos da pasta",
+    responses={
+        404: {"description": "Pasta não encontrada", "model": ErrorResponse},
+    },
+)
+async def drive_folder(folder_id: str, req: Request):
+    """Lista os itens (pastas e arquivos) de uma pasta pública do Drive."""
+    global logger, cfg
+    try:
+        drive = GoogleDriveSync(
+            folder_id=folder_id,
+            dest_dir=cfg.google_drive_dest_dir,
+            logger=logger,
+            timeout=cfg.google_drive_sync_timeout,
+        )
+        entries = drive.list_folder(folder_id)
+        return [
+            DriveItem(
+                id=e.entry_id,
+                name=e.name,
+                type="folder" if e.is_folder else "file",
+                modified=e.modified or None,
+            )
+            for e in entries
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Folder listing failed: {e}")
+
+
+@app.get(
+    "/api/drive/selection",
+    response_model=DriveSelectionResponse,
+    tags=["Google Drive"],
+    summary="Obter a seleção de pastas para indexação",
+    response_description="Pastas atualmente selecionadas",
+)
+async def drive_selection_get(req: Request):
+    """Retorna quais subpastas do Drive estão selecionadas para indexação."""
+    global cfg
+    drive = GoogleDriveSync(
+        folder_id=cfg.google_drive_folder_id or "",
+        dest_dir=cfg.google_drive_dest_dir,
+        timeout=cfg.google_drive_sync_timeout,
+    )
+    selection = drive.load_selection()
+    return DriveSelectionResponse(
+        folders=[
+            SelectedFolderRequest(folder_id=s.folder_id, path=s.path)
+            for s in selection
+        ],
+        selected=len(selection),
+    )
+
+
+@app.post(
+    "/api/drive/selection",
+    response_model=DriveSelectionResponse,
+    tags=["Google Drive"],
+    summary="Salvar a seleção de pastas para indexação",
+    response_description="Seleção salva",
+)
+async def drive_selection_save(payload: DriveSelectionSaveRequest, req: Request):
+    """Salva quais subpastas do Drive serão sincronizadas/indexadas.
+
+    Enviar lista vazia (`{"folders": []}`) faz o sync usar a pasta raiz
+    inteira.
+    """
+    global cfg
+    drive = GoogleDriveSync(
+        folder_id=cfg.google_drive_folder_id or "",
+        dest_dir=cfg.google_drive_dest_dir,
+        timeout=cfg.google_drive_sync_timeout,
+    )
+    selection = [
+        SelectedFolderRequest(folder_id=f.folder_id, path=f.path)
+        for f in payload.folders
+    ]
+    drive.save_selection(
+        [
+            _SelectedFolder(folder_id=f.folder_id, path=f.path)
+            for f in selection
+        ]
+    )
+    return DriveSelectionResponse(folders=selection, selected=len(selection))
+
+
+@app.post(
+    "/api/drive/sync",
+    response_model=DriveSyncResponse,
+    tags=["Google Drive"],
+    summary="Sincronizar arquivos selecionados do Google Drive",
+    response_description="Relatório do sync",
+)
+async def drive_sync(req: Request):
+    """Baixa os arquivos das pastas selecionadas para o diretório local,
+    respeitando a seleção salva em `/api/drive/selection`."""
+    global logger, cfg
+    if not cfg.google_drive_folder_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Google Drive not configured. Set GOOGLE_DRIVE_FOLDER_ID.",
+        )
+    drive = GoogleDriveSync(
+        folder_id=cfg.google_drive_folder_id,
+        dest_dir=cfg.google_drive_dest_dir,
+        logger=logger,
+        timeout=cfg.google_drive_sync_timeout,
+    )
+    result = drive.sync()
+    return DriveSyncResponse(
+        status="ok",
+        files_remote=result.files_remote,
+        folders=result.folders,
+        downloaded=result.downloaded,
+        skipped=result.skipped,
+        failed=result.failed,
+        removed=result.removed,
+        bytes_downloaded=result.bytes_downloaded,
+        errors=result.errors,
+    )
+
+
+@app.post(
+    "/api/drive/clear",
+    response_model=DriveClearResponse,
+    tags=["Google Drive"],
+    summary="Remover arquivos sincronizados do Google Drive",
+    response_description="Quantidade de arquivos removidos",
+)
+async def drive_clear(req: Request):
+    """Apaga os arquivos sincronizados (e a seleção) do diretório local.
+
+    Use com cuidado: após isso, `POST /api/index` detectará os documentos
+    como stale e os removerá do índice.
+    """
+    global logger, cfg
+    drive = GoogleDriveSync(
+        folder_id=cfg.google_drive_folder_id or "",
+        dest_dir=cfg.google_drive_dest_dir,
+        logger=logger,
+        timeout=cfg.google_drive_sync_timeout,
+    )
+    removed = 0
+    dest = Path(cfg.google_drive_dest_dir)
+    if dest.exists():
+        for item in dest.rglob("*"):
+            if item.is_file():
+                try:
+                    item.unlink()
+                    removed += 1
+                except OSError:
+                    pass
+    drive.save_selection([])
+    return DriveClearResponse(status="ok", removed=removed)
+
+
 @app.post(
     "/api/index",
     response_model=IndexResponse,
     tags=["Indexação"],
-    summary="Indexar documentos e banco de dados",
+    summary="Indexar documentos",
     response_description="Resultado da indexação incluindo documentos e chunks processados",
     responses={
         200: {"description": "Indexação concluída", "model": IndexResponse},
@@ -478,11 +962,11 @@ async def chat_stream(request: ChatRequest, req: Request):
     },
 )
 async def index_all():
-    """Indexa **documentos** e **banco de dados** simultaneamente.
+    """Indexa documentos de forma incremental (por hash/versão).
 
-    Apenas arquivos novos ou modificados desde a última indexação são processados.
+    Processa apenas documentos alterados ou novos.
     """
-    return await _run_index(index_documents=True, index_database=True)
+    return await _run_index(index_documents=True)
 
 
 @app.post(
@@ -497,31 +981,148 @@ async def index_all():
     },
 )
 async def index_documents():
-    """Indexa **apenas documentos** (PDF, TXT, DOCX, etc.) do diretório configurado."""
-    return await _run_index(index_documents=True, index_database=False)
+    """Indexa apenas documentos (PDF, DOCX, CSV, XLSX, TXT, imagens) do
+    diretório configurado, com OCR seletivo e incremental por hash."""
+    return await _run_index(index_documents=True)
+
+
+class IndexJobRequest(BaseModel):
+    mode: str = Field(
+        "all", description="O que indexar: all | documents",
+        examples=["documents"],
+    )
+    sync_drive: bool = Field(
+        False,
+        description="Se true, sincroniza o Google Drive antes de indexar "
+        "(use apenas quando quiser baixar o Drive junto)",
+    )
+
+
+class IndexJobResponse(BaseModel):
+    status: str = Field(..., description="Status da operação", examples=["started"])
+    job_id: str = Field(..., description="ID do job para consulta de status")
+
+
+class IndexJobStatus(BaseModel):
+    job_id: str = Field(..., description="ID do job")
+    status: str = Field(
+        ..., description="running | done | error | cancelled",
+        examples=["running"],
+    )
+    result: Optional[IndexResponse] = Field(None, description="Resultado (quando done)")
+    error: Optional[str] = Field(None, description="Mensagem de erro (quando error)")
+    progress: int = Field(0, description="Documentos processados até agora")
+    total: int = Field(0, description="Total de documentos pendentes")
+    message: str = Field("", description="Documento/fase atual")
 
 
 @app.post(
-    "/api/index/database",
-    response_model=IndexResponse,
+    "/api/index/async",
+    response_model=IndexJobResponse,
     tags=["Indexação"],
-    summary="Indexar apenas banco de dados",
-    response_description="Resultado da indexação do banco de dados",
+    summary="Iniciar indexação em segundo plano",
+    response_description="Retorna o job_id imediatamente; consulte o status via GET /api/index/status/{job_id}",
     responses={
-        200: {"description": "Indexação concluída", "model": IndexResponse},
-        400: {"description": "Banco de dados não configurado", "model": ErrorResponse},
+        200: {"description": "Job iniciado", "model": IndexJobResponse},
         503: {"description": "Indexador não foi inicializado", "model": ErrorResponse},
     },
 )
-async def index_database():
-    """Indexa **apenas o banco de dados MySQL** conectado.
+async def index_async(payload: IndexJobRequest):
+    """Inicia a indexação em segundo plano e retorna na hora.
 
-    Requer `DB_CONNECTION_STRING` configurado no `.env`.
+    Não bloqueia a requisição — a UI fica livre enquanto o job roda.
+    Use `GET /api/index/status/{job_id}` para acompanhar o progresso.
     """
-    return await _run_index(index_documents=False, index_database=True)
+    global indexer, logger
+
+    if not indexer:
+        raise HTTPException(status_code=503, detail="Indexer not initialized")
+
+    mode = payload.mode or "all"
+    if mode not in {"all", "documents"}:
+        raise HTTPException(status_code=400, detail=f"Invalid mode: {mode}")
+
+    _prune_index_jobs()
+
+    job_id = _start_index_job(
+        index_documents=mode in {"all", "documents"},
+        sync_drive=payload.sync_drive,
+    )
+    logger.info(f"Background index job started: {job_id} ({mode})")
+    return IndexJobResponse(status="started", job_id=job_id)
 
 
-async def _run_index(index_documents: bool, index_database: bool) -> IndexResponse:
+@app.get(
+    "/api/index/status/{job_id}",
+    response_model=IndexJobStatus,
+    tags=["Indexação"],
+    summary="Consultar status de um job de indexação",
+    response_description="Status atual do job (running, done ou error)",
+    responses={
+        200: {"description": "Status do job", "model": IndexJobStatus},
+        404: {"description": "Job não encontrado", "model": ErrorResponse},
+    },
+)
+async def index_status(job_id: str):
+    """Consulta o status de um job iniciado via `POST /api/index/async`."""
+    job = _get_index_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
+
+    return IndexJobStatus(
+        job_id=job_id,
+        status=job["status"],
+        result=IndexResponse(**job["result"]) if job.get("result") else None,
+        error=job.get("error"),
+        progress=job.get("progress", 0),
+        total=job.get("total", 0),
+        message=job.get("message", ""),
+    )
+
+
+class IndexCancelResponse(BaseModel):
+    status: str = Field(..., description="Status da operação", examples=["cancelling"])
+    job_id: str = Field(..., description="ID do job a cancelar")
+
+
+@app.post(
+    "/api/index/cancel/{job_id}",
+    response_model=IndexCancelResponse,
+    tags=["Indexação"],
+    summary="Cancelar um job de indexação em andamento",
+    response_description="Solicita o cancelamento cooperativo do job",
+    responses={
+        200: {"description": "Cancelamento solicitado", "model": IndexCancelResponse},
+        404: {"description": "Job não encontrado", "model": ErrorResponse},
+        409: {"description": "Job não está em andamento", "model": ErrorResponse},
+    },
+)
+async def index_cancel(job_id: str):
+    """Marca o job para cancelamento. A thread verifica o flag entre
+    documentos e para de forma cooperativa (status vira `cancelled`)."""
+    job = _get_index_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
+
+    if job.get("status") != "running":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job '{job_id}' não está em andamento (status={job.get('status')})",
+        )
+
+    with _index_jobs_lock:
+        if job_id in _index_jobs:
+            _index_jobs[job_id]["cancel_requested"] = True
+
+    logger.info(f"Cancel requested for index job {job_id}")
+    return IndexCancelResponse(status="cancelling", job_id=job_id)
+
+
+async def _run_index(
+    index_documents: bool,
+    sync_drive: bool = False,
+    on_progress: Optional[Callable[..., None]] = None,
+) -> IndexResponse:
     global indexer, embedding_generator, splitter, logger, cfg
 
     if not indexer:
@@ -529,19 +1130,56 @@ async def _run_index(index_documents: bool, index_database: bool) -> IndexRespon
 
     total_chunks = 0
     docs_indexed = 0
-    db_indexed = 0
 
     if index_documents:
         try:
-            loader = DocumentLoader(logger=logger)
+            if on_progress:
+                on_progress(message="Sincronizando Google Drive...")
+            if sync_drive and cfg.google_drive_folder_id:
+                try:
+                    drive_sync = GoogleDriveSync(
+                        folder_id=cfg.google_drive_folder_id,
+                        dest_dir=cfg.google_drive_dest_dir,
+                        logger=logger,
+                        timeout=cfg.google_drive_sync_timeout,
+                    )
+                    result = drive_sync.sync()
+                    logger.info(f"Google Drive sync: {result.as_dict()}")
+                except Exception as e:
+                    logger.exception(f"Google Drive sync error: {e}")
+
+            loader = DocumentLoader(
+                logger=logger,
+                ocr_lang=cfg.ocr_lang,
+                ocr_dpi=cfg.ocr_dpi,
+                ocr_min_text_chars=cfg.ocr_min_text_chars,
+                tesseract_cmd=cfg.tesseract_cmd,
+                image_dir=cfg.image_dir,
+                vision_model=cfg.vision_model,
+            )
+            if on_progress:
+                on_progress(message="Carregando documentos...")
             documents = loader.load(cfg.documents_dir)
+            if on_progress:
+                on_progress(message=f"{len(documents)} documentos carregados")
 
             if documents:
                 has_pending, pending_list, stale_set = (
                     indexer.has_pending_changes(documents)
                 )
                 if has_pending:
-                    chunks = indexer.index(documents)
+                    prev_callback = getattr(indexer, "progress_callback", None)
+                    indexer.progress_callback = (
+                        lambda done, total, name, _c=on_progress: (
+                            _c(progress=done, total=total, message=name)
+                            if _c
+                            else None
+                        )
+                    )
+                    try:
+                        chunks = indexer.index(documents)
+                    finally:
+                        indexer.progress_callback = prev_callback
                     total_chunks += chunks
                     docs_indexed = len(pending_list)
                     logger.info(f"Indexed {chunks} chunks from {len(pending_list)} documents")
@@ -551,38 +1189,9 @@ async def _run_index(index_documents: bool, index_database: bool) -> IndexRespon
             logger.exception(f"Document indexing error: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    if index_database:
-        try:
-            if not cfg.db_connection_string:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Database not configured. Set DB_CONNECTION_STRING in config.",
-                )
-
-            loader = DatabaseLoader(
-                connection_string=cfg.db_connection_string,
-                tables=cfg.db_tables,
-                logger=logger,
-            )
-            db_documents = loader.load()
-
-            if db_documents:
-                chunks = indexer.index(db_documents)
-                total_chunks += chunks
-                db_indexed = len(db_documents)
-                logger.info(f"Indexed {chunks} chunks from {len(db_documents)} database records")
-            else:
-                logger.info("No database records to index")
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.exception(f"Database indexing error: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
     return IndexResponse(
         status="ok",
         documents_indexed=docs_indexed,
-        db_indexed=db_indexed,
         total_chunks=total_chunks,
     )
 
@@ -598,10 +1207,11 @@ async def _run_index(index_documents: bool, index_database: bool) -> IndexRespon
         400: {"description": "Nenhum arquivo enviado", "model": ErrorResponse},
     },
 )
-async def upload_document(file: UploadFile = File(..., description="Arquivo a ser enviado (PDF, TXT, DOCX, etc.)")):
-    """Faz upload de um documento para o diretório de documentos.
+async def upload_document(file: UploadFile = File(..., description="Arquivo a ser enviado (PDF, DOCX, TXT, MD, CSV, XLSX, XLS, JPG, PNG, BMP, TIFF)")):
+    """Envia um documento para o diretório de indexação (máx. 50 MB).
 
-    Após o upload, execute `/api/index/documents` para indexá-lo.
+    Depois de enviado, execute `POST /api/index` para indexá-lo. Nomes de
+    arquivo são sanitizados; envio duplicado retorna 409.
     """
     global logger, cfg
 
@@ -652,10 +1262,6 @@ async def upload_document(file: UploadFile = File(..., description="Arquivo a se
     },
 )
 async def clear_all():
-    """Remove **todos** os documentos e limpa o banco vetorial ChromaDB.
-
-    Após executar, será necessário reindexar os documentos com `/api/index/documents`.
-    """
     return await _run_clear(clear_docs=True, clear_vectorstore=True)
 
 
@@ -671,10 +1277,6 @@ async def clear_all():
     },
 )
 async def clear_documents():
-    """Remove **apenas os arquivos de documentos** do diretório.
-
-    O banco vetorial permanece intacto (chunks órfãos).
-    """
     return await _run_clear(clear_docs=True, clear_vectorstore=False)
 
 
@@ -690,10 +1292,6 @@ async def clear_documents():
     },
 )
 async def clear_vectorstore():
-    """Remove **apenas o banco vetorial ChromaDB**.
-
-    Os arquivos de documentos permanecem no diretório.
-    """
     return await _run_clear(clear_docs=False, clear_vectorstore=True)
 
 
@@ -711,6 +1309,14 @@ async def _run_clear(clear_docs: bool, clear_vectorstore: bool) -> ClearResponse
             vec_removed = indexer.clear_vectorstore()
         if clear_docs:
             docs_removed = indexer.clear_documents(cfg.documents_dir)
+        # Limpar a "memória" (vetores) também zera as métricas registradas,
+        # já que os dados de origem foram apagados.
+        if clear_vectorstore:
+            try:
+                from metrics.store import MetricsStore
+                MetricsStore(db_path=cfg.metrics_db, logger=logger).clear()
+            except Exception as e:
+                logger.warning(f"Metrics clear failed: {e}")
         logger.info(f"Clear completed: {docs_removed} docs, {vec_removed} vectorstore files")
         return ClearResponse(
             status="ok",
@@ -720,6 +1326,104 @@ async def _run_clear(clear_docs: bool, clear_vectorstore: bool) -> ClearResponse
     except Exception as e:
         logger.exception(f"Clear error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ------------------------------------------------------------------ #
+# Métricas e Dashboard
+# ------------------------------------------------------------------ #
+
+def _get_metrics_store():
+    from metrics.store import MetricsStore
+    return MetricsStore(db_path=cfg.metrics_db, logger=logger)
+
+
+@app.get(
+    "/api/metrics/summary",
+    tags=["Métricas"],
+    summary="Resumo das métricas do Watson",
+)
+async def metrics_summary(hours: Optional[float] = 24.0):
+    store = _get_metrics_store()
+    since = None
+    if hours:
+        import time
+        since = time.time() - hours * 3600
+    return store.summary(since_ts=since)
+
+
+@app.get(
+    "/api/metrics/tokens",
+    tags=["Métricas"],
+    summary="Série temporal de tokens (input/output)",
+)
+async def metrics_tokens(hours: float = 24.0):
+    store = _get_metrics_store()
+    return {"hours": hours, "series": store.token_series(hours)}
+
+
+@app.get(
+    "/api/metrics/requests",
+    tags=["Métricas"],
+    summary="Série temporal de requisições de chat",
+)
+async def metrics_requests(hours: float = 24.0):
+    store = _get_metrics_store()
+    return {"hours": hours, "series": store.request_series(hours)}
+
+
+@app.get(
+    "/api/metrics/models",
+    tags=["Métricas"],
+    summary="Tokens por modelo",
+)
+async def metrics_models(hours: float = 24.0):
+    store = _get_metrics_store()
+    return {"models": store.by_model(hours)}
+
+
+@app.get(
+    "/api/metrics/llm-calls",
+    tags=["Métricas"],
+    summary="Últimas chamadas ao LLM",
+)
+async def metrics_llm_calls(limit: int = 50):
+    store = _get_metrics_store()
+    return {"calls": store.recent_llm_calls(limit)}
+
+
+@app.get(
+    "/api/metrics/requests-log",
+    tags=["Métricas"],
+    summary="Últimas requisições de chat",
+)
+async def metrics_requests_log(limit: int = 50):
+    store = _get_metrics_store()
+    return {"requests": store.recent_requests(limit)}
+
+
+@app.get(
+    "/api/metrics/documents",
+    tags=["Métricas"],
+    summary="Histórico de dados indexados",
+)
+async def metrics_documents():
+    store = _get_metrics_store()
+    return {"history": store.document_history()}
+
+
+@app.get(
+    "/api/metrics/index-events",
+    tags=["Métricas"],
+    summary="Eventos recentes de indexação",
+)
+async def metrics_index_events(limit: int = 50):
+    store = _get_metrics_store()
+    return {"events": store.recent_index_events(limit)}
+
+
+@app.get("/dashboard", include_in_schema=False)
+async def dashboard():
+    return FileResponse(Path(__file__).parent / "presentation" / "dashboard.html")
 
 
 if __name__ == "__main__":

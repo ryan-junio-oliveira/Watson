@@ -10,6 +10,7 @@ def setup_logger(
     log_file: str = "logs/ai_agent.log",
     max_bytes: int = 10 * 1024 * 1024,  # 10 MB
     backup_count: int = 5,
+    console: bool = True,
 ) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(log_level)
@@ -36,11 +37,12 @@ def setup_logger(
     )
     logger.addHandler(file_handler)
 
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(log_level)
-    console_handler.setFormatter(
-        logging.Formatter("%(levelname)-8s | %(message)s")
-    )
-    logger.addHandler(console_handler)
+    if console:
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(log_level)
+        console_handler.setFormatter(
+            logging.Formatter("%(levelname)-8s | %(message)s")
+        )
+        logger.addHandler(console_handler)
 
     return logger
