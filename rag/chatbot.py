@@ -861,21 +861,21 @@ class ChatBot:
         analyze_mode = False  # espelha API analyze=true — quando ligado, toda pergunta já vem com análise proativa
         history: List[dict] = []  # memória de conversa (como ChatGPT/Gemini/Claude)
 
-        # Dicas com exemplos reais — cor amarela e dim para destacar exemplos
-        print(f"{ANSI_DIM}{ANSI_BOLD}Como perguntar:{ANSI_RESET}")
-        print(f"{ANSI_DIM}  • Fato: {ANSI_YELLOW}qual o erro E123 da impressora HP E52645?{ANSI_RESET}")
-        print(f"{ANSI_DIM}  • Lista: {ANSI_YELLOW}quais são os modelos disponíveis?{ANSI_RESET}")
-        print(f"{ANSI_DIM}  • Conta: {ANSI_YELLOW}quantos % a mais em fevereiro vs janeiro?{ANSI_RESET}")
-        print(f"{ANSI_DIM}  • Comparar: {ANSI_YELLOW}compare os dois planos de pagamento{ANSI_RESET}")
-        print(f"{ANSI_DIM}  • Imagem: {ANSI_YELLOW}o que tem nessa imagem?{ANSI_RESET}")
-        print(f"{ANSI_DIM}  • Passo a passo: {ANSI_YELLOW}como trocar o toner passo a passo?{ANSI_RESET}")
+        # Dicas padronizadas no formato "comando: pergunta" — amarelo para o comando, dim para o resto
+        print(f"{ANSI_DIM}{ANSI_BOLD}Como perguntar (tipo: pergunta):{ANSI_RESET}")
+        print(f"{ANSI_DIM}  • {ANSI_YELLOW}fato:{ANSI_RESET}{ANSI_DIM} qual o erro E123 da impressora HP E52645?{ANSI_RESET}")
+        print(f"{ANSI_DIM}  • {ANSI_YELLOW}lista:{ANSI_RESET}{ANSI_DIM} quais são os modelos disponíveis?{ANSI_RESET}")
+        print(f"{ANSI_DIM}  • {ANSI_YELLOW}conta:{ANSI_RESET}{ANSI_DIM} quantos % a mais em fevereiro vs janeiro?{ANSI_RESET}")
+        print(f"{ANSI_DIM}  • {ANSI_YELLOW}comparar:{ANSI_RESET}{ANSI_DIM} compare os dois planos de pagamento{ANSI_RESET}")
+        print(f"{ANSI_DIM}  • {ANSI_YELLOW}imagem:{ANSI_RESET}{ANSI_DIM} o que tem nessa imagem?{ANSI_RESET}")
+        print(f"{ANSI_DIM}  • {ANSI_YELLOW}passos:{ANSI_RESET}{ANSI_DIM} como trocar o toner passo a passo?{ANSI_RESET}")
         print()
-        print(f"{ANSI_DIM}{ANSI_BOLD}Comandos:{ANSI_RESET}")
-        print(f"{ANSI_DIM}  • {ANSI_YELLOW}analisar on{ANSI_RESET}{ANSI_DIM}/off — análise automática em toda pergunta{ANSI_RESET}")
-        print(f"{ANSI_DIM}  • {ANSI_YELLOW}analisar: sua pergunta{ANSI_RESET}{ANSI_DIM} — análise só nessa pergunta (ex: {ANSI_YELLOW}analisar: como pagar a moto em 6 meses?{ANSI_RESET}){ANSI_RESET}")
-        print(f"{ANSI_DIM}  • {ANSI_YELLOW}aprofundar{ANSI_RESET}{ANSI_DIM} — re-analisa a última resposta{ANSI_RESET}")
-        print(f"{ANSI_DIM}  • {ANSI_YELLOW}esquecer{ANSI_RESET}{ANSI_DIM} — limpa a memória da conversa{ANSI_RESET}")
-        print(f"{ANSI_DIM}  • {ANSI_YELLOW}exit{ANSI_RESET}{ANSI_DIM} ou {ANSI_YELLOW}quit{ANSI_RESET}{ANSI_DIM} — sai do chat{ANSI_RESET}")
+        print(f"{ANSI_DIM}{ANSI_BOLD}Comandos (comando: valor):{ANSI_RESET}")
+        print(f"{ANSI_DIM}  • {ANSI_YELLOW}analisar: on{ANSI_RESET}{ANSI_DIM} ou {ANSI_YELLOW}off{ANSI_RESET}{ANSI_DIM} — análise automática em toda pergunta{ANSI_RESET}")
+        print(f"{ANSI_DIM}  • {ANSI_YELLOW}analisar:{ANSI_RESET}{ANSI_DIM} <pergunta> — análise só nessa (ex: {ANSI_YELLOW}analisar: como pagar a moto em 6 meses?{ANSI_RESET}){ANSI_RESET}")
+        print(f"{ANSI_DIM}  • {ANSI_YELLOW}aprofundar:{ANSI_RESET}{ANSI_DIM} re-analisa a última resposta{ANSI_RESET}")
+        print(f"{ANSI_DIM}  • {ANSI_YELLOW}esquecer:{ANSI_RESET}{ANSI_DIM} limpa a memória da conversa{ANSI_RESET}")
+        print(f"{ANSI_DIM}  • {ANSI_YELLOW}exit:{ANSI_RESET}{ANSI_DIM} sai do chat{ANSI_RESET}")
         print()
 
         while True:
