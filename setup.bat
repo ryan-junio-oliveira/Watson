@@ -94,9 +94,19 @@ if errorlevel 1 (
     echo [AVISO] Ollama nao encontrado no PATH. Instale em https://ollama.com
     echo         Depois rode:  ollama pull gemma3:4b ^&^& ollama pull qwen2.5vl
 ) else (
-    :: Lê modelos do .env via Python do venv (robusto a mudancas no .env.example)
-    for /f "delims=" %%A in ('"%PYTHON_EXE%" -c "from config import config; print(config.ollama_model)" 2^>nul') do set "OLLAMA_MODEL_CFG=%%A"
-    for /f "delims=" %%A in ('"%PYTHON_EXE%" -c "from config import config; print(config.vision_model)" 2^>nul') do set "VISION_MODEL_CFG=%%A"
+    :: Lê modelos do .env via Python do venv (usa arquivo temp para evitar parsing de ;)
+    set "OLLAMA_MODEL_CFG="
+    set "VISION_MODEL_CFG="
+    "%PYTHON_EXE%" -c "import config; print(config.config.ollama_model)" > "%TEMP%\watson_ollama.txt" 2>nul
+    if exist "%TEMP%\watson_ollama.txt" (
+        set /p OLLAMA_MODEL_CFG=<"%TEMP%\watson_ollama.txt"
+        del "%TEMP%\watson_ollama.txt" >nul 2>nul
+    )
+    "%PYTHON_EXE%" -c "import config; print(config.config.vision_model)" > "%TEMP%\watson_vision.txt" 2>nul
+    if exist "%TEMP%\watson_vision.txt" (
+        set /p VISION_MODEL_CFG=<"%TEMP%\watson_vision.txt"
+        del "%TEMP%\watson_vision.txt" >nul 2>nul
+    )
     if not defined OLLAMA_MODEL_CFG set "OLLAMA_MODEL_CFG=gemma3:4b"
     if not defined VISION_MODEL_CFG set "VISION_MODEL_CFG=qwen2.5vl"
     :: Tenta listar (se daemon nao estiver rodando, avisa mas nao falha o setup)
@@ -113,7 +123,9 @@ if errorlevel 1 (
                 if errorlevel 1 (
                     echo   Baixando !MODEL! (pode demorar)...
                     ollama pull "!MODEL!"
-                    if errorlevel 1 echo [AVISO] Falha ao baixar !MODEL!. Tente manualmente: ollama pull !MODEL!
+                    if errorlevel 1 (
+                        echo [AVISO] Falha ao baixar !MODEL!. Tente manualmente: ollama pull !MODEL!
+                    )
                 ) else (
                     echo   Modelo !MODEL! ja existe.
                 )
