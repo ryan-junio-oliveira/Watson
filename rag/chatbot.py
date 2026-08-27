@@ -178,10 +178,11 @@ class ChatBot:
         return False
 
     def _greeting_response(self, start: float) -> AgentResponse:
-        """Resposta determinística para saudação — sem RAG, sem LLM."""
+        """Resposta determinística para saudação — sem RAG, sem LLM, mas com carisma."""
         answer = self._greeting()
-        # Complemento curto e convite para perguntar
-        answer = f"{answer} Como posso ajudar com seus documentos hoje?"
+        # Toque final carismático — convite leve, sem repetir se já houver pergunta
+        if "O que" not in answer and "No que" not in answer:
+            answer = f"{answer} Como posso ajudar com seus documentos hoje?"
         return AgentResponse(
             answer=answer,
             evidences=[],
@@ -789,17 +790,26 @@ class ChatBot:
         return "\n".join(parts)
 
     def _greeting(self) -> str:
+        import random
+
         hour = time.localtime().tm_hour
         if 5 <= hour < 12:
             periodo = "bom dia"
+            emoji = "☀️"
         elif 12 <= hour < 18:
             periodo = "boa tarde"
+            emoji = "🌤️"
         else:
             periodo = "boa noite"
-        return (
-            f"Olá, {periodo}! Sou o {self.agent_name}, seu agente de IA. "
-            "Como posso ajudar?"
-        )
+            emoji = "🌙"
+
+        # Variações carismáticas — como Gemini/Claude, mas com identidade Watson
+        variants = [
+            f"Olá, {periodo}! {emoji} Sou o {self.agent_name}, seu parceiro para desvendar qualquer documento. O que vamos descobrir hoje?",
+            f"Olá! {emoji} {periodo.capitalize()}! Aqui é o {self.agent_name} — pronto e animado para ajudar. No que posso ser útil?",
+            f"E aí, {periodo}! {emoji} Sou o {self.agent_name}, seu assistente curioso e pronto para facilitar sua vida. O que você precisa?",
+        ]
+        return random.choice(variants)
 
     def chat_loop(self) -> None:
         print("\n=== Watson RAG ===")
