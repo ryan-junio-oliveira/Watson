@@ -49,6 +49,16 @@ def mock_env(tmp_path):
         mock_cfg.api_rate_limit = 1000
         mock_cfg.api_rate_window = 60
         mock_cfg.api_rate_enabled = False
+        mock_cfg.enable_reasoning = False
+        mock_cfg.enable_analyst = False
+        mock_cfg.analyst_max_followups = 3
+        mock_cfg.reasoning_top_k = 12
+        mock_cfg.reasoning_temperature = 0.2
+        mock_cfg.reasoning_max_tokens = 3072
+        mock_cfg.enable_query_expansion = False
+        mock_cfg.query_expansion_variants = 3
+        mock_cfg.enable_reranker_reasoning = False
+        mock_cfg.agent_name = "Watson"
         yield mock_cfg
 
 

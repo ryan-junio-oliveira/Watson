@@ -98,6 +98,12 @@ def main() -> None:
             analyst=analyst,
             agent_name=cfg.agent_name,
             metrics=metrics,
+            reasoning_top_k=cfg.reasoning_top_k,
+            reasoning_temperature=cfg.reasoning_temperature,
+            reasoning_max_tokens=cfg.reasoning_max_tokens,
+            enable_query_expansion=cfg.enable_query_expansion,
+            query_expansion_variants=cfg.query_expansion_variants,
+            enable_reranker_reasoning=cfg.enable_reranker_reasoning,
         )
         chatbot.chat_loop()
 

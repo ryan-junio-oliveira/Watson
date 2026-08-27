@@ -11,12 +11,14 @@ class TestChatBot:
     @pytest.fixture
     def mock_retriever(self):
         retriever = MagicMock()
+        retriever.top_k = 5
         retriever.retrieve.return_value = [
             Document(
                 page_content="Contexto relevante para resposta.",
-                metadata={"filename": "doc.txt"},
+                metadata={"filename": "doc.txt", "chunk_id": "c1", "source": "doc.txt"},
             )
         ]
+        retriever.retrieve_all_from_source.return_value = []
         return retriever
 
     @pytest.fixture
@@ -29,9 +31,14 @@ class TestChatBot:
     @pytest.fixture
     def mock_ollama_client(self):
         client = MagicMock()
+        client.temperature = 0.1
+        client.max_tokens = 2048
+        client.model = "gemma3:4b"
         client.ask.return_value = "Resposta baseada no contexto."
         client._strip_thinking.return_value = "Resposta baseada no contexto."
         client.ask_stream.return_value = iter(["Resposta ", "baseada ", "no ", "contexto."])
+        client.supports_thinking.return_value = False
+        client.supports_thinking = MagicMock(return_value=False)
         return client
 
     @pytest.fixture

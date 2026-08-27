@@ -40,9 +40,9 @@ class OllamaClient:
         return OllamaClient.THINK_PATTERN.sub("", text).strip()
 
     def supports_thinking(self) -> bool:
-        """Modelos de raciocínio (qwen3/qwq) suportam o modo `think`."""
+        """Modelos de raciocínio (qwen3/qwq/deepseek-r1) suportam o modo `think`."""
         name = self.model.lower()
-        return "qwen3" in name or "qwq" in name
+        return any(k in name for k in ("qwen3", "qwq", "deepseek-r1", "r1", "reasoning"))
 
     def _record(self, response: dict, kind: str, success: bool = True, error: Optional[str] = None) -> None:
         """Registra métricas de uma chamada ao Ollama a partir da resposta."""
@@ -61,6 +61,28 @@ class OllamaClient:
             if self.logger:
                 self.logger.warning(f"Metrics record failed: {e}")
 
+    def _generate_with_retry(self, **kwargs) -> dict:
+        """Gera com retry exponencial para erros transitórios (timeout/conexão)."""
+        import time as _time
+
+        last_exc: Optional[Exception] = None
+        for attempt in range(3):
+            try:
+                return self._client.generate(**kwargs)
+            except Exception as e:
+                last_exc = e
+                # Não retry em erros de modelo inexistente
+                msg = str(e).lower()
+                if "not found" in msg or "model" in msg and "not" in msg:
+                    raise
+                if attempt < 2:
+                    _time.sleep(0.5 * (2 ** attempt))
+                    if self.logger:
+                        self.logger.warning(f"Ollama retry {attempt+1}/3: {e}")
+                else:
+                    raise
+        raise last_exc  # type: ignore[misc]
+
     def ask(
         self,
         prompt: str,
@@ -70,26 +92,33 @@ class OllamaClient:
         think: Optional[bool] = None,
     ) -> str:
         _think = think if think is not None else self.think
+        # Para raciocínio longo, aumenta janela de contexto proporcionalmente
+        _max = max_tokens if max_tokens is not None else self.max_tokens
+        _temp = temperature if temperature is not None else self.temperature
+        # Heurística: num_ctx = prompt estimado + max_tokens + margem
+        est_ctx = min(8192, max(2048, len(prompt) // 3 + _max + 512))
         try:
-            response = self._client.generate(
+            response = self._generate_with_retry(
                 model=self.model,
                 prompt=prompt,
                 think=_think,
                 options={
-                    "temperature": temperature if temperature is not None else self.temperature,
-                    "num_predict": max_tokens if max_tokens is not None else self.max_tokens,
+                    "temperature": _temp,
+                    "num_predict": _max,
+                    "num_ctx": est_ctx,
                 },
             )
         except Exception as e:
             if _think:
                 try:
-                    response = self._client.generate(
+                    response = self._generate_with_retry(
                         model=self.model,
                         prompt=prompt,
                         think=False,
                         options={
-                            "temperature": temperature if temperature is not None else self.temperature,
-                            "num_predict": max_tokens if max_tokens is not None else self.max_tokens,
+                            "temperature": _temp,
+                            "num_predict": _max,
+                            "num_ctx": est_ctx,
                         },
                     )
                 except Exception as e2:
@@ -114,16 +143,37 @@ class OllamaClient:
     ) -> Generator[str, None, None]:
         _strip = strip_thinking if strip_thinking is not None else self.strip_thinking
         _think = think if think is not None else self.think
-        stream = self._client.generate(
-            model=self.model,
-            prompt=prompt,
-            think=_think,
-            options={
-                "temperature": temperature if temperature is not None else self.temperature,
-                "num_predict": max_tokens if max_tokens is not None else self.max_tokens,
-            },
-            stream=True,
-        )
+        _max = max_tokens if max_tokens is not None else self.max_tokens
+        _temp = temperature if temperature is not None else self.temperature
+        est_ctx = min(8192, max(2048, len(prompt) // 3 + _max + 512))
+        # Retry para stream é mais complexo — tenta uma vez com backoff
+        import time as _time
+
+        last_exc: Optional[Exception] = None
+        for attempt in range(2):
+            try:
+                stream = self._client.generate(
+                    model=self.model,
+                    prompt=prompt,
+                    think=_think,
+                    options={
+                        "temperature": _temp,
+                        "num_predict": _max,
+                        "num_ctx": est_ctx,
+                    },
+                    stream=True,
+                )
+                break
+            except Exception as e:
+                last_exc = e
+                if attempt == 0:
+                    _time.sleep(0.5)
+                    if self.logger:
+                        self.logger.warning(f"Ollama stream retry: {e}")
+                    continue
+                raise last_exc
+        else:
+            raise last_exc or RuntimeError("Stream init failed")
         buffer = ""
         in_think = False
         last_stats: dict = {}

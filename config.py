@@ -137,6 +137,25 @@ class Config:
     analyst_max_followups: int = field(
         default_factory=lambda: int(os.getenv("ANALYST_MAX_FOLLOWUPS", "3"))
     )
+    # Reasoning avançado
+    reasoning_top_k: int = field(
+        default_factory=lambda: int(os.getenv("REASONING_TOP_K", "12"))
+    )
+    reasoning_temperature: float = field(
+        default_factory=lambda: float(os.getenv("REASONING_TEMPERATURE", "0.2"))
+    )
+    reasoning_max_tokens: int = field(
+        default_factory=lambda: int(os.getenv("REASONING_MAX_TOKENS", "3072"))
+    )
+    enable_query_expansion: bool = field(
+        default_factory=lambda: os.getenv("ENABLE_QUERY_EXPANSION", "true").lower() == "true"
+    )
+    query_expansion_variants: int = field(
+        default_factory=lambda: int(os.getenv("QUERY_EXPANSION_VARIANTS", "3"))
+    )
+    enable_reranker_reasoning: bool = field(
+        default_factory=lambda: os.getenv("ENABLE_RERANKER_REASONING", "true").lower() == "true"
+    )
 
     api_host: str = field(
         default_factory=lambda: os.getenv("API_HOST", "0.0.0.0")

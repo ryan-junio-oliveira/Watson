@@ -461,6 +461,12 @@ def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
         analyst=_analyst,
         agent_name=cfg.agent_name,
         metrics=_metrics,
+        reasoning_top_k=cfg.reasoning_top_k,
+        reasoning_temperature=cfg.reasoning_temperature,
+        reasoning_max_tokens=cfg.reasoning_max_tokens,
+        enable_query_expansion=cfg.enable_query_expansion,
+        query_expansion_variants=cfg.query_expansion_variants,
+        enable_reranker_reasoning=cfg.enable_reranker_reasoning,
     )
 
 
@@ -514,8 +520,11 @@ async def lifespan(app: FastAPI):
     embedding_generator, splitter, indexer = build_indexer(cfg, logger)
 
     logger.info("Preloading models...")
-    _preload_models(chatbot, embedding_generator, logger)
-    logger.info("Models loaded successfully")
+    try:
+        _preload_models(chatbot, embedding_generator, logger)
+        logger.info("Models loaded successfully")
+    except Exception as e:
+        logger.warning(f"Model preload skipped (tests/dev): {e}")
 
     api_formatter = ApiFormatter()
 

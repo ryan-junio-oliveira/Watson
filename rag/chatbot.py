@@ -13,6 +13,8 @@ from rag.analyst import Analyst
 from rag.calculator import Calculator
 from rag.evidence import Evidence, EvidenceAggregator, EvidenceNormalizer
 from rag.prompt import PromptBuilder
+from rag.query_expander import QueryExpander, reciprocal_rank_fusion
+from rag.reasoning import ReasoningEngine
 from rag.response import AgentResponse, Mode
 from rag.retriever import Retriever
 
@@ -29,6 +31,12 @@ class ChatBot:
         analyst: Optional[Analyst] = None,
         agent_name: str = "Watson",
         metrics: Optional[MetricsStore] = None,
+        reasoning_top_k: Optional[int] = None,
+        reasoning_temperature: Optional[float] = None,
+        reasoning_max_tokens: Optional[int] = None,
+        enable_query_expansion: Optional[bool] = None,
+        query_expansion_variants: int = 3,
+        enable_reranker_reasoning: Optional[bool] = None,
     ):
         self.retriever = retriever
         self.prompt_builder = prompt_builder
@@ -41,6 +49,30 @@ class ChatBot:
         self.analyst = analyst
         self.agent_name = agent_name
         self.metrics = metrics or MetricsStore(logger=logger)
+
+        # Reasoning engine — tenta ler do config global se não passado explicitamente
+        try:
+            from config import config as _cfg
+            _rtk = reasoning_top_k if reasoning_top_k is not None else getattr(_cfg, "reasoning_top_k", 12)
+            _rt = reasoning_temperature if reasoning_temperature is not None else getattr(_cfg, "reasoning_temperature", 0.2)
+            _rmt = reasoning_max_tokens if reasoning_max_tokens is not None else getattr(_cfg, "reasoning_max_tokens", 3072)
+            _eqe = enable_query_expansion if enable_query_expansion is not None else getattr(_cfg, "enable_query_expansion", True)
+            _qev = getattr(_cfg, "query_expansion_variants", query_expansion_variants)
+            _err = enable_reranker_reasoning if enable_reranker_reasoning is not None else getattr(_cfg, "enable_reranker_reasoning", True)
+        except Exception:
+            _rtk, _rt, _rmt, _eqe, _qev, _err = 12, 0.2, 3072, True, query_expansion_variants, True
+
+        self.reasoning_engine = ReasoningEngine(
+            base_top_k=retriever.top_k,
+            base_temperature=ollama_client.temperature,
+            base_max_tokens=ollama_client.max_tokens,
+            reasoning_top_k=_rtk,
+            reasoning_temperature=_rt,
+            reasoning_max_tokens=_rmt,
+        )
+        self.query_expander = QueryExpander(max_variants=_qev) if _eqe else None
+        self._enable_query_expansion = bool(_eqe)
+        self._enable_reranker_reasoning = bool(_err)
 
     def _is_analytical(self, question: str) -> bool:
         q = question.lower()
@@ -79,29 +111,105 @@ class ChatBot:
         return any(h in q for h in self._FULL_CONTEXT_HINTS)
 
     def _retrieve_rag(self, question: str) -> List[Evidence]:
-        # Padrão: contexto normal (rápido). Aumenta dinamicamente quando o
-        # usuário pede a resposta completa (mais informações, todos, completo).
-        # Perguntas de listagem genéricas usam o TOP_K padrão — sem bump e sem
-        # expansão por documento (que geraria prompts enormes e lentos em CPU).
+        # Plano de raciocínio decide top_k, multi-query e rerank
+        try:
+            plan = self.reasoning_engine.plan(question)
+        except Exception:
+            plan = None
+
         full = self._wants_full_context(question)
+        # full-context tem prioridade (listagem completa)
         if full:
-            top_k = self.retriever.top_k * 4
+            top_k = (plan.top_k * 2 if plan else self.retriever.top_k * 4)
+            docs = self.retriever.retrieve(question, k=top_k)
+            # Rerank se disponível
+            if self._rag_reranker and docs:
+                from rag.reranker import Reranker as RagReranker
+                docs = RagReranker.rerank(self._rag_reranker, question, docs, top_k=len(docs))
+            evidence = [EvidenceNormalizer.from_chroma_document(d) for d in docs]
+            # Boost de evidências para queries analíticas
+            if plan:
+                for ev in evidence:
+                    boost = self.reasoning_engine.evidence_boost(ev.content, question)
+                    if boost:
+                        ev.score = min(1.0, ev.score + boost)
+                        ev.metadata["relevance_score"] = ev.score
+            evidence = self._expand_document_context(evidence)
+            return evidence
+
+        # Caminho com reasoning + multi-query RRF
+        if self._enable_query_expansion and plan and plan.needs_multi_query and self.query_expander:
+            try:
+                expanded = self.query_expander.expand(question)
+                # Limita a 2 variantes para não estourar latência em CPU
+                variants = expanded.variants[:2] if len(expanded.variants) > 1 else [question]
+                per_k = max(3, (plan.top_k // len(variants)) if plan else self.retriever.top_k)
+                ranked_lists: List[List[Document]] = []
+                for v in variants:
+                    docs_v = self.retriever.retrieve(v, k=per_k)
+                    if docs_v:
+                        ranked_lists.append(docs_v)
+                if len(ranked_lists) > 1:
+                    docs = reciprocal_rank_fusion(ranked_lists, top_n=plan.top_k if plan else per_k * len(variants))
+                    if self.logger:
+                        self.logger.info(f"RRF fusion: {len(variants)} variants -> {len(docs)} docs (intent={expanded.intent})")
+                elif ranked_lists:
+                    docs = ranked_lists[0]
+                else:
+                    docs = []
+                # Rerank se plano pedir e reranker habilitado para reasoning
+                should_rerank = (plan.use_reranker if plan else self._is_analytical(question)) and self._rag_reranker and docs and self._enable_reranker_reasoning
+                if should_rerank:
+                    from rag.reranker import Reranker as RagReranker
+                    docs = RagReranker.rerank(self._rag_reranker, question, docs, top_k=len(docs))
+                evidence = [EvidenceNormalizer.from_chroma_document(d) for d in docs]
+                if plan:
+                    for ev in evidence:
+                        boost = self.reasoning_engine.evidence_boost(ev.content, question)
+                        if boost:
+                            ev.score = min(1.0, ev.score + boost)
+                            ev.metadata["relevance_score"] = ev.score
+                # Fallback iterativo: se pouca evidência e precisa raciocinar, tenta query sem stopwords
+                if plan and plan.needs_cot and len(evidence) < 2:
+                    stripped = re.sub(r"\b(por que|porque|explique|analise|comparar|variação|percentual)\b", "", question, flags=re.IGNORECASE).strip()
+                    if stripped and stripped != question:
+                        extra = self.retriever.retrieve(stripped, k=3)
+                        for d in extra:
+                            ev = EvidenceNormalizer.from_chroma_document(d)
+                            if ev.chunk_id not in {e.chunk_id for e in evidence}:
+                                evidence.append(ev)
+                                if len(evidence) >= (plan.top_k if plan else 8):
+                                    break
+                return evidence
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"Multi-query retrieval failed, fallback single: {e}")
+
+        # Fallback single-query (compatível com comportamento antigo)
+        if plan:
+            top_k = plan.top_k
         elif self._is_analytical(question):
             top_k = self.retriever.top_k * 2
         else:
             top_k = None
         docs: List[Document] = self.retriever.retrieve(question, k=top_k)
-        if self._rag_reranker and docs:
+        # Rerank adaptativo: só se habilitado para reasoning
+        should_rerank = False
+        if self._rag_reranker and docs and self._enable_reranker_reasoning:
+            if plan and plan.use_reranker:
+                should_rerank = True
+            elif self._is_analytical(question):
+                should_rerank = True
+        if should_rerank:
             from rag.reranker import Reranker as RagReranker
-
-            docs = RagReranker.rerank(
-                self._rag_reranker, question, docs, top_k=len(docs)
-            )
+            docs = RagReranker.rerank(self._rag_reranker, question, docs, top_k=len(docs))
         evidence = [EvidenceNormalizer.from_chroma_document(d) for d in docs]
-
-        if full:
-            evidence = self._expand_document_context(evidence)
-
+        if plan:
+            for ev in evidence:
+                boost = self.reasoning_engine.evidence_boost(ev.content, question)
+                if boost:
+                    ev.score = min(1.0, ev.score + boost)
+                    ev.metadata["relevance_score"] = ev.score
         return evidence
 
     def _expand_document_context(self, evidence: List[Evidence]) -> List[Evidence]:
@@ -178,17 +286,38 @@ class ChatBot:
         )
         return evidence
 
-    def _call_llm(self, prompt: str, reasoning: Optional[bool] = None) -> str:
+    def _call_llm(
+        self,
+        prompt: str,
+        reasoning: Optional[bool] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> str:
         kwargs: dict = {}
         if reasoning is not None:
             kwargs["think"] = reasoning
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
         answer = self.ollama_client.ask(prompt, **kwargs)
         return self.ollama_client._strip_thinking(answer)
 
     def _should_reason(self, question: str) -> bool:
         """Habilita raciocínio (think) para perguntas analíticas, se configurado
-        e o modelo suportar."""
-        if not self.enable_reasoning or not self.ollama_client.supports_thinking():
+        e o modelo suportar. Usa ReasoningEngine para decisão mais precisa."""
+        if not self.ollama_client.supports_thinking():
+            return False
+        # Se reasoning global desabilitado, só permite se plano indicar necessidade forte
+        try:
+            plan = self.reasoning_engine.plan(question)
+            if plan.needs_cot:
+                # Se modelo suporta thinking, permite mesmo com enable_reasoning=False
+                # para queries que exigem CoT, mas respeita flag se não for crítico
+                return True if plan.intent in {"percent_change", "difference", "compare", "trend", "reasoning"} else self.enable_reasoning
+        except Exception:
+            pass
+        if not self.enable_reasoning:
             return False
         q = question.lower()
         return any(
@@ -200,10 +329,19 @@ class ChatBot:
             )
         )
 
-    def _call_llm_stream(self, prompt: str) -> Generator[str, None, str]:
+    def _call_llm_stream(
+        self, prompt: str, temperature: Optional[float] = None, max_tokens: Optional[int] = None, reasoning: Optional[bool] = None,
+    ) -> Generator[str, None, str]:
         full_answer: List[str] = []
+        kwargs: dict = {}
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+        if reasoning is not None:
+            kwargs["think"] = reasoning
         try:
-            for token in self.ollama_client.ask_stream(prompt):
+            for token in self.ollama_client.ask_stream(prompt, **kwargs):
                 full_answer.append(token)
                 yield token
         except Exception as e:
@@ -263,6 +401,14 @@ class ChatBot:
             self.logger.info(f"Question: {question}")
 
         try:
+            # Plano de raciocínio para esta pergunta
+            try:
+                plan = self.reasoning_engine.plan(question)
+            except Exception:
+                plan = None
+            reasoning_needed = bool(plan and plan.needs_cot)
+            hint = plan.reasoning_hint if plan else ""
+
             evidence = self._retrieve_rag(question)
             evidence = self.aggregator.collect(rag_evidence=evidence)
             evidence = self.aggregator.rank(evidence)
@@ -271,10 +417,18 @@ class ChatBot:
             if not evidence:
                 if self.logger:
                     self.logger.info("No evidence found in indexed documents")
-                prompt = self.prompt_builder.build(question, mode=mode)
-                answer = self._call_llm(prompt)
+                prompt = self.prompt_builder.build(question, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint)
+                answer = self._call_llm(
+                    prompt,
+                    reasoning=self._should_reason(question),
+                    temperature=plan.temperature if plan else None,
+                    max_tokens=plan.max_tokens if plan else None,
+                )
                 resp = self._build_response(answer, [], start)
                 resp.metadata["fallback"] = "no_documents"
+                if plan:
+                    resp.metadata["reasoning_intent"] = plan.intent
+                    resp.metadata["reasoning_cot"] = reasoning_needed
                 if analyze:
                     resp = self._run_analyst(question, resp)
                 self._record_request(question, mode, provider, resp, start, analyze)
@@ -282,19 +436,29 @@ class ChatBot:
 
             prompt = (
                 self.prompt_builder.build_with_history(
-                    question, evidence, history_context, mode=mode
+                    question, evidence, history_context, mode=mode,
+                    reasoning=reasoning_needed, reasoning_hint=hint,
                 )
                 if history_context
-                else self.prompt_builder.build(question, evidence, mode=mode)
+                else self.prompt_builder.build(question, evidence, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint)
             )
 
-            answer_clean = self._call_llm(prompt, reasoning=self._should_reason(question))
+            answer_clean = self._call_llm(
+                prompt,
+                reasoning=self._should_reason(question),
+                temperature=plan.temperature if plan else None,
+                max_tokens=plan.max_tokens if plan else None,
+            )
             result = self._build_response(answer_clean, evidence, start)
+            if plan:
+                result.metadata["reasoning_intent"] = plan.intent
+                result.metadata["reasoning_cot"] = reasoning_needed
+                result.metadata["reasoning_top_k"] = plan.top_k
 
             if self.logger:
                 self.logger.info(
                     f"AgentResponse: evidence={len(evidence)}, "
-                    f"time={result.execution_time:.2f}s"
+                    f"time={result.execution_time:.2f}s, intent={plan.intent if plan else 'unknown'}, cot={reasoning_needed}"
                 )
 
             if analyze:
@@ -370,16 +534,29 @@ class ChatBot:
         mode: Mode = Mode.auto,
     ) -> Generator[str, None, AgentResponse]:
         start = time.time()
+        try:
+            plan = self.reasoning_engine.plan(question)
+        except Exception:
+            plan = None
+        hint = plan.reasoning_hint if plan else ""
+        reasoning_needed = bool(plan and plan.needs_cot)
         prompt = (
             self.prompt_builder.build_with_history(
-                question, None, history_context, mode=mode
+                question, None, history_context, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint
             )
             if history_context
-            else self.prompt_builder.build(question, mode=mode)
+            else self.prompt_builder.build(question, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint)
         )
-        full_answer = yield from self._call_llm_stream(prompt)
+        full_answer = yield from self._call_llm_stream(
+            prompt,
+            temperature=plan.temperature if plan else None,
+            max_tokens=plan.max_tokens if plan else None,
+            reasoning=self._should_reason(question),
+        )
         resp = self._build_response(full_answer, [], start)
         resp.metadata["fallback"] = "no_documents"
+        if plan:
+            resp.metadata["reasoning_intent"] = plan.intent
         return resp
 
     def ask_stream(
@@ -393,6 +570,13 @@ class ChatBot:
 
         start = time.time()
         try:
+            try:
+                plan = self.reasoning_engine.plan(question)
+            except Exception:
+                plan = None
+            hint = plan.reasoning_hint if plan else ""
+            reasoning_needed = bool(plan and plan.needs_cot)
+
             evidence = self._retrieve_rag(question)
             evidence = self.aggregator.collect(rag_evidence=evidence)
             evidence = self.aggregator.rank(evidence)
@@ -407,8 +591,11 @@ class ChatBot:
                 self._record_request(question, mode, "rag", resp, start, analyze)
                 return resp
 
-            prompt = self.prompt_builder.build(question, evidence, mode=mode)
+            prompt = self.prompt_builder.build(question, evidence, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint)
             result = yield from self._stream_evidence(prompt, evidence)
+            if plan:
+                result.metadata["reasoning_intent"] = plan.intent
+                result.metadata["reasoning_cot"] = reasoning_needed
             if analyze:
                 result = self._run_analyst(question, result)
             self._record_request(question, mode, "rag", result, start, analyze)
@@ -433,6 +620,12 @@ class ChatBot:
 
         start = time.time()
         try:
+            try:
+                plan = self.reasoning_engine.plan(question)
+            except Exception:
+                plan = None
+            hint = plan.reasoning_hint if plan else ""
+            reasoning_needed = bool(plan and plan.needs_cot)
             evidence = self._retrieve_rag(question)
             evidence = self.aggregator.collect(rag_evidence=evidence)
             evidence = self.aggregator.rank(evidence)
@@ -450,9 +643,12 @@ class ChatBot:
                 return resp
 
             prompt = self.prompt_builder.build_with_history(
-                question, evidence, history_context, mode=mode
+                question, evidence, history_context, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint
             )
             result = yield from self._stream_evidence(prompt, evidence)
+            if plan:
+                result.metadata["reasoning_intent"] = plan.intent
+                result.metadata["reasoning_cot"] = reasoning_needed
             if analyze:
                 result = self._run_analyst(question, result)
             self._record_request(question, mode, "rag", result, start, analyze)
