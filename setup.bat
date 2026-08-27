@@ -142,6 +142,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
+:: Reseta errorlevel para sucesso (avisos de Ollama nao devem falhar o setup)
+ver >nul
+
 echo.
 echo Setup concluido! Tudo no jeito.
 echo   Python:  %PYTHON_EXE%
@@ -149,3 +152,4 @@ echo   Modelos Ollama: gemma3:4b + qwen2.5vl (verificados)
 echo   Para ativar manualmente:  %VENV_DIR%\Scripts\activate
 echo.
 if not "%~1"=="silent" pause
+endlocal & exit /b 0
