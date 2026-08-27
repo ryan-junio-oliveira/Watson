@@ -95,52 +95,55 @@ if exist ".env" (
     )
 )
 
-:: 7. Garantir modelos Ollama (LLM + Visao) — deixa tudo pronto
-echo [5/5] Verificando modelos Ollama (gemma3:4b + qwen2.5vl)...
+:: 7. Garantir modelos Ollama - LLM e Visao - deixa tudo pronto
+echo [5/5] Verificando modelos Ollama - gemma3:4b + qwen2.5vl...
 where ollama >nul 2>nul
 if errorlevel 1 (
     echo [AVISO] Ollama nao encontrado no PATH. Instale em https://ollama.com
-    echo         Depois rode:  ollama pull gemma3:4b ^&^& ollama pull qwen2.5vl
-) else (
-    :: Lê modelos do .env via Python do venv (usa arquivo temp para evitar parsing de ;)
-    set "OLLAMA_MODEL_CFG="
-    set "VISION_MODEL_CFG="
-    "%PYTHON_EXE%" -c "import config; print(config.config.ollama_model)" > "%TEMP%\watson_ollama.txt" 2>nul
-    if exist "%TEMP%\watson_ollama.txt" (
-        set /p OLLAMA_MODEL_CFG=<"%TEMP%\watson_ollama.txt"
-        del "%TEMP%\watson_ollama.txt" >nul 2>nul
-    )
-    "%PYTHON_EXE%" -c "import config; print(config.config.vision_model)" > "%TEMP%\watson_vision.txt" 2>nul
-    if exist "%TEMP%\watson_vision.txt" (
-        set /p VISION_MODEL_CFG=<"%TEMP%\watson_vision.txt"
-        del "%TEMP%\watson_vision.txt" >nul 2>nul
-    )
-    if not defined OLLAMA_MODEL_CFG set "OLLAMA_MODEL_CFG=gemma3:4b"
-    if not defined VISION_MODEL_CFG set "VISION_MODEL_CFG=qwen2.5vl"
-    :: Tenta listar (se daemon nao estiver rodando, avisa mas nao falha o setup)
-    ollama list >nul 2>nul
-    if errorlevel 1 (
-        echo [AVISO] Ollama nao esta rodando. Inicie com 'ollama serve' e rode novamente o setup para baixar os modelos.
-        echo         Modelos definidos: !OLLAMA_MODEL_CFG! e !VISION_MODEL_CFG!
-    ) else (
-        for %%M in ("!OLLAMA_MODEL_CFG!" "!VISION_MODEL_CFG!") do (
-            set "MODEL=%%~M"
-            if not "!MODEL!"=="" (
-                echo   Verificando !MODEL!...
-                ollama list | findstr /I /C:"!MODEL!" >nul 2>nul
-                if errorlevel 1 (
-                    echo   Baixando !MODEL! (pode demorar)...
-                    ollama pull "!MODEL!"
-                    if errorlevel 1 (
-                        echo [AVISO] Falha ao baixar !MODEL!. Tente manualmente: ollama pull !MODEL!
-                    )
-                ) else (
-                    echo   Modelo !MODEL! ja existe.
-                )
+    echo         Depois rode: ollama pull gemma3:4b e ollama pull qwen2.5vl
+    goto :skip_ollama
+)
+:: Le modelos do .env via Python do venv - usa arquivo temp para evitar parsing de ;
+set "OLLAMA_MODEL_CFG="
+set "VISION_MODEL_CFG="
+"%PYTHON_EXE%" -c "import config; print(config.config.ollama_model)" > "%TEMP%\watson_ollama.txt" 2>nul
+if exist "%TEMP%\watson_ollama.txt" (
+    set /p OLLAMA_MODEL_CFG=<"%TEMP%\watson_ollama.txt"
+    del "%TEMP%\watson_ollama.txt" >nul 2>nul
+)
+"%PYTHON_EXE%" -c "import config; print(config.config.vision_model)" > "%TEMP%\watson_vision.txt" 2>nul
+if exist "%TEMP%\watson_vision.txt" (
+    set /p VISION_MODEL_CFG=<"%TEMP%\watson_vision.txt"
+    del "%TEMP%\watson_vision.txt" >nul 2>nul
+)
+if not defined OLLAMA_MODEL_CFG set "OLLAMA_MODEL_CFG=gemma3:4b"
+if not defined VISION_MODEL_CFG set "VISION_MODEL_CFG=qwen2.5vl"
+:: Tenta listar - se daemon nao estiver rodando, avisa mas nao falha o setup
+ollama list >nul 2>nul
+if errorlevel 1 (
+    echo [AVISO] Ollama nao esta rodando. Inicie com 'ollama serve' e rode novamente o setup para baixar os modelos.
+    echo         Modelos definidos: !OLLAMA_MODEL_CFG! e !VISION_MODEL_CFG!
+    goto :skip_ollama
+)
+for %%M in ("!OLLAMA_MODEL_CFG!" "!VISION_MODEL_CFG!") do (
+    set "MODEL=%%~M"
+    if not "!MODEL!"=="" (
+        echo   Verificando !MODEL!...
+        ollama list > "%TEMP%\watson_list.txt" 2>nul
+        findstr /I /C:"!MODEL!" "%TEMP%\watson_list.txt" >nul 2>nul
+        if errorlevel 1 (
+            echo   Baixando !MODEL! - pode demorar...
+            ollama pull "!MODEL!"
+            if errorlevel 1 (
+                echo [AVISO] Falha ao baixar !MODEL!. Tente manualmente: ollama pull !MODEL!
             )
+        ) else (
+            echo   Modelo !MODEL! ja existe.
         )
+        del "%TEMP%\watson_list.txt" >nul 2>nul
     )
 )
+:skip_ollama
 
 :: Validar dotenv instalado no venv
 "%PYTHON_EXE%" -c "import dotenv" >nul 2>nul
