@@ -918,7 +918,7 @@ class ChatBot:
         print(f"{ANSI_DIM}  • {ANSI_YELLOW}analisar: off{ANSI_RESET}{ANSI_DIM}       -> desliga a análise automática{ANSI_RESET}")
         print(f"{ANSI_DIM}  • {ANSI_YELLOW}analisar: <pergunta>{ANSI_RESET}{ANSI_DIM} -> análise só nessa pergunta{ANSI_RESET}")
         print(f"{ANSI_DIM}      ex: {ANSI_YELLOW}analisar: como pagar a moto em 6 meses?{ANSI_RESET}")
-        print(f"{ANSI_DIM}  • {ANSI_YELLOW}aprofundar:{ANSI_RESET}{ANSI_DIM}       -> re-analisa a última resposta{ANSI_RESET}")
+        print(f"{ANSI_DIM}  • {ANSI_YELLOW}aprofundar:{ANSI_RESET}{ANSI_DIM}       -> detalha mais a última resposta (ex: {ANSI_YELLOW}aprofundar: detalhe a história{ANSI_RESET}){ANSI_RESET}")
         print(f"{ANSI_DIM}  • {ANSI_YELLOW}esquecer:{ANSI_RESET}{ANSI_DIM}        -> limpa a memória da conversa{ANSI_RESET}")
         print(f"{ANSI_DIM}  • {ANSI_YELLOW}exit:{ANSI_RESET}{ANSI_DIM}            -> sai do chat{ANSI_RESET}")
         print()
@@ -985,15 +985,22 @@ class ChatBot:
                 print(f"{ANSI_DIM}Memória da conversa limpa. Novas perguntas não usarão contexto anterior.{ANSI_RESET}")
                 continue
 
-            if qlow in ("aprofundar", "aprofundar análise") or qlow.startswith("aprofundar:"):
+            if qlow in ("aprofundar", "aprofundar análise") or qlow.startswith("aprofundar"):
                 # Extrai foco: 'aprofundar: detalhe' -> foco='detalhe'
                 focus = ""
                 if ":" in qlow:
                     focus = question.split(":", 1)[1].strip()
                 elif qlow.startswith("aprofundar ") and qlow != "aprofundar análise":
                     focus = question.split(" ", 1)[1].strip()
+                # Focos genéricos = detalhar a resposta INTEIRA (não um ponto específico)
+                if focus and focus.lower().lstrip("!?. ") in (
+                    "detalhe", "detalhar", "detalhes", "mais", "mais detalhe",
+                    "expandir", "expand", "aprofundar", "história", "historia",
+                    "melhor", "responda", "continue", "resposta anterior",
+                ):
+                    focus = ""
                 if last_result is not None and last_question:
-                    # 1) Detalhamento narrativo (LLM + evidências) — resposta mais profunda
+                    # 1) Detalhamento narrativo (LLM + evidências) — pega a resposta anterior e detalha mais
                     print(f"\n{ANSI_YELLOW}[Aprofundando...]{ANSI_RESET}", flush=True)
                     detailed = self._deepen_answer(last_question, last_result, focus)
                     if detailed:
