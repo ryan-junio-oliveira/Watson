@@ -61,14 +61,31 @@ def test_image_question_uses_image_even_with_low_score():
     assert any(e.metadata.get("source_type") == "image" for e in resp.evidences), "Evidência de imagem deveria estar presente"
     print("PASS: imagem question usa imagem com score baixo")
 
-def test_non_image_question_filters_image_low_score():
-    """Pergunta não-imagem (champions) não deve usar imagem com score baixo."""
-    bot, retr, oll = make_bot([fake_image_evidence(score=0.2)], ollama_answer="Não encontrei")
+def test_non_image_question_filters_generic_image_low_score():
+    """Imagem genérica (sem champions) não deve ser usada para pergunta champions com score baixo."""
+    bot, retr, oll = make_bot([fake_image_evidence(content="Imagem sem texto: paisagem", score=0.2)], ollama_answer="Não encontrei")
     resp = bot.ask("quais são os times do pote 1 da champions league")
-    # Nova lógica filtra image-only low relevance para não-imagem → cai em no_documents
-    assert resp.metadata.get("fallback") == "no_documents" or not resp.evidences or all(e.metadata.get("source_type") != "image" for e in resp.evidences), \
-        f"Deveria filtrar imagem irrelevante, evidences={resp.evidences}, meta={resp.metadata}"
-    print("PASS: champions filtra imagem irrelevante")
+    assert resp.metadata.get("fallback") == "no_documents" or not resp.evidences, \
+        f"Deveria filtrar imagem genérica irrelevante, evidences={resp.evidences}, meta={resp.metadata}"
+    print("PASS: champions filtra imagem genérica irrelevante")
+
+def test_champions_image_high_relevance_kept():
+    """Imagem com potes da Champions DEVE ser usada para pergunta sobre pote 1 (mesmo sem dizer 'imagem')."""
+    champions_content = "Pote 1: Real Madrid, Manchester City, Bayern Munich, PSG, Inter, Dortmund, Barcelona, Liverpool"
+    bot, retr, oll = make_bot([fake_image_evidence(content=champions_content, score=0.75)], ollama_answer="Com base na imagem, Pote 1: Real Madrid...")
+    resp = bot.ask("quais são os times do pote 1 da champions league")
+    assert resp.evidences, "Imagem com champions deve ser mantida (content overlap + score alto)"
+    assert any("champions" in e.content.lower() or "pote" in e.content.lower() for e in resp.evidences), "Evidência deve conter champions/pote"
+    print("PASS: champions com imagem de potes é mantida (score alto + overlap)")
+
+def test_champions_image_low_score_but_overlap_kept():
+    """Mesmo com score baixo, se imagem contém 'champions/pote' e pergunta também, mantém (content_overlap)."""
+    champions_content = "Pote 1 - Times da Champions League distribuídos"
+    bot, retr, oll = make_bot([fake_image_evidence(content=champions_content, score=0.2)], ollama_answer="Com base na imagem...")
+    resp = bot.ask("quais são os times do pote 1 da champions league")
+    # Com overlap, mesmo score baixo não é filtrado
+    assert resp.evidences, "Com overlap, não deve filtrar mesmo com score baixo"
+    print("PASS: champions com overlap mantém mesmo com score baixo")
 
 def test_factual_with_image_and_text_keeps_text():
     """Se há imagem e texto, pergunta factual deve priorizar texto de alta relevância."""
@@ -95,7 +112,9 @@ def test_descreva_imagem_uses_image():
 
 if __name__ == "__main__":
     test_image_question_uses_image_even_with_low_score()
-    test_non_image_question_filters_image_low_score()
+    test_non_image_question_filters_generic_image_low_score()
+    test_champions_image_high_relevance_kept()
+    test_champions_image_low_score_but_overlap_kept()
     test_factual_with_image_and_text_keeps_text()
     test_greeting_not_use_image()
     test_descreva_imagem_uses_image()

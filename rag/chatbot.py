@@ -527,22 +527,29 @@ class ChatBot:
             evidence = self._retrieve_rag(question)
             evidence = self.aggregator.collect(rag_evidence=evidence)
             evidence = self.aggregator.rank(evidence)
-            # Filtro de relevância: evita usar imagem para pergunta factual (ex: champions) quando score é baixo
+            # Filtro de relevância: evita usar imagem para pergunta factual irrelevante
             if evidence:
                 try:
                     max_score = max(getattr(e, "score", 0) or 0 for e in evidence)
-                    # EvidenceNormalizer sempre seta source_type="rag", o tipo real está em metadata
                     is_image_only = all((e.metadata.get("source_type", "") == "image") for e in evidence)
                     ql = question.lower()
-                    is_image_question = any(kw in ql for kw in ("imagem", "foto", "figura", "print", "screenshot", "imagem fornecida", "anexe", "descreva", "o que tem"))
-                    # Threshold adaptativo: usa similarity_threshold do retriever se setado, senão 0.25
+                    # Pergunta explícita sobre imagem
+                    is_image_question = any(kw in ql for kw in ("imagem", "foto", "figura", "print", "screenshot", "imagem fornecida", "anexe", "descreva", "o que tem", "o que há"))
+                    # Conteúdo da evidência contém termos da pergunta (ex: imagem com potes da Champions e pergunta sobre pote 1)
+                    evidence_text = " ".join((e.content or "").lower() for e in evidence)
+                    content_overlap = False
+                    if is_image_only and not is_image_question:
+                        # Se imagem contém termos da pergunta (champions, pote, time), então é sobre a imagem mesmo sem dizer "imagem"
+                        q_keywords = [kw for kw in ("champions", "pote", "pot ", "time", "grupo", "liga") if kw in ql]
+                        if q_keywords and any(kw in evidence_text for kw in q_keywords):
+                            is_image_question = True
+                            content_overlap = True
                     thr = self.retriever.similarity_threshold if self.retriever.similarity_threshold is not None else 0.25
                     if max_score < thr and is_image_only and not is_image_question:
                         if self.logger:
                             self.logger.info(f"Evidence filtered: image-only low relevance (max={max_score:.2f} < {thr}) for non-image question")
                         evidence = []
-                    elif max_score < 0.15:
-                        # Totalmente irrelevante
+                    elif max_score < 0.15 and not content_overlap:
                         if self.logger:
                             self.logger.info(f"Evidence filtered: max relevance {max_score:.2f} too low")
                         evidence = []
