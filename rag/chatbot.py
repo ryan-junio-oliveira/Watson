@@ -833,16 +833,15 @@ class ChatBot:
 
         while True:
             try:
-                # Prompt e texto digitado em ciano/negrito — bem distinto de resposta (branco) e status (amarelo)
-                sys.stdout.write(f"{ANSI_CYAN}{ANSI_BOLD}> {ANSI_CYAN}")
+                # Prompt e texto digitado em amarelo/negrito — bem distinto de resposta (branco) e status (azul claro)
+                sys.stdout.write(f"{ANSI_YELLOW}{ANSI_BOLD}> {ANSI_YELLOW}")
                 sys.stdout.flush()
                 question = input().strip()
                 sys.stdout.write(ANSI_RESET)
                 sys.stdout.flush()
-                # Reimprime a pergunta com cor para garantir histórico colorido mesmo em terminais que não herdaram a cor da digitação
+                # Reimprime a pergunta com cor para garantir histórico colorido
                 if question:
-                    # Volta uma linha e reescreve com cor (não duplica, só recolore)
-                    sys.stdout.write(f"\033[F\033[2K{ANSI_CYAN}{ANSI_BOLD}> {question}{ANSI_RESET}\n")
+                    sys.stdout.write(f"\033[F\033[2K{ANSI_YELLOW}{ANSI_BOLD}> {question}{ANSI_RESET}\n")
                     sys.stdout.flush()
             except (EOFError, KeyboardInterrupt):
                 sys.stdout.write(ANSI_RESET + "\n")
@@ -937,14 +936,14 @@ class ChatBot:
     )
 
     def _status_loop(self, stop_event: threading.Event) -> None:
-        """Exibe mensagens de status rotativas (amarelo) enquanto a IA gera a resposta."""
+        """Exibe mensagens de status rotativas (azul claro) enquanto a IA gera a resposta."""
         msgs = [m.format(agent=self.agent_name) for m in self._STATUS_MESSAGES]
         i = 0
         try:
             while True:
                 if stop_event.is_set():
                     break
-                sys.stdout.write(f"\r{ANSI_YELLOW}{ANSI_DIM}{msgs[i % len(msgs)]}   {ANSI_RESET}")
+                sys.stdout.write(f"\r{ANSI_BLUE}{ANSI_DIM}{msgs[i % len(msgs)]}   {ANSI_RESET}")
                 sys.stdout.flush()
                 if stop_event.wait(2.5):
                     break
