@@ -527,6 +527,26 @@ class ChatBot:
             evidence = self._retrieve_rag(question)
             evidence = self.aggregator.collect(rag_evidence=evidence)
             evidence = self.aggregator.rank(evidence)
+            # Filtro de relevância: evita usar imagem para pergunta factual (ex: champions) quando score é baixo
+            if evidence:
+                try:
+                    max_score = max(getattr(e, "score", 0) or 0 for e in evidence)
+                    is_image_only = all((getattr(e, "source_type", "") or e.metadata.get("source_type", "")) == "image" for e in evidence)
+                    ql = question.lower()
+                    is_image_question = any(kw in ql for kw in ("imagem", "foto", "figura", "print", "screenshot", "imagem fornecida", "anexe"))
+                    # Threshold adaptativo: usa similarity_threshold do retriever se setado, senão 0.25
+                    thr = self.retriever.similarity_threshold if self.retriever.similarity_threshold is not None else 0.25
+                    if max_score < thr and is_image_only and not is_image_question:
+                        if self.logger:
+                            self.logger.info(f"Evidence filtered: image-only low relevance (max={max_score:.2f} < {thr}) for non-image question")
+                        evidence = []
+                    elif max_score < 0.15:
+                        # Totalmente irrelevante
+                        if self.logger:
+                            self.logger.info(f"Evidence filtered: max relevance {max_score:.2f} too low")
+                        evidence = []
+                except Exception:
+                    pass
             evidence = self._inject_computed_facts(question, evidence)
 
             if not evidence:

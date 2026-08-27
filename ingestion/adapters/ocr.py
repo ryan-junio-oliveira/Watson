@@ -98,13 +98,16 @@ def configure_tesseract(tesseract_dir: str = "") -> str:
     resolved = resolve_tesseract_cmd(tesseract_dir)
     if resolved:
         pytesseract.pytesseract.tesseract_cmd = resolved
-        # Garante TESSDATA_PREFIX para o exe embarcado (Windows)
+        # Garante TESSDATA_PREFIX para o exe embarcado (Windows).
+        # O erro anterior "Error opening data file .../tesseract/por.traineddata" mostra que com
+        # TESSDATA_PREFIX=.../tesseract o tesseract procurava por .../tesseract/por.traineddata
+        # mas o arquivo está em .../tesseract/tessdata/por.traineddata, então apontamos para tessdata.
         try:
             tessdata = Path(resolved).parent / "tessdata"
-            if tessdata.is_dir():
+            if tessdata.is_dir() and (tessdata / "por.traineddata").exists():
+                os.environ["TESSDATA_PREFIX"] = str(tessdata)
+            elif (Path(resolved).parent / "por.traineddata").exists():
                 os.environ["TESSDATA_PREFIX"] = str(Path(resolved).parent)
-                # Filtra idioma se eng não estiver disponível (HyperViewer só tem por)
-                # O pytesseract usa OCR_LANG passado em image_to_string, mas deixamos env consistente
         except Exception:
             pass
     return resolved
