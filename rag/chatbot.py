@@ -858,6 +858,9 @@ class ChatBot:
 
         last_question: Optional[str] = None
         last_result: Optional[AgentResponse] = None
+        analyze_mode = False  # espelha API analyze=true — quando ligado, toda pergunta já vem com análise proativa
+
+        print(f"{ANSI_DIM}Dicas: 'analisar on/off' para modo análise automática, 'analisar: sua pergunta' para análise única, 'aprofundar' para re-analisar a última.{ANSI_RESET}\n")
 
         while True:
             try:
@@ -883,7 +886,39 @@ class ChatBot:
                 print(f"{ANSI_DIM}Encerrando...{ANSI_RESET}")
                 break
 
-            if question.lower() in ("aprofundar", "analisar", "aprofundar análise"):
+            # --- Modo analisar (espelha API analyze=true) ---
+            qlow = question.lower().strip()
+            # Flag por pergunta: "analisar: ..." ou "... --analisar"
+            analyze_this = False
+            if qlow.startswith("analisar:"):
+                analyze_this = True
+                question = question[len("analisar:"):].strip()
+                qlow = question.lower().strip()
+            elif qlow.endswith("--analisar"):
+                analyze_this = True
+                question = question[: -len("--analisar")].strip()
+                qlow = question.lower().strip()
+            elif qlow.endswith("/analisar"):
+                analyze_this = True
+                question = question[: -len("/analisar")].strip()
+                qlow = question.lower().strip()
+
+            # Toggle persistente: "analisar on/off"
+            if qlow in ("analisar on", "analisar ligado", "modo analisar on", "analisar: on"):
+                analyze_mode = True
+                print(f"{ANSI_GREEN}Modo analisar ativado — próximas respostas virão com conclusões e perguntas de acompanhamento (como API analyze=true).{ANSI_RESET}")
+                continue
+            if qlow in ("analisar off", "analisar desligado", "modo analisar off", "analisar: off"):
+                analyze_mode = False
+                print(f"{ANSI_DIM}Modo analisar desativado.{ANSI_RESET}")
+                continue
+            if qlow in ("analisar", "analise"):
+                print(f"{ANSI_YELLOW}Modo analisar está {'ligado' if analyze_mode else 'desligado'}. Use 'analisar on/off' ou 'analisar: sua pergunta' para análise única.{ANSI_RESET}")
+                if self.analyst is None:
+                    print(f"{ANSI_DIM}(Analista desabilitado — ative ENABLE_ANALYST=true e reinicie){ANSI_RESET}")
+                continue
+
+            if qlow in ("aprofundar", "aprofundar análise"):
                 if last_result is not None and last_question:
                     print(f"\n{ANSI_YELLOW}[Analisando a resposta anterior...]{ANSI_RESET}", flush=True)
                     result = self._run_analyst(last_question, last_result)
@@ -894,6 +929,10 @@ class ChatBot:
 
             last_question = question
             last_result = None
+            should_analyze = analyze_this or analyze_mode
+            if should_analyze and self.analyst is None:
+                print(f"{ANSI_YELLOW}[Aviso] Analyst desabilitado (ENABLE_ANALYST=false) — resposta virá sem análise.{ANSI_RESET}")
+                should_analyze = False
 
             stop_status = threading.Event()
             status_thread = threading.Thread(
@@ -903,7 +942,7 @@ class ChatBot:
 
             try:
                 print()
-                gen = self.ask_stream(question)
+                gen = self.ask_stream(question, analyze=should_analyze)
                 tokens: List[str] = []
                 started = False
                 try:
@@ -939,14 +978,16 @@ class ChatBot:
 
                 if result:
                     last_result = result
-                    # Fontes em tom dim — secundário
                     if result.sources:
                         print(f"\n{ANSI_DIM}{ANSI_BOLD}Sources{ANSI_RESET}")
                         print(f"{ANSI_DIM}-------{ANSI_RESET}")
                         for s in result.sources:
                             label = s.title or s.url
                             print(f"{ANSI_DIM}  • {label}{ANSI_RESET}")
-                    if result.follow_up:
+                    # Modo analisar (API analyze=true) mostra análise completa; modo normal só follow-up
+                    if should_analyze and (result.conclusions or result.follow_up or result.additional_info):
+                        print(f"\n{ANSI_MAGENTA}{self._format_analyst(result)}{ANSI_RESET}")
+                    elif result.follow_up:
                         print(f"\n{ANSI_MAGENTA}{ANSI_BOLD}Perguntas para aprofundar:{ANSI_RESET}")
                         for i, q in enumerate(result.follow_up, 1):
                             print(f"{ANSI_MAGENTA}  {i}. {q}{ANSI_RESET}")
