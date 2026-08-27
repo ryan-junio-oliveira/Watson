@@ -147,6 +147,15 @@ class Config:
     api_auth_token: str = field(
         default_factory=lambda: os.getenv("API_AUTH_TOKEN", "").strip()
     )
+    api_rate_limit: int = field(
+        default_factory=lambda: int(os.getenv("API_RATE_LIMIT", "30"))
+    )
+    api_rate_window: int = field(
+        default_factory=lambda: int(os.getenv("API_RATE_WINDOW", "60"))
+    )
+    api_rate_enabled: bool = field(
+        default_factory=lambda: os.getenv("API_RATE_ENABLED", "true").lower() == "true"
+    )
 
 
 config = Config()

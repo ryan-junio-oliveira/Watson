@@ -46,6 +46,9 @@ def mock_env(tmp_path):
         mock_cfg.google_drive_sync_timeout = 30
         mock_cfg.metrics_db = str(tmp_path / "metrics.db")
         mock_cfg.api_auth_token = ""
+        mock_cfg.api_rate_limit = 1000
+        mock_cfg.api_rate_window = 60
+        mock_cfg.api_rate_enabled = False
         yield mock_cfg
 
 

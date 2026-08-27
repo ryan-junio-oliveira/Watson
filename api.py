@@ -205,6 +205,63 @@ api_formatter: ApiFormatter = None
 _index_jobs: Dict[str, dict] = {}
 _index_jobs_lock = threading.Lock()
 _index_exec_lock = threading.Lock()
+_JOBS_FILE = Path("database/index_jobs.json")
+
+
+def _persist_jobs() -> None:
+    """Persiste _index_jobs em disco de forma atômica (tmp + replace)."""
+    try:
+        _JOBS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        import json as _json
+        import tempfile as _tmp
+        import os as _os
+
+        # Snapshot sob lock
+        with _index_jobs_lock:
+            data = dict(_index_jobs)
+        fd, tmp_path = _tmp.mkstemp(dir=str(_JOBS_FILE.parent), suffix=".tmp")
+        try:
+            with _os.fdopen(fd, "w", encoding="utf-8") as f:
+                _json.dump(data, f, indent=2, ensure_ascii=False)
+            _os.replace(tmp_path, _JOBS_FILE)
+        except Exception:
+            if _os.path.exists(tmp_path):
+                _os.remove(tmp_path)
+            raise
+    except Exception:
+        # Persistência é best-effort — não quebra o job se falhar
+        pass
+
+
+def _load_persisted_jobs() -> None:
+    """Carrega jobs persistidos (se existirem) na memória."""
+    try:
+        if not _JOBS_FILE.exists():
+            return
+        import json as _json
+        import time as _time
+
+        raw = _json.loads(_JOBS_FILE.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return
+        now = _time.time()
+        # Descarta jobs com mais de 24h para não ressuscitar lixo
+        filtered = {
+            k: v for k, v in raw.items()
+            if isinstance(v, dict) and (now - float(v.get("created_at", now)) < 86400)
+        }
+        # Jobs que estavam "running" quando o processo caiu viram "error"
+        for v in filtered.values():
+            if v.get("status") == "running":
+                v["status"] = "error"
+                v["error"] = "Processo reiniciado durante a indexação"
+        with _index_jobs_lock:
+            # Não sobrescreve jobs já em memória (processo já tem estado mais recente)
+            for k, v in filtered.items():
+                if k not in _index_jobs:
+                    _index_jobs[k] = v
+    except Exception:
+        pass
 
 
 class _IndexJobCancelled(Exception):
@@ -242,6 +299,7 @@ def _start_index_job(
             "message": "",
             "cancel_requested": False,
         }
+    _persist_jobs()
 
     def _update_job(**fields: object) -> None:
         with _index_jobs_lock:
@@ -249,17 +307,27 @@ def _start_index_job(
                 _index_jobs[job_id].update(fields)
                 if _index_jobs[job_id].get("cancel_requested"):
                     raise _IndexJobCancelled(job_id)
+        # Persiste progresso de forma best-effort (fora do lock para não bloquear)
+        _persist_jobs()
 
     def _worker():
         try:
             with _index_exec_lock:
-                result = asyncio.run(
-                    _run_index(
-                        index_documents,
-                        sync_drive,
-                        on_progress=_update_job,
+                # Usa new_event_loop dedicado em vez de asyncio.run (evita
+                # "event loop is closed" quando a thread não é a main thread)
+                loop = asyncio.new_event_loop()
+                try:
+                    asyncio.set_event_loop(loop)
+                    result = loop.run_until_complete(
+                        _run_index(
+                            index_documents,
+                            sync_drive,
+                            on_progress=_update_job,
+                        )
                     )
-                )
+                finally:
+                    loop.close()
+                    asyncio.set_event_loop(None)
             with _index_jobs_lock:
                 _index_jobs[job_id] = {
                     "status": "done",
@@ -268,7 +336,9 @@ def _start_index_job(
                     "progress": _index_jobs[job_id].get("progress", 0),
                     "total": _index_jobs[job_id].get("total", 0),
                     "message": _index_jobs[job_id].get("message", ""),
+                    "created_at": _index_jobs[job_id].get("created_at", __import__("time").time()),
                 }
+            _persist_jobs()
         except _IndexJobCancelled:
             logger.info(f"Background index job {job_id} cancelled")
             with _index_jobs_lock:
@@ -279,7 +349,9 @@ def _start_index_job(
                     "progress": _index_jobs[job_id].get("progress", 0),
                     "total": _index_jobs[job_id].get("total", 0),
                     "message": _index_jobs[job_id].get("message", ""),
+                    "created_at": _index_jobs[job_id].get("created_at", __import__("time").time()),
                 }
+            _persist_jobs()
         except Exception as e:
             logger.exception(f"Background index job {job_id} failed: {e}")
             with _index_jobs_lock:
@@ -290,27 +362,36 @@ def _start_index_job(
                     "progress": _index_jobs[job_id].get("progress", 0),
                     "total": _index_jobs[job_id].get("total", 0),
                     "message": _index_jobs[job_id].get("message", ""),
+                    "created_at": _index_jobs[job_id].get("created_at", __import__("time").time()),
                 }
+            _persist_jobs()
 
     threading.Thread(target=_worker, daemon=True).start()
     return job_id
 
 
 def _get_index_job(job_id: str) -> Optional[dict]:
+    _load_persisted_jobs()
     with _index_jobs_lock:
-        return _index_jobs.get(job_id)
+        job = _index_jobs.get(job_id)
+        return dict(job) if job else None
 
 
 def _prune_index_jobs(max_age_seconds: int = 3600) -> None:
     """Remove jobs antigos para não vazar memória (chamado a cada novo job)."""
     import time
 
+    _load_persisted_jobs()
     now = time.time()
+    pruned = False
     with _index_jobs_lock:
         for jid in list(_index_jobs.keys()):
             ts = _index_jobs[jid].get("created_at", 0)
             if now - ts > max_age_seconds:
                 _index_jobs.pop(jid, None)
+                pruned = True
+    if pruned:
+        _persist_jobs()
 
 
 def _preload_models(_chatbot: ChatBot, _emb_gen, _logger) -> None:
@@ -427,6 +508,7 @@ async def lifespan(app: FastAPI):
     )
 
     logger.info("Starting Watson API server")
+    _load_persisted_jobs()
 
     chatbot = build_chatbot(cfg, logger)
     embedding_generator, splitter, indexer = build_indexer(cfg, logger)
@@ -567,6 +649,82 @@ async def require_api_token(request: Request, call_next):
         )
 
     return await call_next(request)
+
+
+# ------------------------------------------------------------------ #
+# Rate limiting (token bucket per IP) — protege /api/chat contra abuso
+# ------------------------------------------------------------------ #
+
+_rate_limit_store: Dict[str, List[float]] = {}
+_rate_limit_lock = threading.Lock()
+
+
+@app.middleware("http")
+async def rate_limit(request: Request, call_next):
+    """Limita requisições por IP para endpoints sensíveis.
+
+    Usa janela deslizante em memória (sem dependência externa). Configurável
+    via `API_RATE_LIMIT` / `API_RATE_WINDOW` / `API_RATE_ENABLED`.
+    Só atua em `/api/chat` e `/api/chat/stream`; demais endpoints liberados.
+    """
+    path = request.url.path
+    # Só limita chat — health/metrics/index não devem ser throttled
+    if not path.startswith("/api/chat"):
+        return await call_next(request)
+
+    if not getattr(app_config, "api_rate_enabled", True):
+        return await call_next(request)
+
+    limit = int(getattr(app_config, "api_rate_limit", 30))
+    window = int(getattr(app_config, "api_rate_window", 60))
+    if limit <= 0 or window <= 0:
+        return await call_next(request)
+
+    # IP do cliente (respeita X-Forwarded-For quando atrás de proxy)
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+    else:
+        client_ip = request.client.host if request.client else "unknown"
+
+    import time as _time
+
+    now = _time.time()
+    with _rate_limit_lock:
+        timestamps = _rate_limit_store.get(client_ip, [])
+        # Remove timestamps fora da janela
+        timestamps = [t for t in timestamps if now - t < window]
+        if len(timestamps) >= limit:
+            retry_after = int(window - (now - timestamps[0])) + 1
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "success": False,
+                    "detail": f"Rate limit excedido. Tente novamente em {retry_after}s.",
+                    "error": {"code": "RATE_LIMIT_EXCEEDED", "message": f"Limite de {limit} req/{window}s"},
+                },
+                headers={"Retry-After": str(retry_after)},
+            )
+        timestamps.append(now)
+        _rate_limit_store[client_ip] = timestamps
+
+        # Evita vazamento de memória: limpa IPs ociosos (mantém só janela)
+        if len(_rate_limit_store) > 1000:
+            for ip in list(_rate_limit_store.keys()):
+                ts = _rate_limit_store[ip]
+                if not ts or now - ts[-1] > window * 2:
+                    _rate_limit_store.pop(ip, None)
+
+    response = await call_next(request)
+    # Informa limites nos headers (útil para clientes)
+    try:
+        remaining = max(0, limit - len(timestamps))
+        response.headers["X-RateLimit-Limit"] = str(limit)
+        response.headers["X-RateLimit-Remaining"] = str(remaining)
+        response.headers["X-RateLimit-Reset"] = str(int(now + window))
+    except Exception:
+        pass
+    return response
 
 
 @app.get(
@@ -1113,6 +1271,7 @@ async def index_cancel(job_id: str):
     with _index_jobs_lock:
         if job_id in _index_jobs:
             _index_jobs[job_id]["cancel_requested"] = True
+    _persist_jobs()
 
     logger.info(f"Cancel requested for index job {job_id}")
     return IndexCancelResponse(status="cancelling", job_id=job_id)

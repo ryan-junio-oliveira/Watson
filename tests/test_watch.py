@@ -28,10 +28,14 @@ def test_snapshot_tracks_size_and_mtime(tmp_path):
     f.write_bytes(b"hello")
 
     state = watch.snapshot(cfg)
-    size, mtime = state["a.txt"]
+    # snapshot agora retorna (size, mtime, content_hash) — unpack compatível
+    val = state["a.txt"]
+    size, mtime = val[0], val[1]
+    content_hash = val[2] if len(val) > 2 else ""
 
     assert size == 5
     assert mtime  # str(st_mtime), não vazio
+    assert content_hash  # hash de conteúdo não vazio
 
 
 def test_snapshot_detects_change(tmp_path):
@@ -45,6 +49,8 @@ def test_snapshot_detects_change(tmp_path):
 
     assert s1 != s2
     assert s2["a.txt"][0] == 17
+    # Mudança de conteúdo deve refletir no hash mesmo se size/mtime colidir
+    assert s1["a.txt"][2] != s2["a.txt"][2]
 
 
 def test_snapshot_ignores_missing_dir(tmp_path):

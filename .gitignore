@@ -56,6 +56,8 @@ database/test_images/
 
 # Estado do watcher de documentos
 logs/.watch_state.json
+# Jobs de indexação persistidos
+database/index_jobs.json
 
 # Binários de terceiros (Tesseract - instalar via libs/)
 libs/

@@ -104,11 +104,21 @@ class SyncResult:
 
 
 _ENTRY_SPLIT = 'class="flip-entry" id="'
+_ENTRY_SPLIT_ALT = "flip-entry"
 _HREF_RE = re.compile(
-    r'href="https://drive\.google\.com/(drive/folders|file/d)/([^"/]+)'
+    r'href="https://drive\.google\.com/(drive/folders|file/d)/([^"/]+)',
+    re.IGNORECASE,
 )
-_TITLE_RE = re.compile(r'flip-entry-title">(.*?)</div>', re.DOTALL)
-_MODIFIED_RE = re.compile(r'flip-entry-last-modified"><div>([^<]*)</div>')
+_HREF_RE_LOOSE = re.compile(
+    r'https://drive\.google\.com/(drive/folders|file/d)/([^"/\s?&#]+)',
+    re.IGNORECASE,
+)
+_TITLE_RE = re.compile(r'flip-entry-title">(.*?)</div>', re.DOTALL | re.IGNORECASE)
+_TITLE_RE_ALT = re.compile(
+    r'(?:entry-title|flip-entry-title|data-tooltip|title)="([^"]+)"|>([^<]{2,120})</div>\s*<div class="flip-entry-last-modified',
+    re.DOTALL | re.IGNORECASE,
+)
+_MODIFIED_RE = re.compile(r'flip-entry-last-modified"><div>([^<]*)</div>', re.IGNORECASE)
 
 
 def sanitize_name(name: str) -> str:
@@ -160,14 +170,25 @@ class GoogleDriveSync:
         for attempt in range(retries):
             try:
                 req = urllib.request.Request(
-                    url, headers={"User-Agent": USER_AGENT}
+                    url, headers={
+                        "User-Agent": USER_AGENT,
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+                    }
                 )
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                    return resp.read()
+                    data = resp.read()
+                    # Detecta rate-limit / captcha do Google
+                    if len(data) < 500 and b"Too many requests" in data:
+                        raise RuntimeError("Google Drive rate-limited (Too many requests)")
+                    return data
             except Exception as e:
                 last_error = e
                 if attempt < retries - 1:
-                    time.sleep(2 ** attempt)
+                    # Backoff exponencial + jitter
+                    time.sleep(2 ** attempt + (0.5 if attempt > 0 else 0))
+                else:
+                    self._log_error(f"Request failed after {retries} retries: {url} -> {e}")
         raise last_error
 
     def list_folder(self, folder_id: str) -> List[DriveEntry]:
@@ -180,25 +201,88 @@ class GoogleDriveSync:
     @staticmethod
     def _parse_entries(html_text: str) -> List[DriveEntry]:
         entries: List[DriveEntry] = []
-        for chunk in html_text.split(_ENTRY_SPLIT)[1:]:
-            entry_id = chunk.split('"')[0]
-            href = _HREF_RE.search(chunk)
-            if not href:
+        # Estratégia 1: split clássico flip-entry
+        if _ENTRY_SPLIT in html_text:
+            for chunk in html_text.split(_ENTRY_SPLIT)[1:]:
+                entry_id = chunk.split('"')[0]
+                href = _HREF_RE.search(chunk)
+                if not href:
+                    # Tenta padrão mais solto dentro do chunk
+                    href = _HREF_RE_LOOSE.search(chunk)
+                if not href:
+                    continue
+                kind, kind_id = href.group(1), href.group(2)
+                title_m = _TITLE_RE.search(chunk)
+                if not title_m:
+                    title_m = _TITLE_RE_ALT.search(chunk)
+                name = ""
+                if title_m:
+                    # Pega primeiro grupo não vazio
+                    for g in title_m.groups():
+                        if g:
+                            name = html.unescape(g).strip()
+                            break
+                mod_m = _MODIFIED_RE.search(chunk)
+                modified = mod_m.group(1).strip() if mod_m else ""
+                # Fallback: se nome vazio, tenta extrair do href title próximo
+                if not name:
+                    name = kind_id or entry_id
+                entries.append(
+                    DriveEntry(
+                        entry_id=kind_id or entry_id,
+                        name=name,
+                        is_folder=(kind.lower() == "drive/folders"),
+                        modified=modified,
+                        kind=kind,
+                    )
+                )
+            if entries:
+                return entries
+
+        # Estratégia 2: fallback — varre todos os hrefs do HTML (robusto a mudanças de classe)
+        seen: set = set()
+        for m in _HREF_RE.finditer(html_text):
+            kind, kind_id = m.group(1), m.group(2)
+            if kind_id in seen:
                 continue
-            kind, kind_id = href.group(1), href.group(2)
-            title_m = _TITLE_RE.search(chunk)
-            name = html.unescape(title_m.group(1)).strip() if title_m else ""
-            mod_m = _MODIFIED_RE.search(chunk)
+            seen.add(kind_id)
+            # Janela de 1500 chars ao redor do href para buscar título/modified
+            start = max(0, m.start() - 800)
+            end = min(len(html_text), m.end() + 1200)
+            window = html_text[start:end]
+            title_m = _TITLE_RE.search(window)
+            if not title_m:
+                title_m = _TITLE_RE_ALT.search(window)
+            name = ""
+            if title_m:
+                for g in title_m.groups():
+                    if g:
+                        name = html.unescape(g).strip()
+                        break
+            # Se ainda vazio, tenta extrair texto entre > e < próximo ao href
+            if not name:
+                # Último recurso: usa o próprio id como nome
+                name = kind_id
+            mod_m = _MODIFIED_RE.search(window)
             modified = mod_m.group(1).strip() if mod_m else ""
             entries.append(
                 DriveEntry(
-                    entry_id=kind_id or entry_id,
-                    name=name,
-                    is_folder=(kind == "drive/folders"),
+                    entry_id=kind_id,
+                    name=html.unescape(name).strip()[:200],
+                    is_folder=(kind.lower() == "drive/folders"),
                     modified=modified,
                     kind=kind,
                 )
             )
+
+        # Deduplica por entry_id (fallback pode repetir)
+        if entries:
+            deduped: Dict[str, DriveEntry] = {}
+            for e in entries:
+                if e.entry_id not in deduped:
+                    deduped[e.entry_id] = e
+            entries = list(deduped.values())
+
         return entries
 
     # ------------------------------------------------------------------ #

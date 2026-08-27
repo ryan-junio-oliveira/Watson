@@ -31,6 +31,10 @@ SUPPORTED_EXTS = {
 }
 
 STATE_FILE = "logs/.watch_state.json"
+STATE_VERSION = 2
+# Se o arquivo for muito grande, hasheamos apenas os primeiros N bytes + tamanho
+# para manter o poll leve; para arquivos pequenos o hash é completo.
+HASH_HEAD_BYTES = 1 * 1024 * 1024  # 1 MB
 
 
 def ensure_directories(cfg: Config) -> None:
@@ -39,13 +43,38 @@ def ensure_directories(cfg: Config) -> None:
     Path("logs").mkdir(parents=True, exist_ok=True)
 
 
-def snapshot(cfg: Config) -> Dict[str, Tuple[int, str]]:
-    """Gera um estado dos arquivos: {caminho_relativo: (tamanho, hash_mtime)}.
+def _file_content_hash(path: Path) -> str:
+    """Hash de conteúdo robusto — detecta mudanças mesmo com mtime preservado.
 
-    O hash usa size+mtime+nome (rápido, sem ler o conteúdo) para detectar
-    mudanças de forma leve a cada poll.
+    Para arquivos pequenos lê tudo; para arquivos grandes lê head 1MB + tail 1MB
+    + tamanho, equilibrando precisão e velocidade do poll.
     """
-    state: Dict[str, Tuple[int, str]] = {}
+    try:
+        size = path.stat().st_size
+        hasher = hashlib.sha256()
+        hasher.update(str(size).encode())
+        with open(path, "rb") as f:
+            if size <= HASH_HEAD_BYTES * 2:
+                for chunk in iter(lambda: f.read(65536), b""):
+                    hasher.update(chunk)
+            else:
+                head = f.read(HASH_HEAD_BYTES)
+                hasher.update(head)
+                f.seek(max(0, size - HASH_HEAD_BYTES))
+                tail = f.read(HASH_HEAD_BYTES)
+                hasher.update(tail)
+        return hasher.hexdigest()[:16]
+    except Exception:
+        return ""
+
+
+def snapshot(cfg: Config) -> Dict[str, Tuple[int, str, str]]:
+    """Gera um estado dos arquivos: {rel: (tamanho, mtime, content_hash)}.
+
+    O terceiro elemento é um hash de conteúdo (head+size) que detecta
+    alterações mesmo quando o mtime é preservado (ex.: cópia com --preserve).
+    """
+    state: Dict[str, Tuple[int, str, str]] = {}
     base = Path(cfg.documents_dir)
 
     if not base.exists():
@@ -57,13 +86,17 @@ def snapshot(cfg: Config) -> Dict[str, Tuple[int, str]]:
         if path.suffix.lower() not in SUPPORTED_EXTS:
             continue
         rel = str(path.relative_to(base)).replace("\\", "/")
-        stat = path.stat()
-        state[rel] = (stat.st_size, str(stat.st_mtime))
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        content_hash = _file_content_hash(path)
+        state[rel] = (stat.st_size, str(stat.st_mtime), content_hash)
 
     return state
 
 
-def load_state(cfg: Config) -> Dict[str, Tuple[int, str]]:
+def load_state(cfg: Config) -> Dict[str, Tuple[int, str, str]]:
     import json
 
     path = Path(STATE_FILE)
@@ -72,17 +105,32 @@ def load_state(cfg: Config) -> Dict[str, Tuple[int, str]]:
 
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-        # Formato: {"version": 1, "files": {rel: [size, mtime]}}
-        return {k: (int(v[0]), str(v[1])) for k, v in raw.get("files", {}).items()}
+        version = raw.get("version", 1)
+        files = raw.get("files", {})
+        out: Dict[str, Tuple[int, str, str]] = {}
+        for k, v in files.items():
+            if version == 1:
+                # Migração v1 -> v2: [size, mtime] => [size, mtime, ""]
+                out[k] = (int(v[0]), str(v[1]), "")
+            else:
+                # v2: [size, mtime, hash]
+                if len(v) >= 3:
+                    out[k] = (int(v[0]), str(v[1]), str(v[2]))
+                elif len(v) == 2:
+                    out[k] = (int(v[0]), str(v[1]), "")
+                else:
+                    continue
+        return out
     except Exception:
         return {}
 
 
-def save_state(cfg: Config, state: Dict[str, Tuple[int, str]]) -> None:
+def save_state(cfg: Config, state: Dict[str, Tuple[int, str, str]]) -> None:
     import json
 
     path = Path(STATE_FILE)
-    payload = {"version": 1, "files": {k: [s, m] for k, (s, m) in state.items()}}
+    payload = {"version": STATE_VERSION, "files": {k: [s, m, h] for k, (s, m, h) in state.items()}}
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
