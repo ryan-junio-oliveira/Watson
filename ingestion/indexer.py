@@ -79,8 +79,39 @@ class DocumentIndexer:
         )
         self.manifest = ManifestStore(self.manifest_path)
 
-        self.quality_gate = quality_gate or QualityGate()
-        self.deduplicator = deduplicator or Deduplicator()
+        # QualityGate por tipo — lê de config se não injetado (permite testes mockarem)
+        if quality_gate is not None:
+            self.quality_gate = quality_gate
+        else:
+            try:
+                from config import config as _cfg
+
+                self.quality_gate = QualityGate(
+                    min_chars=getattr(_cfg, "quality_min_chars", 20),
+                    min_chars_table=getattr(_cfg, "quality_min_chars_table", 10),
+                    min_chars_image=getattr(_cfg, "quality_min_chars_image", 30),
+                    table_min_pipes=getattr(_cfg, "quality_table_min_pipes", 4),
+                    ocr_conf_threshold=getattr(_cfg, "quality_ocr_threshold", 0.6),
+                )
+            except Exception:
+                self.quality_gate = QualityGate()
+
+        # Deduplicator — cross-doc persistido opcional via DEDUP_PERSIST_PATH
+        if deduplicator is not None:
+            self.deduplicator = deduplicator
+        else:
+            try:
+                from config import config as _cfg
+
+                if getattr(_cfg, "dedup_cross_doc", False):
+                    self.deduplicator = Deduplicator(
+                        persist_path=getattr(_cfg, "dedup_persist_path", "database/dedup.json"),
+                        cross_doc_persist=True,
+                    )
+                else:
+                    self.deduplicator = Deduplicator()
+            except Exception:
+                self.deduplicator = Deduplicator()
 
         self._pipeline: Optional[PipelineVersion] = None
 
@@ -305,6 +336,26 @@ class DocumentIndexer:
             "ocr_pages": sum(1 for p in doc.pages if p.ocr),
         }
 
+    def _collect_image_hashes(self, doc: LoadedDocument) -> Dict[str, str]:
+        """Hash de imagens para evitar re-Vision/re-OCR desnecessário."""
+        out: Dict[str, str] = {}
+        for img in getattr(doc, "images", []) or []:
+            try:
+                p = Path(getattr(img, "storage_path", "") or "")
+                if p.exists() and p.is_file():
+                    import hashlib
+
+                    h = hashlib.sha256()
+                    with open(p, "rb") as f:
+                        for chunk in iter(lambda: f.read(65536), b""):
+                            h.update(chunk)
+                    out[getattr(img, "image_id", str(p))] = h.hexdigest()[:16]
+                else:
+                    out[getattr(img, "image_id", "")] = ""
+            except Exception:
+                out[getattr(img, "image_id", "")] = ""
+        return out
+
     def _manifest_entry(self, doc: LoadedDocument, stats: Dict) -> Dict:
         return {
             "document_id": doc.document_id,
@@ -324,6 +375,7 @@ class DocumentIndexer:
             "chunks": stats["chunks_indexed"],
             "pages": stats["pages"],
             "ocr_pages": stats["ocr_pages"],
+            "image_hashes": self._collect_image_hashes(doc),
             "status": "completed",
             "error": None,
             "stats": stats,

@@ -126,15 +126,16 @@
     <!-- Status Sub-bar -->
     <div class="border-t border-slate-200/50 dark:border-white/10 bg-slate-50/50 dark:bg-slate-900/20 px-6 py-2">
       <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4 text-xs">
-        <div class="flex flex-wrap items-center gap-3">
-          <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 font-semibold">
+        <div class="flex flex-wrap items-center gap-3" id="healthBar">
+          <div id="healthOverall" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 font-semibold">
             <span class="status-dot"></span>
-            Online
+            <span id="healthOverallText">Online</span>
           </div>
           <span class="text-slate-400 dark:text-slate-500">|</span>
-          <span class="text-slate-500 dark:text-slate-400"><i class="fa-solid fa-microchip text-blue-500/70 mr-1"></i> RAG Engine</span>
-          <span class="text-slate-500 dark:text-slate-400"><i class="fa-solid fa-brain text-violet-500/70 mr-1"></i> LLM API</span>
-          <span class="text-slate-500 dark:text-slate-400"><i class="fa-solid fa-database text-cyan-500/70 mr-1"></i> Vector DB</span>
+          <span id="healthRag" class="text-slate-500 dark:text-slate-400"><i class="fa-solid fa-microchip text-blue-500/70 mr-1"></i> RAG Engine</span>
+          <span id="healthLlm" class="text-slate-500 dark:text-slate-400"><i class="fa-solid fa-brain text-violet-500/70 mr-1"></i> LLM API</span>
+          <span id="healthDb" class="text-slate-500 dark:text-slate-400"><i class="fa-solid fa-database text-cyan-500/70 mr-1"></i> Vector DB</span>
+          <span id="healthStale" class="hidden inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-[10px] font-bold" title="Documentos no manifest sem arquivo no disco"><i class="fa-solid fa-triangle-exclamation mr-1"></i> <span id="healthStaleText"></span> stale</span>
         </div>
 
         <div class="flex items-center gap-3 text-slate-400">
@@ -543,6 +544,55 @@
       applyTheme(isLight);
     }
 
+    async function loadHealth() {
+      try {
+        const r = await fetch('/api/health/ready');
+        const d = await r.json();
+        const overall = document.getElementById('healthOverall');
+        const overallText = document.getElementById('healthOverallText');
+        if (overall && overallText) {
+          const isOk = d.status === 'ok';
+          const isDegraded = d.status === 'degraded';
+          overall.className = isOk
+            ? 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 font-semibold'
+            : isDegraded
+            ? 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-600 dark:text-amber-400 font-semibold'
+            : 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-500/10 border border-rose-500/25 text-rose-600 dark:text-rose-400 font-semibold';
+          overallText.textContent = d.status === 'ok' ? 'Online' : d.status;
+        }
+        // Atualiza badges individuais com cor terminal-like: pergunta amarelo, status azul claro, resposta branco
+        const ragEl = document.getElementById('healthRag');
+        const llmEl = document.getElementById('healthLlm');
+        const dbEl = document.getElementById('healthDb');
+        const checks = d.checks || {};
+        const setBadge = (el, key) => {
+          if (!el) return;
+          const v = (checks[key] || '').toLowerCase();
+          const ok = v === 'ok' || v.startsWith('ok');
+          el.className = ok
+            ? 'text-emerald-600 dark:text-emerald-400'
+            : v.includes('unavailable') || v.includes('error') || v.includes('missing')
+            ? 'text-rose-600 dark:text-rose-400'
+            : 'text-amber-600 dark:text-amber-400';
+        };
+        setBadge(ragEl, 'manifest');
+        setBadge(llmEl, 'ollama');
+        setBadge(dbEl, 'vector_db_dir');
+        const staleEl = document.getElementById('healthStale');
+        const staleText = document.getElementById('healthStaleText');
+        if (staleEl && staleText) {
+          const n = d.stale || 0;
+          if (n > 0) {
+            staleText.textContent = n;
+            staleEl.classList.remove('hidden');
+            staleEl.title = n + ' documento(s) no manifest sem arquivo no disco — rode /api/index para limpar';
+          } else {
+            staleEl.classList.add('hidden');
+          }
+        }
+      } catch(e) { /* sem health ready, mantém Online */ }
+    }
+
     /* Refresh */
     function refresh() {
       const icon = document.getElementById('refreshIcon');
@@ -550,7 +600,7 @@
         icon.classList.add('animate-spin');
         setTimeout(() => { icon.classList.remove('animate-spin'); }, 500);
       }
-      Promise.all([loadKpis(), loadTokens(), loadRequests(), loadModels(), loadDocs(), loadLlm(), loadReqs(), loadIdx()])
+      Promise.all([loadKpis(), loadTokens(), loadRequests(), loadModels(), loadDocs(), loadLlm(), loadReqs(), loadIdx(), loadHealth()])
         .finally(() => {
           const el = document.getElementById('lastUpdated');
           if (el) el.textContent = 'Última atualização às ' + new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});

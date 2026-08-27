@@ -115,6 +115,27 @@ class Config:
     vision_model: str = field(
         default_factory=lambda: os.getenv("VISION_MODEL", "")
     )
+    dedup_cross_doc: bool = field(
+        default_factory=lambda: os.getenv("DEDUP_CROSS_DOC", "true").lower() == "true"
+    )
+    dedup_persist_path: str = field(
+        default_factory=lambda: os.getenv("DEDUP_PERSIST_PATH", "database/dedup.json")
+    )
+    quality_min_chars: int = field(
+        default_factory=lambda: int(os.getenv("QUALITY_MIN_CHARS", "20"))
+    )
+    quality_min_chars_table: int = field(
+        default_factory=lambda: int(os.getenv("QUALITY_MIN_CHARS_TABLE", "10"))
+    )
+    quality_min_chars_image: int = field(
+        default_factory=lambda: int(os.getenv("QUALITY_MIN_CHARS_IMAGE", "30"))
+    )
+    quality_table_min_pipes: int = field(
+        default_factory=lambda: int(os.getenv("QUALITY_TABLE_MIN_PIPES", "4"))
+    )
+    quality_ocr_threshold: float = field(
+        default_factory=lambda: float(os.getenv("QUALITY_OCR_THRESHOLD", "0.6"))
+    )
     log_level: str = field(
         default_factory=lambda: os.getenv("LOG_LEVEL", "INFO")
     )

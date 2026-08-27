@@ -137,6 +137,14 @@ class HealthResponse(BaseModel):
     ollama_model: str = Field(..., description="Modelo Ollama em uso")
 
 
+class ReadyResponse(BaseModel):
+    status: str = Field(..., description="ok | degraded | not_ready", examples=["ok"])
+    checks: Dict[str, str] = Field(..., description="Resultado por subsistema")
+    documents: int = Field(..., description="Documentos no manifest")
+    chunks: int = Field(..., description="Chunks indexados")
+    stale: int = Field(..., description="Documentos stale (no manifest mas não no disco)")
+
+
 class DriveItem(BaseModel):
     id: str = Field(..., description="ID da pasta ou arquivo no Google Drive")
     name: str = Field(..., description="Nome do item")
@@ -771,6 +779,92 @@ async def health():
 
 
 @app.get(
+    "/api/health/ready",
+    response_model=ReadyResponse,
+    tags=["Monitoramento"],
+    summary="Readiness probe (k8s/docker)",
+    response_description="Detalha subsistemas: vector_db, manifest, ollama, metrics",
+)
+async def ready():
+    global cfg, ollama_client, embedding_generator
+    checks: Dict[str, str] = {}
+    # vector_db dir
+    try:
+        p = Path(cfg.vector_db_dir)
+        checks["vector_db_dir"] = "ok" if p.exists() else "missing"
+    except Exception as e:
+        checks["vector_db_dir"] = f"error: {e}"
+
+    # chroma count
+    chroma_docs = 0
+    chroma_chunks = 0
+    try:
+        # Usa indexer manifest como fonte de verdade
+        from pathlib import Path as _P
+
+        manifest_path = str(_P(cfg.vector_db_dir) / "index_manifest.json")
+        from ingestion.manifest import ManifestStore
+
+        ms = ManifestStore(manifest_path)
+        entries = ms.entries()
+        chroma_docs = len(entries)
+        chroma_chunks = sum(int(e.get("chunks", 0) or 0) for e in entries)
+        checks["manifest"] = "ok" if chroma_docs >= 0 else "empty"
+        # stale: source não existe mais no disco
+        stale = 0
+        for e in entries:
+            src = e.get("source") or ""
+            if src and not Path(src).exists():
+                # Também checa se arquivo foi movido para drive dest que não existe
+                stale += 1
+        checks["stale_docs"] = str(stale)
+    except Exception as e:
+        checks["manifest"] = f"error: {e}"
+        stale = 0
+        chroma_chunks = 0
+        chroma_docs = 0
+
+    # ollama
+    try:
+        local_client = ollama_client or OllamaClient(
+            model=cfg.ollama_model, base_url=cfg.ollama_base_url, request_timeout=5
+        )
+        local_client.list_models()
+        checks["ollama"] = "ok"
+    except Exception as e:
+        checks["ollama"] = f"unavailable: {e}"
+
+    # metrics db
+    try:
+        from metrics.store import MetricsStore
+
+        ms2 = MetricsStore(db_path=cfg.metrics_db)
+        # simples query
+        ms2.summary()
+        checks["metrics_db"] = "ok"
+    except Exception as e:
+        checks["metrics_db"] = f"error: {e}"
+
+    # embeddings cache
+    try:
+        checks["embedding_cache"] = "ok" if Path(cfg.embedding_cache_path).parent.exists() else "missing_parent"
+    except Exception as e:
+        checks["embedding_cache"] = f"error: {e}"
+
+    # Overall
+    degraded = any(v.startswith("error") or v.startswith("unavailable") or v == "missing" for v in checks.values())
+    # stale >20 é warning mas não not_ready
+    status = "degraded" if degraded else "ok"
+    return ReadyResponse(
+        status=status,
+        checks=checks,
+        documents=chroma_docs,
+        chunks=chroma_chunks,
+        stale=stale if "stale" in locals() else 0,
+    )
+
+
+@app.get(
     "/api/models",
     response_model=ModelListResponse,
     tags=["Modelos"],
@@ -1324,6 +1418,8 @@ async def _run_index(
                 tesseract_cmd=cfg.tesseract_cmd,
                 image_dir=cfg.image_dir,
                 vision_model=cfg.vision_model,
+                vision_base_url=cfg.ollama_base_url,
+                ollama_base_url=cfg.ollama_base_url,
             )
             if on_progress:
                 on_progress(message="Carregando documentos...")

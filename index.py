@@ -67,6 +67,8 @@ def run_index(cfg: Config, logger, sync_drive: bool = True) -> int:
         tesseract_cmd=cfg.tesseract_cmd,
         image_dir=cfg.image_dir,
         vision_model=cfg.vision_model,
+        vision_base_url=cfg.ollama_base_url,
+        ollama_base_url=cfg.ollama_base_url,
     )
     logger.info(f"Scanning documents in: {cfg.documents_dir}")
     file_docs = loader.load(cfg.documents_dir)

@@ -58,6 +58,8 @@ class PdfAdapter(SourceAdapter):
         ocr_dpi: int = 300,
         tesseract_cmd: str = "",
         image_dir: str = "",
+        vision_model: str = "",
+        vision_base_url: str = "http://localhost:11434",
         logger: Optional[logging.Logger] = None,
     ):
         self.ocr_lang = ocr_lang
@@ -65,7 +67,19 @@ class PdfAdapter(SourceAdapter):
         self.ocr_dpi = ocr_dpi
         self.tesseract_cmd = tesseract_cmd
         self.image_dir = image_dir
+        self.vision_model = vision_model
+        self.vision_base_url = vision_base_url
         self.logger = logger
+        self._vision_analyzer = None
+        if self.vision_model:
+            try:
+                from ingestion.adapters.vision import VisionAnalyzer
+
+                self._vision_analyzer = VisionAnalyzer(
+                    model=self.vision_model, base_url=self.vision_base_url, logger=logger
+                )
+            except Exception:
+                self._vision_analyzer = None
         configure_tesseract(tesseract_cmd)
 
     def extract(self, filepath: Path) -> LoadedDocument:
@@ -143,20 +157,62 @@ class PdfAdapter(SourceAdapter):
         return ratio < 0.4
 
     def _ocr_page(self, pdf: Any, page_index: int) -> str:
+        text = ""
+        image_bytes_for_vision = None
         try:
             from io import BytesIO
+            import hashlib
 
             pix = pdf[page_index].get_pixmap(dpi=self.ocr_dpi)
-            image = PILImage.open(BytesIO(pix.pil_tobytes("PNG")))
+            image_bytes_for_vision = pix.pil_tobytes("PNG")
+            image = PILImage.open(BytesIO(image_bytes_for_vision))
             text = pytesseract.image_to_string(image, lang=self.ocr_lang)
             text = text.strip()
             self._log_info(
                 f"OCR page {page_index + 1}: {len(text)} chars extracted"
             )
-            return text
         except Exception as e:  # pragma: no cover
             self._log_error(f"OCR failed for page {page_index + 1}: {e}")
-            return ""
+            text = ""
+
+        # Fallback vision se OCR ainda curto e modelo de visão disponível
+        if len(text.strip()) < self.min_text_chars and self._vision_analyzer and self._vision_analyzer.available:
+            try:
+                import tempfile
+
+                # Hash da imagem para manifest (evitar re-Vision)
+                img_hash = ""
+                if image_bytes_for_vision:
+                    import hashlib as _hl
+
+                    img_hash = _hl.sha256(image_bytes_for_vision).hexdigest()[:16]
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                    tmp.write(image_bytes_for_vision or b"")
+                    tmp_path = tmp.name
+                try:
+                    vision_result = self._vision_analyzer.analyze(tmp_path)
+                    if vision_result and vision_result.get("description"):
+                        desc = vision_result["description"].strip()
+                        cat = vision_result.get("category", "")
+                        vision_text = f"[Visão:{cat}] {desc}" if cat else desc
+                        # Combina OCR + visão para não perder nada
+                        if text:
+                            text = f"{text}\n\n{vision_text}"
+                        else:
+                            text = vision_text
+                        self._log_info(
+                            f"Vision fallback page {page_index + 1}: {cat} - {len(desc)} chars"
+                        )
+                finally:
+                    try:
+                        import os
+
+                        os.unlink(tmp_path)
+                    except Exception:
+                        pass
+            except Exception as e:
+                self._log_warning(f"Vision fallback failed for page {page_index + 1}: {e}")
+        return text
 
     def _log_info(self, message: str) -> None:
         if self.logger:

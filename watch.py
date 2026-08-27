@@ -155,6 +155,8 @@ def run_once(cfg: Config, logger) -> int:
         tesseract_cmd=cfg.tesseract_cmd,
         image_dir=cfg.image_dir,
         vision_model=cfg.vision_model,
+        vision_base_url=cfg.ollama_base_url,
+        ollama_base_url=cfg.ollama_base_url,
     )
     splitter = DocumentSplitter(
         chunk_size=cfg.chunk_size,
@@ -179,6 +181,11 @@ def run_once(cfg: Config, logger) -> int:
         logger.info("All documents up to date, nothing to index")
         return 0
 
+    if len(stale_set) > 20:
+        logger.warning(
+            f"Stale elevado: {len(stale_set)} documentos no manifest sem arquivo no disco — verifique remoções em massa"
+        )
+        print(f"[watch] ALERTA: {len(stale_set)} stale — verifique Drive/documentos removidos")
     logger.info(
         f"Pending: {len(pending_list)} new/changed, {len(stale_set)} to remove"
     )

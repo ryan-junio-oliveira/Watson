@@ -58,6 +58,7 @@ database/test_images/
 logs/.watch_state.json
 # Jobs de indexação persistidos
 database/index_jobs.json
+database/dedup.json
 
 # Binários de terceiros (Tesseract - instalar via libs/)
 libs/
