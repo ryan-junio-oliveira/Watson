@@ -1,9 +1,37 @@
 import logging
+import os
 import re
 import sys
 import threading
 import time
 from typing import Generator, List, Optional
+
+# Cores ANSI para terminal — diferencia pergunta/resposta/status à primeira vista
+ANSI_RESET = "\033[0m"
+ANSI_BOLD = "\033[1m"
+ANSI_DIM = "\033[2m"
+ANSI_RED = "\033[91m"
+ANSI_GREEN = "\033[92m"
+ANSI_YELLOW = "\033[93m"
+ANSI_BLUE = "\033[94m"
+ANSI_MAGENTA = "\033[95m"
+ANSI_CYAN = "\033[96m"
+ANSI_WHITE = "\033[97m"
+
+
+def _enable_ansi_on_windows() -> None:
+    if os.name == "nt":
+        try:
+            os.system("color")
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.GetStdHandle(-11)
+            mode = ctypes.c_ulong()
+            kernel32.GetConsoleMode(handle, ctypes.byref(mode))
+            kernel32.SetConsoleMode(handle, mode.value | 0x0004)
+        except Exception:
+            pass
 
 from langchain_core.documents import Document
 
@@ -178,11 +206,8 @@ class ChatBot:
         return False
 
     def _greeting_response(self, start: float) -> AgentResponse:
-        """Resposta determinística para saudação — sem RAG, sem LLM, mas com carisma."""
+        """Resposta determinística para saudação — sem RAG, sem LLM."""
         answer = self._greeting()
-        # Toque final carismático — convite leve, sem repetir se já houver pergunta
-        if "O que" not in answer and "No que" not in answer:
-            answer = f"{answer} Como posso ajudar com seus documentos hoje?"
         return AgentResponse(
             answer=answer,
             evidences=[],
@@ -798,34 +823,40 @@ class ChatBot:
         return f"Olá, {periodo}! Sou o {self.agent_name}. Como posso ajudar hoje?"
 
     def chat_loop(self) -> None:
-        print("\n=== Watson RAG ===")
-        print(self._greeting())
-        print("Digite 'exit' ou 'quit' para sair.\n")
+        _enable_ansi_on_windows()
+        print(f"\n{ANSI_CYAN}{ANSI_BOLD}=== Watson RAG ==={ANSI_RESET}")
+        print(f"{ANSI_GREEN}{self._greeting()}{ANSI_RESET}")
+        print(f"{ANSI_DIM}Digite 'exit' ou 'quit' para sair.{ANSI_RESET}\n")
 
         last_question: Optional[str] = None
         last_result: Optional[AgentResponse] = None
 
         while True:
             try:
-                question = input("\n> ").strip()
+                # Prompt da pergunta em ciano/negrito — fácil de bater o olho
+                question = input(f"{ANSI_CYAN}{ANSI_BOLD}> {ANSI_RESET}").strip()
+                # Ecoa a pergunta em ciano para diferenciar do resto
+                if question:
+                    # Move cursor para cima e reimprime com cor (opcional, mas mantém histórico visível)
+                    pass
             except (EOFError, KeyboardInterrupt):
-                print("\nEncerrando...")
+                print(f"\n{ANSI_DIM}Encerrando...{ANSI_RESET}")
                 break
 
             if not question:
                 continue
 
             if question.lower() in ("exit", "quit", "sair", "encerrar", "parar"):
-                print("Encerrando...")
+                print(f"{ANSI_DIM}Encerrando...{ANSI_RESET}")
                 break
 
             if question.lower() in ("aprofundar", "analisar", "aprofundar análise"):
                 if last_result is not None and last_question:
-                    print("\n[Analisando a resposta anterior...]", flush=True)
+                    print(f"\n{ANSI_YELLOW}[Analisando a resposta anterior...]{ANSI_RESET}", flush=True)
                     result = self._run_analyst(last_question, last_result)
-                    print(self._format_analyst(result))
+                    print(f"{ANSI_MAGENTA}{self._format_analyst(result)}{ANSI_RESET}")
                 else:
-                    print("\nNenhuma resposta anterior para aprofundar.")
+                    print(f"\n{ANSI_YELLOW}Nenhuma resposta anterior para aprofundar.{ANSI_RESET}")
                 continue
 
             last_question = question
@@ -848,32 +879,37 @@ class ChatBot:
                         if not started:
                             stop_status.set()
                             started = True
-                            # Limpa a linha do status ANTES do primeiro token,
-                            # evitando sobrar "Watson está analisando..." na tela.
+                            # Limpa a linha do status ANTES do primeiro token
                             sys.stdout.write("\r\033[K")
                             sys.stdout.flush()
-                        print(token, end="", flush=True)
+                            # Inicia cor da resposta (branco brilhante/verde)
+                            sys.stdout.write(ANSI_WHITE + ANSI_BOLD)
+                            sys.stdout.flush()
+                        # Resposta em branco/brilhante — bem distinta da pergunta (ciano) e status (amarelo)
+                        sys.stdout.write(token)
+                        sys.stdout.flush()
                         tokens.append(token)
                 except StopIteration as e:
                     result = e.value
+                # Reseta cor e garante quebra de linha
+                sys.stdout.write(ANSI_RESET + "\n")
+                sys.stdout.flush()
                 stop_status.set()
-                print()
 
                 if result:
                     last_result = result
-                    # A resposta já foi exibida no stream — mostramos apenas as
-                    # fontes e a análise proativa, sem repetir o texto.
+                    # Fontes em tom dim — secundário
                     if result.sources:
-                        print("\nSources")
-                        print("-------")
+                        print(f"\n{ANSI_DIM}{ANSI_BOLD}Sources{ANSI_RESET}")
+                        print(f"{ANSI_DIM}-------{ANSI_RESET}")
                         for s in result.sources:
                             label = s.title or s.url
-                            print(f"  • {label}")
+                            print(f"{ANSI_DIM}  • {label}{ANSI_RESET}")
                     if result.follow_up:
-                        print("\nPerguntas para aprofundar:")
+                        print(f"\n{ANSI_MAGENTA}{ANSI_BOLD}Perguntas para aprofundar:{ANSI_RESET}")
                         for i, q in enumerate(result.follow_up, 1):
-                            print(f"  {i}. {q}")
-                        print("  (digite 'aprofundar' para mais conclusões/busca)")
+                            print(f"{ANSI_MAGENTA}  {i}. {q}{ANSI_RESET}")
+                        print(f"{ANSI_DIM}  (digite 'aprofundar' para mais conclusões/busca){ANSI_RESET}")
 
                 if self.logger:
                     self.logger.info(
@@ -881,8 +917,9 @@ class ChatBot:
                     )
             except Exception as e:
                 stop_status.set()
+                sys.stdout.write(ANSI_RESET)
                 error_msg = f"Erro ao processar pergunta: {e}"
-                print(f"\n{error_msg}")
+                print(f"\n{ANSI_RED}{error_msg}{ANSI_RESET}")
                 if self.logger:
                     self.logger.error(error_msg)
 
@@ -894,19 +931,18 @@ class ChatBot:
     )
 
     def _status_loop(self, stop_event: threading.Event) -> None:
-        """Exibe mensagens de status rotativas enquanto a IA gera a resposta,
-        mantendo o terminal limpo (sem logs)."""
+        """Exibe mensagens de status rotativas (amarelo) enquanto a IA gera a resposta."""
         msgs = [m.format(agent=self.agent_name) for m in self._STATUS_MESSAGES]
         i = 0
         try:
             while True:
                 if stop_event.is_set():
                     break
-                sys.stdout.write(f"\r{msgs[i % len(msgs)]}   ")
+                sys.stdout.write(f"\r{ANSI_YELLOW}{ANSI_DIM}{msgs[i % len(msgs)]}   {ANSI_RESET}")
                 sys.stdout.flush()
                 if stop_event.wait(2.5):
                     break
                 i += 1
         finally:
-            sys.stdout.write("\r\033[K")
+            sys.stdout.write("\r\033[K" + ANSI_RESET)
             sys.stdout.flush()
