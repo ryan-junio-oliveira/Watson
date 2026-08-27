@@ -159,6 +159,23 @@ class PdfAdapter(SourceAdapter):
     def _ocr_page(self, pdf: Any, page_index: int) -> str:
         text = ""
         image_bytes_for_vision = None
+        # Filtra idioma para só .traineddata existentes (por+eng -> por se eng não existe no Windows)
+        try:
+            from ingestion.adapters.ocr import _filter_available_langs
+            from pathlib import Path as _P
+
+            _tessdata = None
+            try:
+                import pytesseract as _pt
+
+                _cmd = getattr(_pt.pytesseract, "tesseract_cmd", "")
+                if _cmd:
+                    _tessdata = _P(_cmd).parent / "tessdata"
+            except Exception:
+                pass
+            ocr_lang_eff = _filter_available_langs(self.ocr_lang, _tessdata) if _tessdata else self.ocr_lang
+        except Exception:
+            ocr_lang_eff = self.ocr_lang
         try:
             from io import BytesIO
             import hashlib
@@ -166,10 +183,10 @@ class PdfAdapter(SourceAdapter):
             pix = pdf[page_index].get_pixmap(dpi=self.ocr_dpi)
             image_bytes_for_vision = pix.pil_tobytes("PNG")
             image = PILImage.open(BytesIO(image_bytes_for_vision))
-            text = pytesseract.image_to_string(image, lang=self.ocr_lang)
+            text = pytesseract.image_to_string(image, lang=ocr_lang_eff)
             text = text.strip()
             self._log_info(
-                f"OCR page {page_index + 1}: {len(text)} chars extracted"
+                f"OCR page {page_index + 1}: {len(text)} chars extracted (lang={ocr_lang_eff})"
             )
         except Exception as e:  # pragma: no cover
             self._log_error(f"OCR failed for page {page_index + 1}: {e}")

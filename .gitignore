@@ -60,8 +60,10 @@ logs/.watch_state.json
 database/index_jobs.json
 database/dedup.json
 
-# Binários de terceiros (Tesseract - instalar via libs/)
-libs/
+# Binários de terceiros (Tesseract embarcado - Windows)
+libs/*
+!libs/tesseract/
+!libs/tesseract/**
 
 # OS
 .DS_Store

@@ -47,12 +47,25 @@ class ImageAdapter(SourceAdapter):
         width, height = image.size
         image_format = image.format or "unknown"
 
+        # Filtra idioma para tessdata disponível (HyperViewer só tem por)
+        try:
+            from ingestion.adapters.ocr import _filter_available_langs
+            from pathlib import Path as _P
+            import pytesseract as _pt
+
+            _tessdata = None
+            _cmd = getattr(_pt.pytesseract, "tesseract_cmd", "")
+            if _cmd:
+                _tessdata = _P(_cmd).parent / "tessdata"
+            ocr_lang_eff = _filter_available_langs(self.ocr_lang, _tessdata) if _tessdata else self.ocr_lang
+        except Exception:
+            ocr_lang_eff = self.ocr_lang
         text = ""
         try:
-            text = pytesseract.image_to_string(image, lang=self.ocr_lang).strip()
+            text = pytesseract.image_to_string(image, lang=ocr_lang_eff).strip()
         except Exception as e:
             if self.logger:
-                self.logger.warning(f"Image OCR failed for '{filepath.name}': {e}")
+                self.logger.warning(f"Image OCR failed for '{filepath.name}': {e} (lang={ocr_lang_eff})")
 
         vision = self.vision.analyze(str(filepath))
         kind = self._classify(width, height, text, vision)

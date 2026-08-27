@@ -80,11 +80,33 @@ def resolve_tesseract_cmd(tesseract_dir: str = "") -> str:
     return ""
 
 
+def _filter_available_langs(lang: str, tessdata_dir: Path | None) -> str:
+    """Filtra OCR_LANG para só idiomas com .traineddata disponível."""
+    if not lang or not tessdata_dir or not tessdata_dir.is_dir():
+        return lang
+    parts = [p.strip() for p in lang.replace(" ", "+").split("+") if p.strip()]
+    available = []
+    for p in parts:
+        # por+eng -> por.traineddata, eng.traineddata
+        if (tessdata_dir / f"{p}.traineddata").exists():
+            available.append(p)
+    return "+".join(available) if available else lang
+
+
 def configure_tesseract(tesseract_dir: str = "") -> str:
     """Configura o Tesseract no pytesseract e retorna o caminho usado."""
     resolved = resolve_tesseract_cmd(tesseract_dir)
     if resolved:
         pytesseract.pytesseract.tesseract_cmd = resolved
+        # Garante TESSDATA_PREFIX para o exe embarcado (Windows)
+        try:
+            tessdata = Path(resolved).parent / "tessdata"
+            if tessdata.is_dir():
+                os.environ["TESSDATA_PREFIX"] = str(Path(resolved).parent)
+                # Filtra idioma se eng não estiver disponível (HyperViewer só tem por)
+                # O pytesseract usa OCR_LANG passado em image_to_string, mas deixamos env consistente
+        except Exception:
+            pass
     return resolved
 
 
