@@ -833,14 +833,20 @@ class ChatBot:
 
         while True:
             try:
-                # Prompt da pergunta em ciano/negrito — fácil de bater o olho
-                question = input(f"{ANSI_CYAN}{ANSI_BOLD}> {ANSI_RESET}").strip()
-                # Ecoa a pergunta em ciano para diferenciar do resto
+                # Prompt e texto digitado em ciano/negrito — bem distinto de resposta (branco) e status (amarelo)
+                sys.stdout.write(f"{ANSI_CYAN}{ANSI_BOLD}> {ANSI_CYAN}")
+                sys.stdout.flush()
+                question = input().strip()
+                sys.stdout.write(ANSI_RESET)
+                sys.stdout.flush()
+                # Reimprime a pergunta com cor para garantir histórico colorido mesmo em terminais que não herdaram a cor da digitação
                 if question:
-                    # Move cursor para cima e reimprime com cor (opcional, mas mantém histórico visível)
-                    pass
+                    # Volta uma linha e reescreve com cor (não duplica, só recolore)
+                    sys.stdout.write(f"\033[F\033[2K{ANSI_CYAN}{ANSI_BOLD}> {question}{ANSI_RESET}\n")
+                    sys.stdout.flush()
             except (EOFError, KeyboardInterrupt):
-                print(f"\n{ANSI_DIM}Encerrando...{ANSI_RESET}")
+                sys.stdout.write(ANSI_RESET + "\n")
+                print(f"{ANSI_DIM}Encerrando...{ANSI_RESET}")
                 break
 
             if not question:
