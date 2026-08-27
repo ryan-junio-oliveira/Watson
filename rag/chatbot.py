@@ -859,8 +859,10 @@ class ChatBot:
         last_question: Optional[str] = None
         last_result: Optional[AgentResponse] = None
         analyze_mode = False  # espelha API analyze=true — quando ligado, toda pergunta já vem com análise proativa
+        history: List[dict] = []  # memória de conversa (como ChatGPT/Gemini/Claude)
 
-        print(f"{ANSI_DIM}Dicas: 'analisar on/off' para modo análise automática, 'analisar: sua pergunta' para análise única, 'aprofundar' para re-analisar a última.{ANSI_RESET}\n")
+        print(f"{ANSI_DIM}Dicas: 'analisar on/off' para modo análise automática, 'analisar: sua pergunta' para análise única, "
+              f"'aprofundar' para re-analisar a última, 'esquecer' para limpar a memória da conversa.{ANSI_RESET}\n")
 
         while True:
             try:
@@ -918,6 +920,12 @@ class ChatBot:
                     print(f"{ANSI_DIM}(Analista desabilitado — ative ENABLE_ANALYST=true e reinicie){ANSI_RESET}")
                 continue
 
+            # Limpar memória de conversa
+            if qlow in ("esquecer", "limpar contexto", "limpar memória", "limpar memoria", "novo contexto", "novo"):
+                history.clear()
+                print(f"{ANSI_DIM}Memória da conversa limpa. Novas perguntas não usarão contexto anterior.{ANSI_RESET}")
+                continue
+
             if qlow in ("aprofundar", "aprofundar análise"):
                 if last_result is not None and last_question:
                     print(f"\n{ANSI_YELLOW}[Analisando a resposta anterior...]{ANSI_RESET}", flush=True)
@@ -942,7 +950,14 @@ class ChatBot:
 
             try:
                 print()
-                gen = self.ask_stream(question, analyze=should_analyze)
+                # Memória de conversa: envia últimas 8 mensagens como contexto (como ChatGPT/Gemini/Claude)
+                history_context = "\n".join(
+                    f"{m['role']}: {m['content']}" for m in history[-8:]
+                )
+                # Não passa analyze para o stream aqui — análise roda depois com status próprio
+                gen = self.ask_stream_with_history(
+                    question, history_context
+                ) if history_context else self.ask_stream(question)
                 tokens: List[str] = []
                 started = False
                 try:
@@ -977,6 +992,24 @@ class ChatBot:
                     pass
 
                 if result:
+                    # Fase de análise (se pedida) — com feedback visual para não parecer travado
+                    if should_analyze and self.analyst is not None:
+                        an_status = threading.Event()
+                        an_thread = threading.Thread(
+                            target=self._analyst_status_loop, args=(an_status,), daemon=True
+                        )
+                        an_thread.start()
+                        try:
+                            result = self._run_analyst(question, result)
+                        finally:
+                            an_status.set()
+                            try:
+                                an_thread.join(timeout=0.3)
+                            except Exception:
+                                pass
+                            sys.stdout.write("\r\033[K" + ANSI_RESET)
+                            sys.stdout.flush()
+
                     last_result = result
                     if result.sources:
                         print(f"\n{ANSI_DIM}{ANSI_BOLD}Sources{ANSI_RESET}")
@@ -992,6 +1025,12 @@ class ChatBot:
                         for i, q in enumerate(result.follow_up, 1):
                             print(f"{ANSI_MAGENTA}  {i}. {q}{ANSI_RESET}")
                         print(f"{ANSI_DIM}  (digite 'aprofundar' para mais conclusões/busca){ANSI_RESET}")
+
+                    # Guarda na memória da conversa
+                    history.append({"role": "user", "content": question})
+                    history.append({"role": "assistant", "content": result.answer})
+                    if len(history) > 24:  # cap para não estourar contexto
+                        history = history[-24:]
 
                 if self.logger:
                     self.logger.info(
@@ -1023,6 +1062,27 @@ class ChatBot:
                 sys.stdout.write(f"\r{ANSI_CYAN}{msgs[i % len(msgs)]}   {ANSI_RESET}")
                 sys.stdout.flush()
                 if stop_event.wait(2.5):
+                    break
+                i += 1
+        finally:
+            sys.stdout.write("\r\033[K" + ANSI_RESET)
+            sys.stdout.flush()
+
+    def _analyst_status_loop(self, stop_event: threading.Event) -> None:
+        """Status da fase de análise proativa (evita parecer travado durante 2-3 chamadas ao LLM)."""
+        msgs = [
+            f"{self.agent_name} está aprofundando a análise...",
+            f"{self.agent_name} está refletindo sobre a resposta...",
+            f"{self.agent_name} está buscando informação adicional...",
+        ]
+        i = 0
+        try:
+            while True:
+                if stop_event.is_set():
+                    break
+                sys.stdout.write(f"\r{ANSI_CYAN}{msgs[i % len(msgs)]}   {ANSI_RESET}")
+                sys.stdout.flush()
+                if stop_event.wait(1.8):
                     break
                 i += 1
         finally:
