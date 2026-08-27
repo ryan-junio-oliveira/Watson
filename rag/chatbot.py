@@ -475,6 +475,46 @@ class ChatBot:
             execution_time=elapsed,
         )
 
+    def _deepen_answer(
+        self, question: str, resp: AgentResponse, focus: str = ""
+    ) -> str:
+        """Gera um detalhamento mais profundo da resposta, baseado nas evidências.
+
+        Usado por 'aprofundar: <foco>' — expande a narrativa sem inventar:
+        se a evidência for insuficiente para o foco, o modelo diz o que falta.
+        """
+        evidence_text = "\n\n".join(
+            f"[{e.title or e.source}]\n{e.content}"
+            for e in (resp.evidences or [])[:8]
+        )
+        if not evidence_text:
+            evidence_text = "(sem evidências disponíveis)"
+        focus_line = f"FOCO DO DETALHAMENTO: {focus}" if focus else ""
+        prompt = (
+            "Você é o Watson, um analista sênior.\n"
+            f"Pergunta original: {question}\n"
+            f"Resposta anterior (resumida):\n{resp.answer}\n\n"
+            "Agora produza uma versão MUITO MAIS DETALHADA dessa resposta, "
+            "explorando cada aspecto com mais profundidade. IMPORTANTE:\n"
+            "- NÃO invente fatos, números ou nomes que não estejam nas evidências.\n"
+            "- Se a evidência não tiver informação para aprofundar o foco, diga explicitamente o que falta.\n"
+            f"- {focus_line}\n\n"
+            "Evidências disponíveis:\n"
+            f"{evidence_text}\n\n"
+            "Detalhamento:"
+        )
+        try:
+            detailed = self.ollama_client.ask(
+                prompt,
+                temperature=0.3,
+                max_tokens=getattr(self.reasoning_engine, "reasoning_max_tokens", 3072),
+            )
+            return self.ollama_client._strip_thinking(detailed).strip()
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Deepen failed: {e}")
+            return ""
+
     def _run_analyst(self, question: str, resp: AgentResponse) -> AgentResponse:
         """Aplica a análise proativa (sob demanda) sobre a resposta gerada."""
         if self.analyst is None:
@@ -545,7 +585,10 @@ class ChatBot:
                             is_image_question = True
                             content_overlap = True
                     thr = self.retriever.similarity_threshold if self.retriever.similarity_threshold is not None else 0.25
-                    if max_score < thr and is_image_only and not is_image_question:
+                    if is_image_question:
+                        # Pergunta sobre imagem: mantém SÓ imagens, descarta PDFs/texto irrelevantes
+                        evidence = [e for e in evidence if e.metadata.get("source_type", "") == "image"]
+                    elif max_score < thr and is_image_only and not is_image_question:
                         if self.logger:
                             self.logger.info(f"Evidence filtered: image-only low relevance (max={max_score:.2f} < {thr}) for non-image question")
                         evidence = []
@@ -870,14 +913,14 @@ class ChatBot:
         print(f"{ANSI_DIM}  • {ANSI_YELLOW}imagem:{ANSI_RESET}{ANSI_DIM}    o que tem nessa imagem?{ANSI_RESET}")
         print(f"{ANSI_DIM}  • {ANSI_YELLOW}passos:{ANSI_RESET}{ANSI_DIM}    como trocar o toner passo a passo?{ANSI_RESET}")
         print()
-        print(f"{ANSI_DIM}{ANSI_BOLD}Comandos (comando: valor) → o que faz:{ANSI_RESET}")
-        print(f"{ANSI_DIM}  • {ANSI_YELLOW}analisar: on{ANSI_RESET}{ANSI_DIM}        → liga a análise automática em toda pergunta{ANSI_RESET}")
-        print(f"{ANSI_DIM}  • {ANSI_YELLOW}analisar: off{ANSI_RESET}{ANSI_DIM}       → desliga a análise automática{ANSI_RESET}")
-        print(f"{ANSI_DIM}  • {ANSI_YELLOW}analisar: <pergunta>{ANSI_RESET}{ANSI_DIM} → análise só nessa pergunta{ANSI_RESET}")
+        print(f"{ANSI_DIM}{ANSI_BOLD}Comandos (comando: valor) -> o que faz:{ANSI_RESET}")
+        print(f"{ANSI_DIM}  • {ANSI_YELLOW}analisar: on{ANSI_RESET}{ANSI_DIM}       -> liga a análise automática em toda pergunta{ANSI_RESET}")
+        print(f"{ANSI_DIM}  • {ANSI_YELLOW}analisar: off{ANSI_RESET}{ANSI_DIM}       -> desliga a análise automática{ANSI_RESET}")
+        print(f"{ANSI_DIM}  • {ANSI_YELLOW}analisar: <pergunta>{ANSI_RESET}{ANSI_DIM} -> análise só nessa pergunta{ANSI_RESET}")
         print(f"{ANSI_DIM}      ex: {ANSI_YELLOW}analisar: como pagar a moto em 6 meses?{ANSI_RESET}")
-        print(f"{ANSI_DIM}  • {ANSI_YELLOW}aprofundar:{ANSI_RESET}{ANSI_DIM}       → re-analisa a última resposta{ANSI_RESET}")
-        print(f"{ANSI_DIM}  • {ANSI_YELLOW}esquecer:{ANSI_RESET}{ANSI_DIM}         → limpa a memória da conversa{ANSI_RESET}")
-        print(f"{ANSI_DIM}  • {ANSI_YELLOW}exit:{ANSI_RESET}{ANSI_DIM}             → sai do chat{ANSI_RESET}")
+        print(f"{ANSI_DIM}  • {ANSI_YELLOW}aprofundar:{ANSI_RESET}{ANSI_DIM}       -> re-analisa a última resposta{ANSI_RESET}")
+        print(f"{ANSI_DIM}  • {ANSI_YELLOW}esquecer:{ANSI_RESET}{ANSI_DIM}        -> limpa a memória da conversa{ANSI_RESET}")
+        print(f"{ANSI_DIM}  • {ANSI_YELLOW}exit:{ANSI_RESET}{ANSI_DIM}            -> sai do chat{ANSI_RESET}")
         print()
 
         while True:
@@ -942,13 +985,25 @@ class ChatBot:
                 print(f"{ANSI_DIM}Memória da conversa limpa. Novas perguntas não usarão contexto anterior.{ANSI_RESET}")
                 continue
 
-            if qlow in ("aprofundar", "aprofundar análise"):
+            if qlow in ("aprofundar", "aprofundar análise") or qlow.startswith("aprofundar:"):
+                # Extrai foco: 'aprofundar: detalhe' -> foco='detalhe'
+                focus = ""
+                if ":" in qlow:
+                    focus = question.split(":", 1)[1].strip()
+                elif qlow.startswith("aprofundar ") and qlow != "aprofundar análise":
+                    focus = question.split(" ", 1)[1].strip()
                 if last_result is not None and last_question:
-                    print(f"\n{ANSI_YELLOW}[Analisando a resposta anterior...]{ANSI_RESET}", flush=True)
+                    # 1) Detalhamento narrativo (LLM + evidências) — resposta mais profunda
+                    print(f"\n{ANSI_YELLOW}[Aprofundando...]{ANSI_RESET}", flush=True)
+                    detailed = self._deepen_answer(last_question, last_result, focus)
+                    if detailed:
+                        print(f"\n{ANSI_WHITE}{ANSI_BOLD}Detalhamento:{ANSI_RESET}")
+                        print(f"{ANSI_WHITE}{detailed}{ANSI_RESET}")
+                    # 2) Análise proativa (conclusões/perguntas/informação adicional)
                     result = self._run_analyst(last_question, last_result)
                     print(f"{ANSI_MAGENTA}{self._format_analyst(result)}{ANSI_RESET}")
                 else:
-                    print(f"\n{ANSI_YELLOW}Nenhuma resposta anterior para aprofundar.{ANSI_RESET}")
+                    print(f"\n{ANSI_YELLOW}Nenhuma resposta anterior para aprofundar. Faça uma pergunta primeiro.{ANSI_RESET}")
                 continue
 
             last_question = question
