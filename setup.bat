@@ -12,22 +12,30 @@ setlocal enabledelayedexpansion
 set "VENV_DIR=.venv"
 set "PYTHON_EXE=%VENV_DIR%\Scripts\python.exe"
 
-:: Verifica se o Python existe no sistema
+:: Verifica se o Python existe no sistema (tenta python e py)
 where python >nul 2>nul
 if errorlevel 1 (
-    echo [ERRO] Python nao encontrado no PATH. Instale o Python 3 e marque "Add to PATH".
-    if not "%~1"=="silent" pause
-    exit /b 1
+    where py >nul 2>nul
+    if errorlevel 1 (
+        echo [ERRO] Python nao encontrado no PATH. Instale o Python 3 e marque "Add to PATH".
+        echo       Tente: winget install Python.Python.3.11
+        if not "%~1"=="silent" pause
+        endlocal & exit /b 1
+    )
 )
+:: Define comando Python para venv (python ou py)
+set "PYTHON_CMD=python"
+where python >nul 2>nul
+if errorlevel 1 set "PYTHON_CMD=py"
 
 :: 1. Criar venv se nao existir
 if not exist "%PYTHON_EXE%" (
     echo [1/4] Criando venv em %VENV_DIR%...
-    python -m venv "%VENV_DIR%"
+    %PYTHON_CMD% -m venv "%VENV_DIR%"
     if errorlevel 1 (
         echo [ERRO] Falha ao criar venv. Verifique a instalacao do Python.
         if not "%~1"=="silent" pause
-        exit /b 1
+        endlocal & exit /b 1
     )
 ) else (
     echo [1/4] Venv ja existe em %VENV_DIR%.
@@ -46,7 +54,7 @@ echo [3/4] Instalando dependencias (requirements.txt)...
 if errorlevel 1 (
     echo [ERRO] Falha ao instalar dependencias.
     if not "%~1"=="silent" pause
-    exit /b 1
+    endlocal & exit /b 1
 )
 
 :: 4. Garantir .env
@@ -139,7 +147,7 @@ if errorlevel 1 (
 if errorlevel 1 (
     echo [ERRO] python-dotenv nao instalado no venv.
     if not "%~1"=="silent" pause
-    exit /b 1
+    endlocal & exit /b 1
 )
 
 :: Reseta errorlevel para sucesso (avisos de Ollama nao devem falhar o setup)
@@ -152,4 +160,5 @@ echo   Modelos Ollama: gemma3:4b + qwen2.5vl (verificados)
 echo   Para ativar manualmente:  %VENV_DIR%\Scripts\activate
 echo.
 if not "%~1"=="silent" pause
-endlocal & exit /b 0
+endlocal
+exit /b 0

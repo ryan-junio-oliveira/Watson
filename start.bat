@@ -4,13 +4,15 @@ setlocal enabledelayedexpansion
 title Watson RAG
 
 :: Chamar setup automatico (sem pausa) para garantir venv + dependencias
+:: Loga saida do setup para diagnostico se falhar
 call "%~dp0setup.bat" silent
 if errorlevel 1 (
     echo.
     echo [ERRO] O setup falhou. Veja as mensagens acima.
-    echo Para resolver, rode:  "%~dp0setup.bat"
+    echo Para resolver, rode manualmente:  "%~dp0setup.bat"
+    echo.
+    echo Tentando continuar mesmo assim para mostrar o menu...
     pause
-    exit /b 1
 )
 
 set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
