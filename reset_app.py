@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+import time
 from pathlib import Path
 
 from config import config
@@ -79,6 +80,8 @@ def main() -> None:
     removed = {"chunks": 0, "manifest": 0, "docs": 0, "drive": 0, "cache": 0, "images": 0, "metrics": 0}
 
     # 1) Banco vetorial + manifesto (reutiliza o indexer quando possível)
+    embeddings = None
+    indexer = None
     try:
         from ingestion.embeddings import EmbeddingGenerator
         from ingestion.indexer import DocumentIndexer
@@ -109,12 +112,70 @@ def main() -> None:
         if vector_db.exists():
             shutil.rmtree(vector_db, ignore_errors=True)
 
+    # Garante que conexões SQLite sejam fechadas antes de tentar apagar (Windows trava arquivo aberto)
+    if embeddings is not None:
+        try:
+            cache_obj = getattr(embeddings, "_cache", None) or getattr(embeddings, "_embedding_cache", None)
+            if cache_obj is not None and hasattr(cache_obj, "close"):
+                cache_obj.close()
+        except Exception:
+            pass
+        # Força GC para liberar handle no Windows
+        try:
+            import gc
+
+            gc.collect()
+        except Exception:
+            pass
+
+    def _safe_unlink(p: Path, label: str) -> bool:
+        if not p.exists():
+            return False
+        for attempt in range(3):
+            try:
+                p.unlink()
+                return True
+            except PermissionError as e:
+                logger.warning(f"{label} em uso (tentativa {attempt+1}/3): {e}")
+                time.sleep(0.5 * (attempt + 1))
+                # Tenta fechar novamente se ainda houver handle
+                if embeddings is not None:
+                    try:
+                        c = getattr(embeddings, "_cache", None)
+                        if c:
+                            c.close()
+                    except Exception:
+                        pass
+                try:
+                    import gc
+
+                    gc.collect()
+                except Exception:
+                    pass
+            except FileNotFoundError:
+                return False
+            except Exception as e:
+                logger.warning(f"Falha ao remover {label}: {e}")
+                try:
+                    p.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                return False
+        # Última tentativa: renomeia e agenda remoção
+        try:
+            tmp = p.with_suffix(p.suffix + ".old")
+            p.rename(tmp)
+            logger.warning(f"{label} renomeado para {tmp} (será removido no próximo reinício)")
+            return True
+        except Exception as e:
+            logger.warning(f"Não foi possível remover {label} (feche a API/watcher e tente novamente): {e}")
+            print(f"[AVISO] {label} está em uso — feche a API (opção 1) e rode o reset novamente.")
+            return False
+
     # 2) Caches regeneráveis: cache de embeddings, imagens OCR e métricas
-    if embedding_cache.exists():
-        embedding_cache.unlink()
+    if _safe_unlink(embedding_cache, "Cache de embeddings"):
         removed["cache"] = 1
-    if metrics_db.exists():
-        metrics_db.unlink()
+    if _safe_unlink(metrics_db, "Métricas"):
         removed["metrics"] = 1
     if image_dir.exists():
         for item in image_dir.rglob("*"):
