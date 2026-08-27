@@ -911,6 +911,10 @@ class ChatBot:
                         token = next(gen)
                         if not started:
                             stop_status.set()
+                            try:
+                                status_thread.join(timeout=0.3)
+                            except Exception:
+                                pass
                             started = True
                             # Limpa a linha do status ANTES do primeiro token
                             sys.stdout.write("\r\033[K")
@@ -928,6 +932,10 @@ class ChatBot:
                 sys.stdout.write(ANSI_RESET + "\n")
                 sys.stdout.flush()
                 stop_status.set()
+                try:
+                    status_thread.join(timeout=0.2)
+                except Exception:
+                    pass
 
                 if result:
                     last_result = result
