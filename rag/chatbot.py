@@ -110,6 +110,87 @@ class ChatBot:
         q = question.lower()
         return any(h in q for h in self._FULL_CONTEXT_HINTS)
 
+    # Saudações e conversa trivial — não devem disparar RAG
+    _GREETING_EXACT = {
+        "bom dia", "boa tarde", "boa noite", "boa madrugada",
+        "olá", "ola", "oi", "oie", "hey", "hello", "eae", "opa",
+        "tudo bem", "tudo bom", "como vai", "como vai voce", "como vai você",
+        "tudo joia", "tudo ótimo", "tudo otimo", "beleza", "fala",
+        "obrigado", "obrigada", "valeu", "thanks", "tchau", "ate mais", "até mais",
+    }
+    _GREETING_TOKENS = {
+        "bom", "dia", "boa", "tarde", "noite", "madrugada",
+        "olá", "ola", "oi", "oie", "hey", "hello", "eae", "opa",
+        "tudo", "bem", "bom", "vai", "você", "voce", "joia", "ótimo", "otimo",
+        "beleza", "fala", "obrigado", "obrigada", "valeu", "thanks",
+        "tchau", "até", "ate", "mais", "watson", "como",
+    }
+    _GREETING_RE = re.compile(
+        r"^\s*(bom dia|boa tarde|boa noite|boa madrugada|olá|ola|oi|oie|hey|hello|eae|opa|tudo bem|tudo bom|como vai|tudo joia|beleza|fala|obrigado|obrigada|valeu|thanks|tchau|até mais|ate mais)"
+        r"(\s*[, ]\s*watson)?\s*[!?.]*\s*$",
+        re.IGNORECASE,
+    )
+    # Palavras que indicam pergunta real — se aparecerem, NÃO é só saudação
+    _QUESTION_HINTS = (
+        "qual", "quais", "como", "quanto", "quantos", "quantas", "onde", "quando",
+        "por que", "porque", "explique", "liste", "mostre", "erro", "código", "codigo",
+        "manual", "impressora", "modelo", "?", "!", # "!" para evitar falso positivo em "bom dia!"
+    )
+
+    def _is_greeting(self, question: str) -> bool:
+        """Detecta saudação pura (sem pedido de informação).
+
+        'bom dia' -> True
+        'bom dia watson' -> True
+        'bom dia, como corrigir erro E123?' -> False (tem pergunta real)
+        """
+        if not question or not question.strip():
+            return False
+        q = question.strip().lower()
+        # Remove múltiplos espaços e pontuação para comparação
+        q_clean = re.sub(r"[^\w\s]", "", q).strip()
+        q_clean = re.sub(r"\s+", " ", q_clean)
+
+        # Se contém hint de pergunta real, não é saudação
+        has_question_hint = any(
+            h in q
+            for h in (
+                "qual", "quais", "como corrigir", "como fazer", "como resolver",
+                "quanto", "quantos", "quantas", "onde", "quando",
+                "erro", "código", "codigo", "impressora", "manual", "modelo",
+                "documento", "planilha", "tabela",
+            )
+        )
+        if has_question_hint and len(q_clean.split()) > 3:
+            return False
+        if "?" in question and has_question_hint:
+            return False
+
+        # Match exato após limpeza
+        if q_clean in self._GREETING_EXACT:
+            return True
+        if self._GREETING_RE.match(q):
+            return True
+        # Todos os tokens são de saudação e poucos tokens (até 6 para "bom dia watson tudo bem")
+        tokens = q_clean.split()
+        if 1 <= len(tokens) <= 6 and all(t in self._GREETING_TOKENS for t in tokens):
+            return True
+        return False
+
+    def _greeting_response(self, start: float) -> AgentResponse:
+        """Resposta determinística para saudação — sem RAG, sem LLM."""
+        answer = self._greeting()
+        # Complemento curto e convite para perguntar
+        answer = f"{answer} Como posso ajudar com seus documentos hoje?"
+        return AgentResponse(
+            answer=answer,
+            evidences=[],
+            confidence=1.0,
+            verdict="ok",
+            metadata={"provider": "greeting", "evidence_count": 0, "greeting": True},
+            execution_time=time.time() - start,
+        )
+
     def _retrieve_rag(self, question: str) -> List[Evidence]:
         # Plano de raciocínio decide top_k, multi-query e rerank
         try:
@@ -401,6 +482,14 @@ class ChatBot:
             self.logger.info(f"Question: {question}")
 
         try:
+            # Saudações não devem disparar RAG — resposta direta e leve
+            if self._is_greeting(question):
+                if self.logger:
+                    self.logger.info(f"Greeting detected: {question!r} -> no retrieval")
+                resp = self._greeting_response(start)
+                self._record_request(question, mode, provider, resp, start, analyze)
+                return resp
+
             # Plano de raciocínio para esta pergunta
             try:
                 plan = self.reasoning_engine.plan(question)
@@ -559,6 +648,14 @@ class ChatBot:
             resp.metadata["reasoning_intent"] = plan.intent
         return resp
 
+    def _greeting_stream(self, start: float) -> Generator[str, None, AgentResponse]:
+        """Stream para saudação — yield do texto em um único chunk."""
+        resp = self._greeting_response(start)
+        # Yield em palavras para simular streaming natural
+        for word in resp.answer.split(" "):
+            yield word + " "
+        return resp
+
     def ask_stream(
         self,
         question: str,
@@ -570,6 +667,12 @@ class ChatBot:
 
         start = time.time()
         try:
+            if self._is_greeting(question):
+                if self.logger:
+                    self.logger.info(f"Greeting detected (stream): {question!r}")
+                resp = yield from self._greeting_stream(start)
+                self._record_request(question, mode, "greeting", resp, start, analyze)
+                return resp
             try:
                 plan = self.reasoning_engine.plan(question)
             except Exception:
@@ -620,6 +723,12 @@ class ChatBot:
 
         start = time.time()
         try:
+            if self._is_greeting(question):
+                if self.logger:
+                    self.logger.info(f"Greeting detected (stream with history): {question!r}")
+                resp = yield from self._greeting_stream(start)
+                self._record_request(question, mode, "greeting", resp, start, analyze)
+                return resp
             try:
                 plan = self.reasoning_engine.plan(question)
             except Exception:
