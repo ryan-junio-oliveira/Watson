@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 from config import config
+from factories import build_indexer
 from ingestion.drive_sync import GoogleDriveSync
 from utils.logger import setup_logger
 
@@ -83,29 +84,7 @@ def main() -> None:
     embeddings = None
     indexer = None
     try:
-        from ingestion.embeddings import EmbeddingGenerator
-        from ingestion.indexer import DocumentIndexer
-        from ingestion.splitter import DocumentSplitter
-
-        embeddings = EmbeddingGenerator(
-            model_name=cfg.embedding_model,
-            device=cfg.embedding_device,
-            batch_size=cfg.embedding_batch_size,
-            normalize=cfg.embedding_normalize,
-            cache_path=cfg.embedding_cache_path,
-            logger=logger,
-        )
-        indexer = DocumentIndexer(
-            embedding_generator=embeddings,
-            splitter=DocumentSplitter(
-                chunk_size=cfg.chunk_size,
-                chunk_overlap=cfg.chunk_overlap,
-                logger=logger,
-            ),
-            chroma_persist_dir=cfg.vector_db_dir,
-            batch_size=cfg.index_batch_size,
-            logger=logger,
-        )
+        embeddings, _, indexer = build_indexer(cfg, logger)
         removed["chunks"] = indexer.clear_vectorstore()
     except Exception as e:
         logger.warning(f"Falha ao limpar via indexer, apagando diretório: {e}")

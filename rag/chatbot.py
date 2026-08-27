@@ -515,6 +515,61 @@ class ChatBot:
                 self.logger.warning(f"Deepen failed: {e}")
             return ""
 
+    def _make_plan(self, question: str):
+        """Plano de raciocínio para a pergunta — (plan, hint, reasoning_needed)."""
+        try:
+            plan = self.reasoning_engine.plan(question)
+        except Exception:
+            plan = None
+        reasoning_needed = bool(plan and plan.needs_cot)
+        hint = plan.reasoning_hint if plan else ""
+        return plan, hint, reasoning_needed
+
+    def _apply_relevance_filter(
+        self, question: str, evidence: List[Evidence]
+    ) -> List[Evidence]:
+        """Filtro de relevância: evita usar imagem irrelevante para pergunta factual."""
+        if not evidence:
+            return evidence
+        try:
+            max_score = max(getattr(e, "score", 0) or 0 for e in evidence)
+            is_image_only = all((e.metadata.get("source_type", "") == "image") for e in evidence)
+            ql = question.lower()
+            is_image_question = any(kw in ql for kw in (
+                "imagem", "foto", "figura", "print", "screenshot",
+                "imagem fornecida", "anexe", "descreva", "o que tem", "o que há",
+            ))
+            evidence_text = " ".join((e.content or "").lower() for e in evidence)
+            content_overlap = False
+            if is_image_only and not is_image_question:
+                q_keywords = [kw for kw in ("champions", "pote", "pot ", "time", "grupo", "liga") if kw in ql]
+                if q_keywords and any(kw in evidence_text for kw in q_keywords):
+                    is_image_question = True
+                    content_overlap = True
+            thr = self.retriever.similarity_threshold if self.retriever.similarity_threshold is not None else 0.25
+            if is_image_question:
+                evidence = [e for e in evidence if e.metadata.get("source_type", "") == "image"]
+            elif max_score < thr and is_image_only and not is_image_question:
+                if self.logger:
+                    self.logger.info(f"Evidence filtered: image-only low relevance (max={max_score:.2f} < {thr}) for non-image question")
+                evidence = []
+            elif max_score < 0.15 and not content_overlap:
+                if self.logger:
+                    self.logger.info(f"Evidence filtered: max relevance {max_score:.2f} too low")
+                evidence = []
+        except Exception:
+            pass
+        return evidence
+
+    def _prepare_evidence(self, question: str) -> List[Evidence]:
+        """Pipeline comum de evidências: retrieve -> dedup -> rank -> filtro -> cálculo."""
+        evidence = self._retrieve_rag(question)
+        evidence = self.aggregator.collect(rag_evidence=evidence)
+        evidence = self.aggregator.rank(evidence)
+        evidence = self._apply_relevance_filter(question, evidence)
+        evidence = self._inject_computed_facts(question, evidence)
+        return evidence
+
     def _run_analyst(self, question: str, resp: AgentResponse) -> AgentResponse:
         """Aplica a análise proativa (sob demanda) sobre a resposta gerada."""
         if self.analyst is None:
@@ -556,49 +611,8 @@ class ChatBot:
                 self._record_request(question, mode, provider, resp, start, analyze)
                 return resp
 
-            # Plano de raciocínio para esta pergunta
-            try:
-                plan = self.reasoning_engine.plan(question)
-            except Exception:
-                plan = None
-            reasoning_needed = bool(plan and plan.needs_cot)
-            hint = plan.reasoning_hint if plan else ""
-
-            evidence = self._retrieve_rag(question)
-            evidence = self.aggregator.collect(rag_evidence=evidence)
-            evidence = self.aggregator.rank(evidence)
-            # Filtro de relevância: evita usar imagem para pergunta factual irrelevante
-            if evidence:
-                try:
-                    max_score = max(getattr(e, "score", 0) or 0 for e in evidence)
-                    is_image_only = all((e.metadata.get("source_type", "") == "image") for e in evidence)
-                    ql = question.lower()
-                    # Pergunta explícita sobre imagem
-                    is_image_question = any(kw in ql for kw in ("imagem", "foto", "figura", "print", "screenshot", "imagem fornecida", "anexe", "descreva", "o que tem", "o que há"))
-                    # Conteúdo da evidência contém termos da pergunta (ex: imagem com potes da Champions e pergunta sobre pote 1)
-                    evidence_text = " ".join((e.content or "").lower() for e in evidence)
-                    content_overlap = False
-                    if is_image_only and not is_image_question:
-                        # Se imagem contém termos da pergunta (champions, pote, time), então é sobre a imagem mesmo sem dizer "imagem"
-                        q_keywords = [kw for kw in ("champions", "pote", "pot ", "time", "grupo", "liga") if kw in ql]
-                        if q_keywords and any(kw in evidence_text for kw in q_keywords):
-                            is_image_question = True
-                            content_overlap = True
-                    thr = self.retriever.similarity_threshold if self.retriever.similarity_threshold is not None else 0.25
-                    if is_image_question:
-                        # Pergunta sobre imagem: mantém SÓ imagens, descarta PDFs/texto irrelevantes
-                        evidence = [e for e in evidence if e.metadata.get("source_type", "") == "image"]
-                    elif max_score < thr and is_image_only and not is_image_question:
-                        if self.logger:
-                            self.logger.info(f"Evidence filtered: image-only low relevance (max={max_score:.2f} < {thr}) for non-image question")
-                        evidence = []
-                    elif max_score < 0.15 and not content_overlap:
-                        if self.logger:
-                            self.logger.info(f"Evidence filtered: max relevance {max_score:.2f} too low")
-                        evidence = []
-                except Exception:
-                    pass
-            evidence = self._inject_computed_facts(question, evidence)
+            plan, hint, reasoning_needed = self._make_plan(question)
+            evidence = self._prepare_evidence(question)
 
             if not evidence:
                 if self.logger:
@@ -718,12 +732,11 @@ class ChatBot:
         question: str,
         history_context: str = "",
         mode: Mode = Mode.auto,
+        plan=None,
     ) -> Generator[str, None, AgentResponse]:
         start = time.time()
-        try:
-            plan = self.reasoning_engine.plan(question)
-        except Exception:
-            plan = None
+        if plan is None:
+            plan = self._make_plan(question)[0]
         hint = plan.reasoning_hint if plan else ""
         reasoning_needed = bool(plan and plan.needs_cot)
         prompt = (
@@ -751,12 +764,14 @@ class ChatBot:
         yield resp.answer
         return resp
 
-    def ask_stream(
+    def _ask_stream_inner(
         self,
         question: str,
+        history_context: str = "",
         mode: Mode = Mode.auto,
         analyze: bool = False,
     ) -> Generator[str, None, AgentResponse]:
+        """Core único de streaming — usado por ask_stream e ask_stream_with_history."""
         if self.logger:
             self.logger.info(f"Question: {question}")
 
@@ -768,28 +783,27 @@ class ChatBot:
                 resp = yield from self._greeting_stream(start)
                 self._record_request(question, mode, "greeting", resp, start, analyze)
                 return resp
-            try:
-                plan = self.reasoning_engine.plan(question)
-            except Exception:
-                plan = None
-            hint = plan.reasoning_hint if plan else ""
-            reasoning_needed = bool(plan and plan.needs_cot)
 
-            evidence = self._retrieve_rag(question)
-            evidence = self.aggregator.collect(rag_evidence=evidence)
-            evidence = self.aggregator.rank(evidence)
-            evidence = self._inject_computed_facts(question, evidence)
+            plan, hint, reasoning_needed = self._make_plan(question)
+            evidence = self._prepare_evidence(question)
 
             if not evidence:
                 if self.logger:
                     self.logger.info("No evidence found in indexed documents")
-                resp = yield from self._stream_no_evidence(question, mode=mode)
+                resp = yield from self._stream_no_evidence(question, history_context, mode, plan)
                 if analyze:
                     resp = self._run_analyst(question, resp)
                 self._record_request(question, mode, "rag", resp, start, analyze)
                 return resp
 
-            prompt = self.prompt_builder.build(question, evidence, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint)
+            prompt = (
+                self.prompt_builder.build_with_history(
+                    question, evidence, history_context, mode=mode,
+                    reasoning=reasoning_needed, reasoning_hint=hint,
+                )
+                if history_context
+                else self.prompt_builder.build(question, evidence, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint)
+            )
             result = yield from self._stream_evidence(prompt, evidence)
             if plan:
                 result.metadata["reasoning_intent"] = plan.intent
@@ -805,6 +819,14 @@ class ChatBot:
                 analyze=analyze, success=False, error=str(e),
             )
             raise
+
+    def ask_stream(
+        self,
+        question: str,
+        mode: Mode = Mode.auto,
+        analyze: bool = False,
+    ) -> Generator[str, None, AgentResponse]:
+        return self._ask_stream_inner(question, "", mode, analyze)
 
     def ask_stream_with_history(
         self,
@@ -813,57 +835,7 @@ class ChatBot:
         mode: Mode = Mode.auto,
         analyze: bool = False,
     ) -> Generator[str, None, AgentResponse]:
-        if self.logger:
-            self.logger.info(f"Question: {question}")
-
-        start = time.time()
-        try:
-            if self._is_greeting(question):
-                if self.logger:
-                    self.logger.info(f"Greeting detected (stream with history): {question!r}")
-                resp = yield from self._greeting_stream(start)
-                self._record_request(question, mode, "greeting", resp, start, analyze)
-                return resp
-            try:
-                plan = self.reasoning_engine.plan(question)
-            except Exception:
-                plan = None
-            hint = plan.reasoning_hint if plan else ""
-            reasoning_needed = bool(plan and plan.needs_cot)
-            evidence = self._retrieve_rag(question)
-            evidence = self.aggregator.collect(rag_evidence=evidence)
-            evidence = self.aggregator.rank(evidence)
-            evidence = self._inject_computed_facts(question, evidence)
-
-            if not evidence:
-                if self.logger:
-                    self.logger.info("No evidence found in indexed documents")
-                resp = yield from self._stream_no_evidence(
-                    question, history_context, mode=mode
-                )
-                if analyze:
-                    resp = self._run_analyst(question, resp)
-                self._record_request(question, mode, "rag", resp, start, analyze)
-                return resp
-
-            prompt = self.prompt_builder.build_with_history(
-                question, evidence, history_context, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint
-            )
-            result = yield from self._stream_evidence(prompt, evidence)
-            if plan:
-                result.metadata["reasoning_intent"] = plan.intent
-                result.metadata["reasoning_cot"] = reasoning_needed
-            if analyze:
-                result = self._run_analyst(question, result)
-            self._record_request(question, mode, "rag", result, start, analyze)
-            return result
-        except Exception as e:
-            self.metrics.record_request(
-                question=question, mode=str(mode), provider="rag",
-                execution_ms=(time.time() - start) * 1000,
-                analyze=analyze, success=False, error=str(e),
-            )
-            raise
+        return self._ask_stream_inner(question, history_context, mode, analyze)
 
     def _format_analyst(self, resp: AgentResponse) -> str:
         parts: List[str] = []

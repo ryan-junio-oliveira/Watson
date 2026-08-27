@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 
 from config import Config, config as app_config
+from factories import build_chatbot, build_indexer, preload_models
 from ingestion.drive_sync import (
     GoogleDriveSync,
     SelectedFolder as _SelectedFolder,
@@ -25,10 +26,7 @@ from ingestion.loader import DocumentLoader
 from ingestion.splitter import DocumentSplitter
 from llm.ollama_client import OllamaClient
 from presentation.formatter import ApiFormatter
-from rag.analyst import Analyst
 from rag.chatbot import ChatBot
-from rag.prompt import PromptBuilder
-from rag.reranker import Reranker as RagReranker
 from rag.response import Mode
 from rag.retriever import Retriever
 from utils.logger import setup_logger
@@ -403,107 +401,7 @@ def _prune_index_jobs(max_age_seconds: int = 3600) -> None:
 
 
 def _preload_models(_chatbot: ChatBot, _emb_gen, _logger) -> None:
-    _emb_gen.get_embeddings()
-    if _chatbot._rag_reranker is not None:
-        _chatbot._rag_reranker._load_model()
-
-
-def build_chatbot(cfg: Config, _logger: logging.Logger) -> ChatBot:
-    from metrics.store import MetricsStore
-
-    _metrics = MetricsStore(db_path=cfg.metrics_db, logger=_logger)
-    _embedding_generator = EmbeddingGenerator(
-        model_name=cfg.embedding_model,
-        device=cfg.embedding_device,
-        batch_size=cfg.embedding_batch_size,
-        normalize=cfg.embedding_normalize,
-        cache_path=cfg.embedding_cache_path,
-        logger=_logger,
-    )
-    _retriever = Retriever(
-        embedding_generator=_embedding_generator,
-        chroma_persist_dir=cfg.vector_db_dir,
-        top_k=cfg.top_k,
-        similarity_threshold=cfg.similarity_threshold,
-        use_mmr=cfg.use_mmr,
-        mmr_fetch_k=cfg.mmr_fetch_k,
-        mmr_lambda=cfg.mmr_lambda,
-        logger=_logger,
-    )
-    _prompt_builder = PromptBuilder()
-    _ollama_client = OllamaClient(
-        model=cfg.ollama_model,
-        base_url=cfg.ollama_base_url,
-        temperature=cfg.temperature,
-        max_tokens=cfg.max_tokens,
-        request_timeout=cfg.ollama_timeout,
-        logger=_logger,
-        metrics=_metrics,
-    )
-    _rag_reranker = (
-        RagReranker(
-            model_name=cfg.reranker_model,
-            device=cfg.embedding_device,
-            logger=_logger,
-        )
-        if cfg.use_reranker
-        else None
-    )
-    _analyst = (
-        Analyst(
-            retriever=_retriever,
-            ollama_client=_ollama_client,
-            logger=_logger,
-            max_followups=cfg.analyst_max_followups,
-        )
-        if cfg.enable_analyst
-        else None
-    )
-    return ChatBot(
-        retriever=_retriever,
-        prompt_builder=_prompt_builder,
-        ollama_client=_ollama_client,
-        reranker=_rag_reranker,
-        logger=_logger,
-        enable_reasoning=cfg.enable_reasoning,
-        analyst=_analyst,
-        agent_name=cfg.agent_name,
-        metrics=_metrics,
-        reasoning_top_k=cfg.reasoning_top_k,
-        reasoning_temperature=cfg.reasoning_temperature,
-        reasoning_max_tokens=cfg.reasoning_max_tokens,
-        enable_query_expansion=cfg.enable_query_expansion,
-        query_expansion_variants=cfg.query_expansion_variants,
-        enable_reranker_reasoning=cfg.enable_reranker_reasoning,
-    )
-
-
-def build_indexer(cfg: Config, _logger: logging.Logger):
-    from metrics.store import MetricsStore
-
-    _metrics = MetricsStore(db_path=cfg.metrics_db, logger=_logger)
-    _embedding_generator = EmbeddingGenerator(
-        model_name=cfg.embedding_model,
-        device=cfg.embedding_device,
-        batch_size=cfg.embedding_batch_size,
-        normalize=cfg.embedding_normalize,
-        cache_path=cfg.embedding_cache_path,
-        logger=_logger,
-    )
-    _splitter = DocumentSplitter(
-        chunk_size=cfg.chunk_size,
-        chunk_overlap=cfg.chunk_overlap,
-        logger=_logger,
-    )
-    _indexer = DocumentIndexer(
-        embedding_generator=_embedding_generator,
-        splitter=_splitter,
-        chroma_persist_dir=cfg.vector_db_dir,
-        batch_size=cfg.index_batch_size,
-        logger=_logger,
-        metrics=_metrics,
-    )
-    return _embedding_generator, _splitter, _indexer
+    preload_models(_chatbot, _logger)
 
 
 @asynccontextmanager

@@ -18,10 +18,7 @@ from pathlib import Path
 from typing import Dict, Tuple
 
 from config import Config, config
-from ingestion.embeddings import EmbeddingGenerator
-from ingestion.indexer import DocumentIndexer
-from ingestion.loader import DocumentLoader
-from ingestion.splitter import DocumentSplitter
+from factories import build_indexer, build_loader, ensure_directories
 from utils.logger import setup_logger
 
 # Extensões consideradas documentos (mesma regra do DocumentLoader).
@@ -35,12 +32,6 @@ STATE_VERSION = 2
 # Se o arquivo for muito grande, hasheamos apenas os primeiros N bytes + tamanho
 # para manter o poll leve; para arquivos pequenos o hash é completo.
 HASH_HEAD_BYTES = 1 * 1024 * 1024  # 1 MB
-
-
-def ensure_directories(cfg: Config) -> None:
-    Path(cfg.documents_dir).mkdir(parents=True, exist_ok=True)
-    Path(cfg.vector_db_dir).mkdir(parents=True, exist_ok=True)
-    Path("logs").mkdir(parents=True, exist_ok=True)
 
 
 def _file_content_hash(path: Path) -> str:
@@ -139,37 +130,8 @@ def run_once(cfg: Config, logger) -> int:
 
     Retorna o número de chunks indexados.
     """
-    embedding_generator = EmbeddingGenerator(
-        model_name=cfg.embedding_model,
-        device=cfg.embedding_device,
-        batch_size=cfg.embedding_batch_size,
-        normalize=cfg.embedding_normalize,
-        cache_path=cfg.embedding_cache_path,
-        logger=logger,
-    )
-    loader = DocumentLoader(
-        logger=logger,
-        ocr_lang=cfg.ocr_lang,
-        ocr_dpi=cfg.ocr_dpi,
-        ocr_min_text_chars=cfg.ocr_min_text_chars,
-        tesseract_cmd=cfg.tesseract_cmd,
-        image_dir=cfg.image_dir,
-        vision_model=cfg.vision_model,
-        vision_base_url=cfg.ollama_base_url,
-        ollama_base_url=cfg.ollama_base_url,
-    )
-    splitter = DocumentSplitter(
-        chunk_size=cfg.chunk_size,
-        chunk_overlap=cfg.chunk_overlap,
-        logger=logger,
-    )
-    indexer = DocumentIndexer(
-        embedding_generator=embedding_generator,
-        splitter=splitter,
-        chroma_persist_dir=cfg.vector_db_dir,
-        batch_size=cfg.index_batch_size,
-        logger=logger,
-    )
+    loader = build_loader(cfg, logger)
+    _, _, indexer = build_indexer(cfg, logger)
 
     documents = loader.load(cfg.documents_dir)
     if not documents:
