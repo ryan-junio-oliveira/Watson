@@ -936,14 +936,14 @@ class ChatBot:
     )
 
     def _status_loop(self, stop_event: threading.Event) -> None:
-        """Exibe mensagens de status rotativas (azul claro) enquanto a IA gera a resposta."""
+        """Exibe mensagens de status rotativas (azul bem claro) enquanto a IA gera a resposta."""
         msgs = [m.format(agent=self.agent_name) for m in self._STATUS_MESSAGES]
         i = 0
         try:
             while True:
                 if stop_event.is_set():
                     break
-                sys.stdout.write(f"\r{ANSI_BLUE}{ANSI_DIM}{msgs[i % len(msgs)]}   {ANSI_RESET}")
+                sys.stdout.write(f"\r{ANSI_CYAN}{msgs[i % len(msgs)]}   {ANSI_RESET}")
                 sys.stdout.flush()
                 if stop_event.wait(2.5):
                     break
