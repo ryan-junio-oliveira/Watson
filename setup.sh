@@ -77,14 +77,50 @@ else
     echo "[4/4] .env ja existe."
 fi
 
-# 5. Garantir diretorio de dados (metrics/chroma/images)
-mkdir -p "$SCRIPT_DIR/database"
+# 5. Garantir diretorios de dados (database, documents, logs)
+mkdir -p "$SCRIPT_DIR/database" "$SCRIPT_DIR/database/chroma" "$SCRIPT_DIR/database/images" "$SCRIPT_DIR/documents" "$SCRIPT_DIR/logs"
 
-# 6. Garantir METRICS_DB no .env (valor padrao)
+# 6. Garantir METRICS_DB e VISION_MODEL no .env (valores padrao)
 if [ -f "$SCRIPT_DIR/.env" ] && ! grep -q "^METRICS_DB=" "$SCRIPT_DIR/.env"; then
     echo "METRICS_DB=database/metrics.db" >> "$SCRIPT_DIR/.env"
     echo "[INFO] METRICS_DB adicionado ao .env (database/metrics.db)."
 fi
+if [ -f "$SCRIPT_DIR/.env" ] && ! grep -q "^VISION_MODEL=" "$SCRIPT_DIR/.env"; then
+    echo "VISION_MODEL=qwen2.5vl" >> "$SCRIPT_DIR/.env"
+    echo "[INFO] VISION_MODEL adicionado ao .env (qwen2.5vl)."
+fi
+
+# 7. Garantir modelos Ollama (LLM + Visao) — deixa tudo pronto
+echo "[5/5] Verificando modelos Ollama (gemma3:4b + qwen2.5vl)..."
+if ! command -v ollama >/dev/null 2>&1; then
+    echo "[AVISO] Ollama nao encontrado. Instale em https://ollama.com"
+    echo "        Depois rode: ollama pull gemma3:4b && ollama pull qwen2.5vl"
+else
+    OLLAMA_MODEL_CFG="$("$PYTHON_EXE" -c "from config import config; print(config.ollama_model)" 2>/dev/null || echo "gemma3:4b")"
+    VISION_MODEL_CFG="$("$PYTHON_EXE" -c "from config import config; print(config.vision_model)" 2>/dev/null || echo "qwen2.5vl")"
+    # Se daemon nao estiver rodando, avisa mas nao falha
+    if ! ollama list >/dev/null 2>&1; then
+        echo "[AVISO] Ollama nao esta rodando. Inicie com 'ollama serve' e rode novamente o setup para baixar os modelos."
+        echo "        Modelos definidos: $OLLAMA_MODEL_CFG e $VISION_MODEL_CFG"
+    else
+        for MODEL in "$OLLAMA_MODEL_CFG" "$VISION_MODEL_CFG"; do
+            [ -z "$MODEL" ] && continue
+            echo "  Verificando $MODEL..."
+            if ollama list | grep -q -i "$MODEL"; then
+                echo "  Modelo $MODEL ja existe."
+            else
+                echo "  Baixando $MODEL (pode demorar)..."
+                if ! ollama pull "$MODEL"; then
+                    echo "[AVISO] Falha ao baixar $MODEL. Tente manualmente: ollama pull $MODEL"
+                fi
+            fi
+        done
+    fi
+fi
+
+# 8. Pre-cache do embedding (opcional, deixa tudo pronto sem travar setup se offline)
+if [ -n "${EMBEDDING_MODEL:-}" ]; then EMBEDDING_TO_PULL="$EMBEDDING_MODEL"; else EMBEDDING_TO_PULL="$("$PYTHON_EXE" -c "from config import config; print(config.embedding_model)" 2>/dev/null || echo "intfloat/multilingual-e5-base")"; fi
+echo "[INFO] Modelo de embedding: $EMBEDDING_TO_PULL (sera baixado automaticamente no primeiro uso)"
 
 # Validar dotenv instalado no venv
 if ! "$PYTHON_EXE" -c "import dotenv" >/dev/null 2>&1; then
@@ -93,7 +129,8 @@ if ! "$PYTHON_EXE" -c "import dotenv" >/dev/null 2>&1; then
 fi
 
 echo ""
-echo "Setup concluido!"
+echo "Setup concluido! Tudo no jeito."
 echo "  Python:  $PYTHON_EXE"
+echo "  Modelos Ollama: gemma3:4b + qwen2.5vl (verificados)"
 echo "  Para ativar manualmente:  source $VENV_DIR/bin/activate"
 echo ""
