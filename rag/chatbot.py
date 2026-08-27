@@ -650,11 +650,9 @@ class ChatBot:
         return resp
 
     def _greeting_stream(self, start: float) -> Generator[str, None, AgentResponse]:
-        """Stream para saudação — yield do texto em um único chunk."""
+        """Stream para saudação — yield único para evitar glitch com status spinner."""
         resp = self._greeting_response(start)
-        # Yield em palavras para simular streaming natural
-        for word in resp.answer.split(" "):
-            yield word + " "
+        yield resp.answer
         return resp
 
     def ask_stream(
@@ -790,26 +788,14 @@ class ChatBot:
         return "\n".join(parts)
 
     def _greeting(self) -> str:
-        import random
-
         hour = time.localtime().tm_hour
         if 5 <= hour < 12:
             periodo = "bom dia"
-            emoji = "☀️"
         elif 12 <= hour < 18:
             periodo = "boa tarde"
-            emoji = "🌤️"
         else:
             periodo = "boa noite"
-            emoji = "🌙"
-
-        # Variações carismáticas — como Gemini/Claude, mas com identidade Watson
-        variants = [
-            f"Olá, {periodo}! {emoji} Sou o {self.agent_name}, seu parceiro para desvendar qualquer documento. O que vamos descobrir hoje?",
-            f"Olá! {emoji} {periodo.capitalize()}! Aqui é o {self.agent_name} — pronto e animado para ajudar. No que posso ser útil?",
-            f"E aí, {periodo}! {emoji} Sou o {self.agent_name}, seu assistente curioso e pronto para facilitar sua vida. O que você precisa?",
-        ]
-        return random.choice(variants)
+        return f"Olá, {periodo}! Sou o {self.agent_name}. Como posso ajudar hoje?"
 
     def chat_loop(self) -> None:
         print("\n=== Watson RAG ===")
