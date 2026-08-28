@@ -61,13 +61,27 @@ class ImageAdapter(SourceAdapter):
         except Exception:
             ocr_lang_eff = self.ocr_lang
         text = ""
-        try:
-            text = pytesseract.image_to_string(image, lang=ocr_lang_eff).strip()
-        except Exception as e:
+        # Skipa OCR para imagens muito pequenas ou com aspecto extremo (mesmo erro pixScaleAreaMap)
+        if width < 50 or height < 50 or (width * height) < 10000 or (width / height < 0.05 if height else False) or (height / width < 0.05 if width else False):
             if self.logger:
-                self.logger.warning(f"Image OCR failed for '{filepath.name}': {e} (lang={ocr_lang_eff})")
+                self.logger.info(f"Skipping OCR for small/thin image '{filepath.name}': {width}x{height}")
+        else:
+            try:
+                import contextlib
+                import io as _io
 
-        vision = self.vision.analyze(str(filepath))
+                with contextlib.redirect_stderr(_io.StringIO()):
+                    text = pytesseract.image_to_string(image, lang=ocr_lang_eff).strip()
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"Image OCR failed for '{filepath.name}': {e} (lang={ocr_lang_eff})")
+
+        # Só chama vision para imagens com tamanho razoável
+        vision = None
+        if width >= 100 and height >= 100 and (width * height) >= 10000:
+            vision = self.vision.analyze(str(filepath))
+        else:
+            vision = None
         kind = self._classify(width, height, text, vision)
 
         description = ""

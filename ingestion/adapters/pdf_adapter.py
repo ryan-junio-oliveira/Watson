@@ -181,9 +181,28 @@ class PdfAdapter(SourceAdapter):
             import hashlib
 
             pix = pdf[page_index].get_pixmap(dpi=self.ocr_dpi)
+            # Skipa pix muito pequeno ou com aspecto extremo (linha fina 18x1600 causa
+            # "pixScaleAreaMap: pixd too small" e demora sem resultado)
+            if pix.width < 100 or pix.height < 100 or (pix.width * pix.height) < 50000:
+                self._log_info(
+                    f"Skipping OCR page {page_index + 1}: pix too small {pix.width}x{pix.height}"
+                )
+                return ""
+            # Evita linhas finas 18x1600 (aspect ratio extremo)
+            ratio = pix.width / pix.height if pix.height else 1
+            if ratio < 0.05 or ratio > 20:
+                self._log_info(
+                    f"Skipping OCR page {page_index + 1}: extreme aspect {pix.width}x{pix.height}"
+                )
+                return ""
             image_bytes_for_vision = pix.pil_tobytes("PNG")
             image = PILImage.open(BytesIO(image_bytes_for_vision))
-            text = pytesseract.image_to_string(image, lang=ocr_lang_eff)
+            # Suprime stderr do Tesseract para "pixd too small" não poluir log
+            import contextlib
+            import io as _io
+
+            with contextlib.redirect_stderr(_io.StringIO()):
+                text = pytesseract.image_to_string(image, lang=ocr_lang_eff)
             text = text.strip()
             self._log_info(
                 f"OCR page {page_index + 1}: {len(text)} chars extracted (lang={ocr_lang_eff})"

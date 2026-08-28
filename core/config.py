@@ -99,7 +99,7 @@ class Config:
         default_factory=lambda: os.getenv("OCR_LANG", "por+eng")
     )
     ocr_dpi: int = field(
-        default_factory=lambda: int(os.getenv("OCR_DPI", "300"))
+        default_factory=lambda: int(os.getenv("OCR_DPI", "200"))
     )
     ocr_min_text_chars: int = field(
         default_factory=lambda: int(os.getenv("OCR_MIN_TEXT_CHARS", "20"))
