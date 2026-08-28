@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from config import Config
+from core.config import Config
 from ingestion.embeddings import EmbeddingGenerator
 from ingestion.indexer import DocumentIndexer
 from ingestion.loader import DocumentLoader

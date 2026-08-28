@@ -17,8 +17,10 @@ import time
 from pathlib import Path
 from typing import Dict, Tuple
 
-from config import Config, config
-from factories import build_indexer, build_loader, ensure_directories
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from core.config import Config, config
+from core.factories import build_indexer, build_loader, ensure_directories
 from utils.logger import setup_logger
 
 # Extensões consideradas documentos (mesma regra do DocumentLoader).

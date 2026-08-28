@@ -1,8 +1,10 @@
 import sys
 from pathlib import Path
 
-from config import Config, config
-from factories import build_chatbot, ensure_directories, preload_models
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from core.config import Config, config
+from core.factories import build_chatbot, ensure_directories, preload_models
 from utils.logger import setup_logger
 
 

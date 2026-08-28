@@ -12,9 +12,10 @@ fi
 # ============================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$ROOT_DIR"
 
-VENV_DIR="$SCRIPT_DIR/.venv"
+VENV_DIR="$ROOT_DIR/.venv"
 PYTHON_EXE="$VENV_DIR/bin/python"
 PIP_EXE="$VENV_DIR/bin/pip"
 
@@ -62,13 +63,13 @@ echo "[2/4] Atualizando pip..."
 
 # 3. Instalar dependencias
 echo "[3/4] Instalando dependencias (requirements.txt)..."
-"$PIP_EXE" install -r "$SCRIPT_DIR/requirements.txt"
+"$PIP_EXE" install -r "$ROOT_DIR/requirements.txt"
 
 # 4. Garantir .env
-if [ ! -f "$SCRIPT_DIR/.env" ]; then
-    if [ -f "$SCRIPT_DIR/.env.example" ]; then
+if [ ! -f "$ROOT_DIR/.env" ]; then
+    if [ -f "$ROOT_DIR/.env.example" ]; then
         echo "[4/4] Criando .env a partir de .env.example..."
-        cp "$SCRIPT_DIR/.env.example" "$SCRIPT_DIR/.env"
+        cp "$ROOT_DIR/.env.example" "$ROOT_DIR/.env"
         echo "      ATENCAO: edite o .env com suas credenciais!"
     else
         echo "[4/4] AVISO: .env e .env.example nao encontrados."
@@ -78,16 +79,16 @@ else
 fi
 
 # 5. Garantir diretorios de dados (database, documents, logs)
-mkdir -p "$SCRIPT_DIR/database" "$SCRIPT_DIR/database/chroma" "$SCRIPT_DIR/database/images" "$SCRIPT_DIR/documents" "$SCRIPT_DIR/logs"
+mkdir -p "$ROOT_DIR/database" "$ROOT_DIR/database/chroma" "$ROOT_DIR/database/images" "$ROOT_DIR/documents" "$ROOT_DIR/logs"
 
 # 6. Garantir METRICS_DB e VISION_MODEL no .env (valores padrao)
-if [ -f "$SCRIPT_DIR/.env" ] && ! grep -q "^METRICS_DB=" "$SCRIPT_DIR/.env"; then
-    echo "METRICS_DB=database/metrics.db" >> "$SCRIPT_DIR/.env"
+if [ -f "$ROOT_DIR/.env" ] && ! grep -q "^METRICS_DB=" "$ROOT_DIR/.env"; then
+    echo "METRICS_DB=database/metrics.db" >> "$ROOT_DIR/.env"
     echo "[INFO] METRICS_DB adicionado ao .env (database/metrics.db)."
 fi
-if [ -f "$SCRIPT_DIR/.env" ] && ! grep -q "^VISION_MODEL=" "$SCRIPT_DIR/.env"; then
-    echo "VISION_MODEL=qwen2.5vl" >> "$SCRIPT_DIR/.env"
-    echo "[INFO] VISION_MODEL adicionado ao .env (qwen2.5vl)."
+if [ -f "$ROOT_DIR/.env" ] && ! grep -q "^VISION_MODEL=" "$ROOT_DIR/.env"; then
+    echo "VISION_MODEL=moondream" >> "$ROOT_DIR/.env"
+    echo "[INFO] VISION_MODEL adicionado ao .env (moondream)."
 fi
 
 # 7. Garantir modelos Ollama (LLM + Visao) — deixa tudo pronto
@@ -96,8 +97,8 @@ if ! command -v ollama >/dev/null 2>&1; then
     echo "[AVISO] Ollama nao encontrado. Instale em https://ollama.com"
     echo "        Depois rode: ollama pull gemma3:4b && ollama pull qwen2.5vl"
 else
-    OLLAMA_MODEL_CFG="$("$PYTHON_EXE" -c "from config import config; print(config.ollama_model)" 2>/dev/null || echo "gemma3:4b")"
-    VISION_MODEL_CFG="$("$PYTHON_EXE" -c "from config import config; print(config.vision_model)" 2>/dev/null || echo "qwen2.5vl")"
+    OLLAMA_MODEL_CFG="$("$PYTHON_EXE" -c "from core.config import config; print(config.ollama_model)" 2>/dev/null || echo "gemma3:4b")"
+    VISION_MODEL_CFG="$("$PYTHON_EXE" -c "from core.config import config; print(config.vision_model)" 2>/dev/null || echo "qwen2.5vl")"
     # Se daemon nao estiver rodando, avisa mas nao falha
     if ! ollama list >/dev/null 2>&1; then
         echo "[AVISO] Ollama nao esta rodando. Inicie com 'ollama serve' e rode novamente o setup para baixar os modelos."
@@ -119,7 +120,7 @@ else
 fi
 
 # 8. Pre-cache do embedding (opcional, deixa tudo pronto sem travar setup se offline)
-if [ -n "${EMBEDDING_MODEL:-}" ]; then EMBEDDING_TO_PULL="$EMBEDDING_MODEL"; else EMBEDDING_TO_PULL="$("$PYTHON_EXE" -c "from config import config; print(config.embedding_model)" 2>/dev/null || echo "intfloat/multilingual-e5-base")"; fi
+if [ -n "${EMBEDDING_MODEL:-}" ]; then EMBEDDING_TO_PULL="$EMBEDDING_MODEL"; else EMBEDDING_TO_PULL="$("$PYTHON_EXE" -c "from core.config import config; print(config.embedding_model)" 2>/dev/null || echo "intfloat/multilingual-e5-base")"; fi
 echo "[INFO] Modelo de embedding: $EMBEDDING_TO_PULL (sera baixado automaticamente no primeiro uso)"
 
 # Validar dotenv instalado no venv

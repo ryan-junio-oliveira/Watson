@@ -21,7 +21,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from config import config
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from core.config import config
 from ingestion.drive_sync import DriveEntry, GoogleDriveSync, SelectedFolder
 from utils.logger import setup_logger
 

@@ -1,8 +1,10 @@
 import sys
-from typing import List
+from pathlib import Path
 
-from config import Config, config
-from factories import build_indexer, build_loader, ensure_directories
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from core.config import Config, config
+from core.factories import build_indexer, build_loader, ensure_directories
 from ingestion.drive_sync import GoogleDriveSync
 from ingestion.loader import LoadedDocument
 from utils.logger import setup_logger

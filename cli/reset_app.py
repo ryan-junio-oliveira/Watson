@@ -17,8 +17,10 @@ import sys
 import time
 from pathlib import Path
 
-from config import config
-from factories import build_indexer
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from core.config import config
+from core.factories import build_indexer
 from ingestion.drive_sync import GoogleDriveSync
 from utils.logger import setup_logger
 

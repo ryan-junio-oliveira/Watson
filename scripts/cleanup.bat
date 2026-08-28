@@ -1,5 +1,7 @@
 @echo off
 title Watson Cleanup - Removendo arquivos lixo
+set "ROOT=%~dp0.."
+pushd "%ROOT%" >nul
 echo ============================================
 echo  Watson - Limpeza de artefatos e lixo
 echo ============================================

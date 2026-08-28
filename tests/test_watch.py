@@ -1,6 +1,6 @@
 from pathlib import Path
 
-import watch
+import cli.watch as watch
 
 
 def test_snapshot_empty_dir(tmp_path):

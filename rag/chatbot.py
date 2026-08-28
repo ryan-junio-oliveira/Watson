@@ -80,7 +80,7 @@ class ChatBot:
 
         # Reasoning engine — tenta ler do config global se não passado explicitamente
         try:
-            from config import config as _cfg
+            from core.config import config as _cfg
             _rtk = reasoning_top_k if reasoning_top_k is not None else getattr(_cfg, "reasoning_top_k", 12)
             _rt = reasoning_temperature if reasoning_temperature is not None else getattr(_cfg, "reasoning_temperature", 0.2)
             _rmt = reasoning_max_tokens if reasoning_max_tokens is not None else getattr(_cfg, "reasoning_max_tokens", 3072)

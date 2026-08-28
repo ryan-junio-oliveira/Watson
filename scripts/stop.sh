@@ -5,9 +5,10 @@ if [ -n "$BASH_VERSION" ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$ROOT_DIR"
 
-API_PORT=$(python3 -c "from config import config; print(config.api_port)" 2>/dev/null || echo "9000")
+API_PORT=$(python3 -c "from core.config import config; print(config.api_port)" 2>/dev/null || echo "9000")
 
 echo "============================================"
 echo "        PARANDO WATSON RAG"
@@ -26,7 +27,7 @@ fi
 
 echo ""
 echo "Procurando processos Python do Watson..."
-PIDS=$(pgrep -f "uvicorn api:app" 2>/dev/null || true)
+PIDS=$(pgrep -f "uvicorn cli.api:app" 2>/dev/null || true)
 if [ -n "$PIDS" ]; then
     for pid in $PIDS; do
         echo "Encerrando PID: $pid"

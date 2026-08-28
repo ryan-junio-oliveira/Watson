@@ -14,8 +14,11 @@ from pydantic import BaseModel, Field
 
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 
-from config import Config, config as app_config
-from factories import build_chatbot, build_indexer, preload_models
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from core.config import Config, config as app_config
+from core.factories import build_chatbot, build_indexer, preload_models
 from ingestion.drive_sync import (
     GoogleDriveSync,
     SelectedFolder as _SelectedFolder,
@@ -1585,7 +1588,11 @@ async def metrics_index_events(limit: int = 50):
 
 @app.get("/dashboard", include_in_schema=False)
 async def dashboard():
-    return FileResponse(Path(__file__).parent / "presentation" / "dashboard.html")
+    # Suporta tanto cli/api.py (cli/presentation) quanto raiz (presentation)
+    p = Path(__file__).parent / "presentation" / "dashboard.html"
+    if not p.exists():
+        p = Path(__file__).resolve().parent.parent / "presentation" / "dashboard.html"
+    return FileResponse(p)
 
 
 if __name__ == "__main__":

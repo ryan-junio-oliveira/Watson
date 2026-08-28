@@ -2,13 +2,14 @@
 chcp 65001 >nul 2>nul
 setlocal
 title Watson RAG - Build
+set "ROOT=%~dp0.."
+pushd "%ROOT%" >nul
+set "PYTHON_EXE=%ROOT%\.venv\Scripts\python.exe"
+set "PIP_EXE=%ROOT%\.venv\Scripts\pip.exe"
 
 :: Chamar setup automatico (sem pausa) para garantir venv + dependencias
-call "%~dp0setup.bat" silent
+call "%ROOT%\ops\setup.bat" silent
 if errorlevel 1 exit /b 1
-
-set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
-set "PIP_EXE=%~dp0.venv\Scripts\pip.exe"
 
 echo ============================================
 echo       WATSON RAG - Gerando Executavel

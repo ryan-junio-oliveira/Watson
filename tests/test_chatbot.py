@@ -68,21 +68,21 @@ class TestChatBot:
         assert isinstance(result, AgentResponse)
 
     def test_chat_loop_exit(self, chatbot, monkeypatch):
-        monkeypatch.setattr("builtins.input", lambda _: "exit")
+        monkeypatch.setattr("builtins.input", lambda *a, **k: "exit")
         chatbot.chat_loop()
 
     def test_chat_loop_quit(self, chatbot, monkeypatch):
-        monkeypatch.setattr("builtins.input", lambda _: "quit")
+        monkeypatch.setattr("builtins.input", lambda *a, **k: "quit")
         chatbot.chat_loop()
 
     def test_chat_loop_empty_input(self, chatbot, monkeypatch):
         inputs = iter(["", "exit"])
-        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+        monkeypatch.setattr("builtins.input", lambda *a, **k: next(inputs))
         chatbot.chat_loop()
 
     def test_chat_loop_question(self, chatbot, monkeypatch):
         inputs = iter(["Qual a capital?", "exit"])
-        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+        monkeypatch.setattr("builtins.input", lambda *a, **k: next(inputs))
         chatbot.chat_loop()
 
     def test_ask_stream_yields_tokens(self, chatbot, mock_ollama_client):

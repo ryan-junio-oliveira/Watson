@@ -2,14 +2,15 @@
 chcp 65001 >nul 2>nul
 setlocal enabledelayedexpansion
 title Watson RAG - Parar
+set "ROOT=%~dp0.."
+pushd "%ROOT%" >nul
+set "PYTHON_EXE=%ROOT%\.venv\Scripts\python.exe"
 
 :: Chamar setup automatico (sem pausa) para garantir venv
-call "%~dp0setup.bat" silent
+call "%ROOT%\scripts\setup.bat" silent
 if errorlevel 1 exit /b 1
 
-set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
-
-for /f "tokens=1,2" %%a in ('"%PYTHON_EXE%" -c "from config import config; print(config.api_host, config.api_port)"' 2^>nul) do (
+for /f "tokens=1,2" %%a in ('"%PYTHON_EXE%" -c "from core.config import config; print(config.api_host, config.api_port)"' 2^>nul) do (
     set API_HOST=%%a
     set API_PORT=%%b
 )
@@ -35,7 +36,7 @@ if not "%PID%"=="" (
 
 echo.
 echo Procurando processos Python do Watson via PowerShell...
-powershell -Command "Get-Process python* | Where-Object { $_.CommandLine -match 'uvicorn|watson|api:app' } | ForEach-Object { Write-Host 'Encerrando PID:' $_.Id; Stop-Process -Id $_.Id -Force; Write-Host 'OK' }" 2>nul
+powershell -Command "Get-Process python* | Where-Object { $_.CommandLine -match 'uvicorn|watson|cli.api:app' } | ForEach-Object { Write-Host 'Encerrando PID:' $_.Id; Stop-Process -Id $_.Id -Force; Write-Host 'OK' }" 2>nul
 
 echo.
 echo Operacao concluida.

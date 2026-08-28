@@ -84,7 +84,7 @@ class DocumentIndexer:
             self.quality_gate = quality_gate
         else:
             try:
-                from config import config as _cfg
+                from core.config import config as _cfg
 
                 self.quality_gate = QualityGate(
                     min_chars=getattr(_cfg, "quality_min_chars", 20),
@@ -101,7 +101,7 @@ class DocumentIndexer:
             self.deduplicator = deduplicator
         else:
             try:
-                from config import config as _cfg
+                from core.config import config as _cfg
 
                 if getattr(_cfg, "dedup_cross_doc", False):
                     self.deduplicator = Deduplicator(

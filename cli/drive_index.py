@@ -13,9 +13,15 @@ import argparse
 import sys
 from pathlib import Path
 
-from config import config
+# Permite rodar como python cli/drive_index.py (adiciona raiz ao path)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from core.config import config
 from ingestion.drive_sync import GoogleDriveSync
-from index import ensure_directories, run_index
+try:
+    from cli.index import ensure_directories, run_index
+except ImportError:
+    from index import ensure_directories, run_index
 from utils.logger import setup_logger
 
 

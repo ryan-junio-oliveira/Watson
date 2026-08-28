@@ -2,20 +2,22 @@
 chcp 65001 >nul 2>nul
 setlocal enabledelayedexpansion
 title Watson RAG
+:: Ops esta em ops/ -> ROOT eh um nivel acima
+set "ROOT=%~dp0.."
+pushd "%ROOT%" >nul
+set "PYTHON_EXE=%ROOT%\.venv\Scripts\python.exe"
 
 :: Chamar setup automatico (sem pausa) para garantir venv + dependencias
 :: Loga saida do setup para diagnostico se falhar
-call "%~dp0setup.bat" silent
+call "%ROOT%\ops\setup.bat" silent
 if errorlevel 1 (
     echo.
     echo [ERRO] O setup falhou. Veja as mensagens acima.
-    echo Para resolver, rode manualmente:  "%~dp0setup.bat"
+    echo Para resolver, rode manualmente:  "%ROOT%\ops\setup.bat"
     echo.
     echo Tentando continuar mesmo assim para mostrar o menu...
     pause
 )
-
-set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
 
 :: Host/porta para exibicao do menu. O uvicorn/app.py leem o .env por conta
 :: propria, entao aqui usamos apenas valores informativos (robusto no Windows).
@@ -62,7 +64,7 @@ echo Iniciando servidor API em http://%API_HOST%:%API_PORT%
 echo Documentacao: http://localhost:%API_PORT%/docs
 echo ============================================
 echo.
-"%PYTHON_EXE%" -m uvicorn api:app --host %API_HOST% --port %API_PORT%
+"%PYTHON_EXE%" -m uvicorn cli.api:app --host %API_HOST% --port %API_PORT%
 echo.
 echo Servidor encerrado.
 pause
@@ -75,7 +77,7 @@ echo Iniciando chat interativo...
 echo Digite 'exit' ou 'quit' para sair.
 echo ============================================
 echo.
-"%PYTHON_EXE%" app.py
+"%PYTHON_EXE%" cli\app.py
 echo.
 echo Chat encerrado.
 pause
@@ -88,7 +90,7 @@ echo Indexando documentos locais (documents/) + banco
 echo (sem sincronizar o Google Drive - use a opcao 4 para isso)
 echo ============================================
 echo.
-"%PYTHON_EXE%" index.py
+"%PYTHON_EXE%" cli\index.py
 echo.
 echo Indexacao concluida!
 pause
@@ -101,7 +103,7 @@ echo Sincronizando Google Drive e indexando...
 echo Isso pode demorar. Sem limite de tempo (CLI).
 echo ============================================
 echo.
-"%PYTHON_EXE%" drive_index.py
+"%PYTHON_EXE%" cli\drive_index.py
 echo.
 echo Concluido!
 pause
@@ -113,7 +115,7 @@ echo ============================================
 echo Sincronizando Google Drive (somente sync)...
 echo ============================================
 echo.
-"%PYTHON_EXE%" drive_index.py --sync-only
+"%PYTHON_EXE%" cli\drive_index.py --sync-only
 echo.
 echo Sync concluido!
 pause
@@ -125,7 +127,7 @@ echo ============================================
 echo Reset total - limpar banco vetorial e documentos
 echo ============================================
 echo.
-"%PYTHON_EXE%" reset_app.py --yes
+"%PYTHON_EXE%" cli\reset_app.py --yes
 echo.
 echo Reset concluido!
 pause
@@ -137,7 +139,7 @@ echo ============================================
 echo Selecao de pastas do Google Drive
 echo ============================================
 echo.
-"%PYTHON_EXE%" drive_select.py
+"%PYTHON_EXE%" cli\drive_select.py
 echo.
 pause
 goto menu
@@ -150,7 +152,7 @@ echo Monitora documents/ e indexa mudancas.
 echo Pressione Ctrl+C para parar.
 echo ============================================
 echo.
-"%PYTHON_EXE%" watch.py
+"%PYTHON_EXE%" cli\watch.py
 echo.
 echo Watcher encerrado.
 pause

@@ -15,13 +15,16 @@ import sys
 import asyncio
 import logging
 
-# Caminho base: compativel com PyInstaller e execucao normal
+# Caminho base: quando em cli/, BASE_DIR eh um nivel acima (raiz do projeto)
 if getattr(sys, "frozen", False):
     BASE_DIR = os.path.dirname(sys.executable)
 else:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    # se executado como python cli/service.py, sobe um nivel
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 os.chdir(BASE_DIR)
+# Garante que raiz esta no path para imports tipo `from api import app`
+sys.path.insert(0, BASE_DIR)
 
 from dotenv import load_dotenv
 
@@ -33,7 +36,10 @@ import win32service
 
 import uvicorn
 
-from api import app, cfg
+try:
+    from cli.api import app, cfg
+except ImportError:
+    from api import app, cfg
 
 
 class WatsonService(win32serviceutil.ServiceFramework):

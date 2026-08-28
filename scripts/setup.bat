@@ -8,8 +8,10 @@ setlocal enabledelayedexpansion
 ::  Uso:  setup.bat            -> setup completo com pausa
 ::        call setup.bat silent -> sem pausa (usado por outros scripts)
 :: ============================================
-
-set "VENV_DIR=.venv"
+:: Ops esta em ops/ -> ROOT eh um nivel acima
+set "ROOT=%~dp0.."
+pushd "%ROOT%" >nul
+set "VENV_DIR=%ROOT%\.venv"
 set "PYTHON_EXE=%VENV_DIR%\Scripts\python.exe"
 
 :: Verifica se o Python existe no sistema (tenta python e py)
@@ -106,12 +108,12 @@ if errorlevel 1 (
 :: Le modelos do .env via Python do venv - usa arquivo temp para evitar parsing de ;
 set "OLLAMA_MODEL_CFG="
 set "VISION_MODEL_CFG="
-"%PYTHON_EXE%" -c "import config; print(config.config.ollama_model)" > "%TEMP%\watson_ollama.txt" 2>nul
+"%PYTHON_EXE%" -c "from core.config import config; print(config.ollama_model)" > "%TEMP%\watson_ollama.txt" 2>nul
 if exist "%TEMP%\watson_ollama.txt" (
     set /p OLLAMA_MODEL_CFG=<"%TEMP%\watson_ollama.txt"
     del "%TEMP%\watson_ollama.txt" >nul 2>nul
 )
-"%PYTHON_EXE%" -c "import config; print(config.config.vision_model)" > "%TEMP%\watson_vision.txt" 2>nul
+"%PYTHON_EXE%" -c "from core.config import config; print(config.vision_model)" > "%TEMP%\watson_vision.txt" 2>nul
 if exist "%TEMP%\watson_vision.txt" (
     set /p VISION_MODEL_CFG=<"%TEMP%\watson_vision.txt"
     del "%TEMP%\watson_vision.txt" >nul 2>nul
