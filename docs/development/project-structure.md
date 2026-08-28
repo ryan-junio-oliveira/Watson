@@ -51,7 +51,7 @@ Watson/
 │       ├── text_adapter.py   # TXT/MD
 │       ├── image_adapter.py  # Imagens (PIL + OCR + Vision)
 │       ├── ocr.py            # Tesseract wrapper (por+eng, dpi)
-│       └── vision.py         # Visão Ollama (moondream/qwen2.5vl, resize 1024, num_ctx 4096/8192)
+│       └── vision.py         # Visão Ollama (moondream, resize 1024, num_ctx 4096)
 ├── rag/                      # PIPELINE DE CONSULTA (pergunta → resposta + fontes)
 │   ├── chatbot.py            # Orquestrador (retrieve → rerank → prompt → LLM)
 │   ├── retriever.py          # Busca vetorial (top-k, MMR, threshold, retrieve_all)

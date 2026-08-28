@@ -64,12 +64,12 @@ class VisionAnalyzer:
             return None
         try:
             client = self._get_client()
-            # Reduz imagem para evitar estouro de contexto (qwen2.5vl default 4096)
+            # Reduz imagem para evitar estouro de contexto (default 4096)
             # 4148 tokens > 4096 causa exceed_context_size_error - aumentamos num_ctx e reduzimos imagem
             resized_path = self._maybe_resize_image(image_path)
             target = resized_path or image_path
             encoded = self._encode_image(target)
-            # num_ctx adaptativo: moondream (1.8B) eh leve e rapido com 2048-4096; qwen2.5vl precisa 8192+ para imagem 300dpi
+            # num_ctx adaptativo: moondream (1.8B) eh leve com 4096; modelos pesados precisam 8192+ para imagem 300dpi
             ctx = 4096 if "moondream" in self.model.lower() else 8192
             response = client.generate(
                 model=self.model,

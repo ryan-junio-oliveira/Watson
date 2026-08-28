@@ -92,13 +92,13 @@ if [ -f "$ROOT_DIR/.env" ] && ! grep -q "^VISION_MODEL=" "$ROOT_DIR/.env"; then
 fi
 
 # 7. Garantir modelos Ollama (LLM + Visao) — deixa tudo pronto
-echo "[5/5] Verificando modelos Ollama (gemma3:4b + qwen2.5vl)..."
+echo "[5/5] Verificando modelos Ollama (gemma3:4b + moondream)..."
 if ! command -v ollama >/dev/null 2>&1; then
     echo "[AVISO] Ollama nao encontrado. Instale em https://ollama.com"
-    echo "        Depois rode: ollama pull gemma3:4b && ollama pull qwen2.5vl"
+    echo "        Depois rode: ollama pull gemma3:4b && ollama pull moondream"
 else
     OLLAMA_MODEL_CFG="$("$PYTHON_EXE" -c "from core.config import config; print(config.ollama_model)" 2>/dev/null || echo "gemma3:4b")"
-    VISION_MODEL_CFG="$("$PYTHON_EXE" -c "from core.config import config; print(config.vision_model)" 2>/dev/null || echo "qwen2.5vl")"
+    VISION_MODEL_CFG="$("$PYTHON_EXE" -c "from core.config import config; print(config.vision_model)" 2>/dev/null || echo "moondream")"
     # Se daemon nao estiver rodando, avisa mas nao falha
     if ! ollama list >/dev/null 2>&1; then
         echo "[AVISO] Ollama nao esta rodando. Inicie com 'ollama serve' e rode novamente o setup para baixar os modelos."
@@ -132,6 +132,6 @@ fi
 echo ""
 echo "Setup concluido! Tudo no jeito."
 echo "  Python:  $PYTHON_EXE"
-echo "  Modelos Ollama: gemma3:4b + qwen2.5vl (verificados)"
+echo "  Modelos Ollama: gemma3:4b + moondream (verificados)"
 echo "  Para ativar manualmente:  source $VENV_DIR/bin/activate"
 echo ""

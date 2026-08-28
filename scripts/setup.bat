@@ -93,16 +93,16 @@ if exist ".env" (
     findstr /B /C:"VISION_MODEL=" ".env" >nul 2>nul
     if errorlevel 1 (
         echo [INFO] Adicionando VISION_MODEL padrao ao .env
-        echo VISION_MODEL=qwen2.5vl>> ".env"
+        echo VISION_MODEL=moondream>> ".env"
     )
 )
 
 :: 7. Garantir modelos Ollama - LLM e Visao - deixa tudo pronto
-echo [5/5] Verificando modelos Ollama - gemma3:4b + qwen2.5vl...
+echo [5/5] Verificando modelos Ollama - gemma3:4b + moondream...
 where ollama >nul 2>nul
 if errorlevel 1 (
     echo [AVISO] Ollama nao encontrado no PATH. Instale em https://ollama.com
-    echo         Depois rode: ollama pull gemma3:4b e ollama pull qwen2.5vl
+    echo         Depois rode: ollama pull gemma3:4b e ollama pull moondream
     goto :skip_ollama
 )
 :: Le modelos do .env via Python do venv - usa arquivo temp para evitar parsing de ;
@@ -119,7 +119,7 @@ if exist "%TEMP%\watson_vision.txt" (
     del "%TEMP%\watson_vision.txt" >nul 2>nul
 )
 if not defined OLLAMA_MODEL_CFG set "OLLAMA_MODEL_CFG=gemma3:4b"
-if not defined VISION_MODEL_CFG set "VISION_MODEL_CFG=qwen2.5vl"
+if not defined VISION_MODEL_CFG set "VISION_MODEL_CFG=moondream"
 :: Tenta listar - se daemon nao estiver rodando, avisa mas nao falha o setup
 ollama list >nul 2>nul
 if errorlevel 1 (
@@ -161,7 +161,7 @@ ver >nul
 echo.
 echo Setup concluido! Tudo no jeito.
 echo   Python:  %PYTHON_EXE%
-echo   Modelos Ollama: gemma3:4b + qwen2.5vl (verificados)
+echo   Modelos Ollama: gemma3:4b + moondream (verificados)
 echo   Para ativar manualmente:  %VENV_DIR%\Scripts\activate
 echo.
 if not "%~1"=="silent" pause
