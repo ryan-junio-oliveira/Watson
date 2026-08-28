@@ -196,6 +196,128 @@ class ModelListResponse(BaseModel):
     models: List[str] = Field(..., description="Lista de modelos disponíveis no Ollama")
 
 
+# ------------------------------------------------------------------ #
+# Métricas — response models (Swagger tipado)
+# ------------------------------------------------------------------ #
+
+
+class MetricsSummaryResponse(BaseModel):
+    llm_calls: int = Field(0, description="Total de chamadas LLM no período")
+    llm_success: int = Field(0, description="Chamadas LLM com sucesso")
+    llm_errors: int = Field(0, description="Chamadas LLM com erro")
+    total_prompt_tokens: int = Field(0, description="Soma de tokens de entrada")
+    total_completion_tokens: int = Field(0, description="Soma de tokens de saída")
+    total_tokens: int = Field(0, description="Soma total de tokens")
+    avg_eval_duration_ms: Optional[float] = Field(None, description="Média de eval_duration_ms (ms)")
+    requests: int = Field(0, description="Total de requisições de chat no período")
+    request_success: int = Field(0, description="Requisições com sucesso")
+    request_errors: int = Field(0, description="Requisições com erro")
+    avg_execution_ms: Optional[float] = Field(None, description="Média de execution_ms (ms)")
+    documents_indexed: int = Field(0, description="Documentos no manifest (último snapshot)")
+    chunks_indexed: int = Field(0, description="Chunks no manifest (último snapshot)")
+
+
+class TokenBucket(BaseModel):
+    ts: float = Field(..., description="Timestamp do bucket (início da hora, epoch seconds)")
+    input_tokens: int = Field(0, description="Tokens de entrada no bucket")
+    output_tokens: int = Field(0, description="Tokens de saída no bucket")
+    calls: int = Field(0, description="Quantidade de chamadas no bucket")
+
+
+class TokenSeriesResponse(BaseModel):
+    hours: float = Field(..., description="Janela solicitada em horas", examples=[24])
+    series: List[TokenBucket] = Field(default_factory=list, description="Série por bucket de 1h")
+
+
+class RequestBucket(BaseModel):
+    ts: float = Field(..., description="Timestamp do bucket (início da hora)")
+    requests: int = Field(0, description="Total de requisições no bucket")
+    success: int = Field(0, description="Requisições com sucesso no bucket")
+
+
+class RequestSeriesResponse(BaseModel):
+    hours: float = Field(..., description="Janela solicitada em horas")
+    series: List[RequestBucket] = Field(default_factory=list, description="Série por bucket de 1h")
+
+
+class ModelBucket(BaseModel):
+    model: str = Field(..., description="Nome do modelo", examples=["gemma3:4b"])
+    calls: int = Field(0, description="Chamadas no período")
+    input_tokens: int = Field(0, description="Tokens de entrada")
+    output_tokens: int = Field(0, description="Tokens de saída")
+
+
+class ModelsMetricsResponse(BaseModel):
+    models: List[ModelBucket] = Field(default_factory=list, description="Agregação por modelo")
+
+
+class LlmCallItem(BaseModel):
+    ts: float = Field(..., description="Timestamp epoch seconds")
+    model: str = Field(..., description="Modelo usado")
+    kind: str = Field("generate", description="generate | stream")
+    prompt_tokens: int = Field(0, description="Tokens de entrada")
+    completion_tokens: int = Field(0, description="Tokens de saída")
+    eval_duration_ms: float = Field(0, description="Duração de eval em ms")
+    success: int = Field(1, description="1=ok, 0=erro")
+    error: Optional[str] = Field(None, description="Mensagem de erro se houver")
+
+
+class LlmCallsResponse(BaseModel):
+    calls: List[LlmCallItem] = Field(default_factory=list, description="Últimas chamadas LLM (ordem decrescente)")
+
+
+class RequestLogItem(BaseModel):
+    ts: float = Field(..., description="Timestamp")
+    endpoint: str = Field("chat", description="Endpoint")
+    question: Optional[str] = Field(None, description="Pergunta do usuário")
+    mode: Optional[str] = Field(None, description="Modo usado")
+    provider: str = Field("rag", description="Provider")
+    evidence_count: int = Field(0, description="Evidências retornadas")
+    execution_ms: float = Field(0, description="Tempo de execução em ms")
+    analyze: int = Field(0, description="1 se analyze=true")
+    success: int = Field(1, description="1=ok, 0=erro")
+    error: Optional[str] = Field(None, description="Erro se houver")
+
+
+class RequestLogResponse(BaseModel):
+    requests: List[RequestLogItem] = Field(default_factory=list, description="Últimas requisições")
+
+
+class DocumentHistoryItem(BaseModel):
+    ts: float = Field(..., description="Timestamp do snapshot")
+    documents: int = Field(0, description="Documentos indexados")
+    chunks: int = Field(0, description="Chunks indexados")
+    by_type: Dict[str, Dict[str, int]] = Field(default_factory=dict, description="Por tipo de fonte")
+
+
+class DocumentHistoryResponse(BaseModel):
+    history: List[DocumentHistoryItem] = Field(default_factory=list, description="Histórico de snapshots")
+
+
+class IndexEventItem(BaseModel):
+    ts: float = Field(..., description="Timestamp")
+    documents_processed: int = Field(0, description="Documentos processados")
+    chunks_indexed: int = Field(0, description="Chunks indexados")
+    error: Optional[str] = Field(None, description="Erro se houver")
+
+
+class IndexEventsResponse(BaseModel):
+    events: List[IndexEventItem] = Field(default_factory=list, description="Eventos recentes")
+
+
+class AuthErrorResponse(BaseModel):
+    success: bool = Field(False, description="Sempre false em erro de auth")
+    detail: str = Field(..., description="Mensagem", examples=["Token de API inválido ou ausente."])
+
+    model_config = {"json_schema_extra": {"example": {"success": False, "detail": "Token de API inválido ou ausente."}}}
+
+
+class RateLimitErrorResponse(BaseModel):
+    success: bool = Field(False, description="Sempre false em rate limit")
+    detail: str = Field(..., description="Mensagem", examples=["Rate limit excedido. Tente novamente em 12s."])
+    error: ChatErrorDetail = Field(..., description="Detalhe com code RATE_LIMIT_EXCEEDED")
+
+
 logger: logging.Logger = None
 chatbot: ChatBot = None
 embedding_generator: EmbeddingGenerator = None
@@ -467,12 +589,15 @@ app = FastAPI(
     ## Funcionalidades
     - **Chat**: perguntas sobre documentos indexados (RAG).
     - **Streaming (SSE)**: tokens da resposta em tempo real + metadados finais.
-    - **Indexação**: `POST /api/index` (documentos).
-    - **Upload**: envie novos documentos (PDF, TXT, DOCX, XLSX, CSV, imagens).
-    - **Reindexação**: incremental por hash/versão; use `DELETE` de fontes via
-      limpeza ou reindexação controlada.
+    - **Indexação**: `POST /api/index` e `POST /api/index/documents` (incremental por hash/versão).
+    - **Indexação assíncrona**: `POST /api/index/async` + `GET /api/index/status/{job_id}` + `POST /api/index/cancel/{job_id}`.
+    - **Upload**: envie novos documentos (PDF, TXT, DOCX, XLSX, CSV, imagens) via `POST /api/documents/upload`.
+    - **Reindexação**: incremental por hash/versão; limpeza via `POST /api/clear*` (`/clear`, `/clear/documents`, `/clear/vectorstore`, `/drive/clear`).
     - **OCR seletivo**: Tesseract aplicado apenas em páginas sem texto nativo.
-    - **Saúde**: status da API e dependências.
+    - **Saúde**: status da API e dependências (`/api/health`, `/api/health/ready`).
+    - **Métricas**: séries e logs em `/api/metrics/*` (dashboard em `/dashboard`).
+    - **Autenticação**: quando `API_AUTH_TOKEN` configurado, exige `X-API-Token` ou `Authorization: Bearer` (exceto `/api/health*` e `/docs`).
+    - **Rate limiting**: `429` com `Retry-After` em `/api/chat` e `/api/chat/stream` (config `API_RATE_LIMIT`/`API_RATE_WINDOW`).
 
     ## Formato de Resposta
     Todas as respostas seguem um contrato estável:
@@ -521,6 +646,16 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
+    openapi_tags=[
+        {"name": "Chat", "description": "Perguntas RAG com streaming SSE opcional"},
+        {"name": "Indexação", "description": "Indexação síncrona e assíncrona (jobs)"},
+        {"name": "Documentos", "description": "Upload de documentos para indexação"},
+        {"name": "Google Drive", "description": "Listagem, seleção e sync do Drive"},
+        {"name": "Monitoramento", "description": "Health e readiness"},
+        {"name": "Métricas", "description": "Séries temporais, logs e histórico (usado pelo dashboard)"},
+        {"name": "Manutenção", "description": "Limpeza de documentos, vetores e métricas"},
+        {"name": "Modelos", "description": "Modelos Ollama disponíveis"},
+    ],
 )
 
 app.add_middleware(
@@ -530,6 +665,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Swagger: esquemas de segurança documentados (middleware real em require_api_token/rate_limit)
+from fastapi.security import APIKeyHeader, HTTPBearer
+
+_api_key_header = APIKeyHeader(name="X-API-Token", auto_error=False, description="Token configurado em API_AUTH_TOKEN")
+_bearer_scheme = HTTPBearer(auto_error=False, bearerFormat="JWT", description="Alternativa: Authorization: Bearer <token>")
+
+_COMMON_AUTH_RESPONSES = {
+    401: {"description": "Token de API inválido ou ausente (quando API_AUTH_TOKEN configurado)", "model": AuthErrorResponse},
+    429: {
+        "description": "Rate limit excedido — tente após Retry-After (apenas /api/chat e /api/chat/stream)",
+        "model": RateLimitErrorResponse,
+        "headers": {
+            "Retry-After": {"description": "Segundos até liberar", "schema": {"type": "integer"}},
+            "X-RateLimit-Limit": {"description": "Limite da janela", "schema": {"type": "integer"}},
+            "X-RateLimit-Remaining": {"description": "Restante na janela", "schema": {"type": "integer"}},
+            "X-RateLimit-Reset": {"description": "Epoch de reset", "schema": {"type": "integer"}},
+        },
+    },
+}
+# Endpoints isentos de auth (health/docs) não recebem 401
+_AUTH_EXEMPT = {"/api/health", "/api/health/ready"}
 
 
 @app.middleware("http")
@@ -650,10 +807,10 @@ async def rate_limit(request: Request, call_next):
     response_model=HealthResponse,
     tags=["Monitoramento"],
     summary="Verificar status da API",
+    description="Sempre retorna 200. Campo `status` indica `ok` ou `degraded` (Ollama indisponível). Isento de autenticação.",
     response_description="Status atual da API e seus componentes",
     responses={
-        200: {"description": "API funcionando normalmente", "model": HealthResponse},
-        503: {"description": "Ollama ou dependências indisponíveis", "model": ErrorResponse},
+        200: {"description": "API funcionando (ok ou degraded)", "model": HealthResponse},
     },
 )
 async def health():
@@ -684,6 +841,7 @@ async def health():
     response_model=ReadyResponse,
     tags=["Monitoramento"],
     summary="Readiness probe (k8s/docker)",
+    description="Retorna 200 com `status: ok | degraded` e `checks` por subsistema (vector_db_dir, manifest, ollama, metrics_db, embedding_cache). Isento de autenticação. `stale` indica docs no manifest sem arquivo no disco.",
     response_description="Detalha subsistemas: vector_db, manifest, ollama, metrics",
 )
 async def ready():
@@ -773,6 +931,7 @@ async def ready():
     response_description="Lista de nomes dos modelos disponíveis",
     responses={
         200: {"description": "Modelos listados com sucesso", "model": ModelListResponse},
+        401: {"description": "Token de API inválido ou ausente (quando API_AUTH_TOKEN configurado)", "model": AuthErrorResponse},
     },
 )
 async def list_models():
@@ -795,10 +954,13 @@ async def list_models():
     response_model=ChatSuccessResponse,
     tags=["Chat"],
     summary="Fazer uma pergunta ao Watson",
+    description="Responde usando RAG. Exige `X-API-Token` ou `Authorization: Bearer` quando `API_AUTH_TOKEN` configurado. Rate limited (padrão 30 req/60s por IP) — retorna 429 com `Retry-After` e headers `X-RateLimit-*`.",
     response_description="Resposta gerada com sucesso no formato padronizado",
     responses={
         200: {"description": "Resposta gerada com sucesso", "model": ChatSuccessResponse},
         400: {"description": "Pergunta inválida ou vazia", "model": ErrorResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+        429: {"description": "Rate limit excedido", "model": RateLimitErrorResponse},
         500: {"description": "Erro interno do servidor", "model": ChatErrorResponse},
         503: {"description": "Chatbot não foi inicializado", "model": ErrorResponse},
     },
@@ -857,6 +1019,7 @@ async def chat(request: ChatRequest, req: Request):
     "/api/chat/stream",
     tags=["Chat"],
     summary="Fazer uma pergunta ao Watson com resposta em streaming (SSE)",
+    description="SSE em `text/event-stream`. Rate limited e autenticado como `/api/chat`.",
     response_description="Stream de eventos SSE com tokens JSON da resposta + metadados finais",
     responses={
         200: {
@@ -869,8 +1032,11 @@ async def chat(request: ChatRequest, req: Request):
                 "(confidence, sources, metadata)."
             ),
         },
-        400: {"description": "Pergunta inválida ou vazia"},
-        503: {"description": "Chatbot não foi inicializado"},
+        400: {"description": "Pergunta inválida ou vazia", "model": ErrorResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+        422: {"description": "Validation Error", "model": ErrorResponse},
+        429: {"description": "Rate limit excedido", "model": RateLimitErrorResponse},
+        503: {"description": "Chatbot não foi inicializado", "model": ErrorResponse},
     },
 )
 async def chat_stream(request: ChatRequest, req: Request):
@@ -956,8 +1122,11 @@ async def chat_stream(request: ChatRequest, req: Request):
     response_model=List[DriveItem],
     tags=["Google Drive"],
     summary="Listar itens de uma pasta do Google Drive",
+    description="Lista pastas/arquivos de uma pasta pública. Requer `API_AUTH_TOKEN` se configurado.",
     response_description="Lista de pastas e arquivos da pasta",
     responses={
+        200: {"description": "Itens listados", "model": List[DriveItem]},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
         404: {"description": "Pasta não encontrada", "model": ErrorResponse},
     },
 )
@@ -990,7 +1159,12 @@ async def drive_folder(folder_id: str, req: Request):
     response_model=DriveSelectionResponse,
     tags=["Google Drive"],
     summary="Obter a seleção de pastas para indexação",
+    description="Retorna pastas selecionadas para sync/indexação. Requer auth se configurado.",
     response_description="Pastas atualmente selecionadas",
+    responses={
+        200: {"description": "Seleção atual", "model": DriveSelectionResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+    },
 )
 async def drive_selection_get(req: Request):
     """Retorna quais subpastas do Drive estão selecionadas para indexação."""
@@ -1015,7 +1189,12 @@ async def drive_selection_get(req: Request):
     response_model=DriveSelectionResponse,
     tags=["Google Drive"],
     summary="Salvar a seleção de pastas para indexação",
+    description="Salva pastas para sync. Enviar `{\"folders\": []}` usa pasta raiz inteira. Requer auth se configurado.",
     response_description="Seleção salva",
+    responses={
+        200: {"description": "Seleção salva", "model": DriveSelectionResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+    },
 )
 async def drive_selection_save(payload: DriveSelectionSaveRequest, req: Request):
     """Salva quais subpastas do Drive serão sincronizadas/indexadas.
@@ -1047,7 +1226,13 @@ async def drive_selection_save(payload: DriveSelectionSaveRequest, req: Request)
     response_model=DriveSyncResponse,
     tags=["Google Drive"],
     summary="Sincronizar arquivos selecionados do Google Drive",
+    description="Baixa arquivos das pastas selecionadas. Retorna 400 se `GOOGLE_DRIVE_FOLDER_ID` não configurado. Requer auth se configurado.",
     response_description="Relatório do sync",
+    responses={
+        200: {"description": "Relatório do sync", "model": DriveSyncResponse},
+        400: {"description": "Google Drive não configurado", "model": ErrorResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+    },
 )
 async def drive_sync(req: Request):
     """Baixa os arquivos das pastas selecionadas para o diretório local,
@@ -1083,7 +1268,12 @@ async def drive_sync(req: Request):
     response_model=DriveClearResponse,
     tags=["Google Drive"],
     summary="Remover arquivos sincronizados do Google Drive",
+    description="Apaga arquivos do `GOOGLE_DRIVE_DEST_DIR` e limpa seleção. Requer auth se configurado.",
     response_description="Quantidade de arquivos removidos",
+    responses={
+        200: {"description": "Arquivos removidos", "model": DriveClearResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+    },
 )
 async def drive_clear(req: Request):
     """Apaga os arquivos sincronizados (e a seleção) do diretório local.
@@ -1117,9 +1307,12 @@ async def drive_clear(req: Request):
     response_model=IndexResponse,
     tags=["Indexação"],
     summary="Indexar documentos",
+    description="Indexa de forma incremental (hash/versão). Bloqueante — para background use `POST /api/index/async`. Requer auth se configurado.",
     response_description="Resultado da indexação incluindo documentos e chunks processados",
     responses={
         200: {"description": "Indexação concluída", "model": IndexResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+        500: {"description": "Erro na indexação", "model": ErrorResponse},
         503: {"description": "Indexador não foi inicializado", "model": ErrorResponse},
     },
 )
@@ -1136,9 +1329,12 @@ async def index_all():
     response_model=IndexResponse,
     tags=["Indexação"],
     summary="Indexar apenas documentos",
+    description="Atalho para `POST /api/index` (documentos com OCR seletivo, incremental). Requer auth se configurado.",
     response_description="Resultado da indexação de documentos",
     responses={
         200: {"description": "Indexação concluída", "model": IndexResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+        500: {"description": "Erro na indexação", "model": ErrorResponse},
         503: {"description": "Indexador não foi inicializado", "model": ErrorResponse},
     },
 )
@@ -1183,9 +1379,13 @@ class IndexJobStatus(BaseModel):
     response_model=IndexJobResponse,
     tags=["Indexação"],
     summary="Iniciar indexação em segundo plano",
+    description="Retorna `job_id` imediatamente. Consulte `GET /api/index/status/{job_id}`. Body: `{\"mode\": \"all|documents\", \"sync_drive\": false}`. Retorna 409 se já há job em andamento.",
     response_description="Retorna o job_id imediatamente; consulte o status via GET /api/index/status/{job_id}",
     responses={
         200: {"description": "Job iniciado", "model": IndexJobResponse},
+        400: {"description": "Modo inválido (mode deve ser all|documents)", "model": ErrorResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+        409: {"description": "Já existe indexação em andamento", "model": ErrorResponse},
         503: {"description": "Indexador não foi inicializado", "model": ErrorResponse},
     },
 )
@@ -1219,9 +1419,11 @@ async def index_async(payload: IndexJobRequest):
     response_model=IndexJobStatus,
     tags=["Indexação"],
     summary="Consultar status de um job de indexação",
+    description="`status: running | done | error | cancelled`. Requer auth se configurado.",
     response_description="Status atual do job (running, done ou error)",
     responses={
         200: {"description": "Status do job", "model": IndexJobStatus},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
         404: {"description": "Job não encontrado", "model": ErrorResponse},
     },
 )
@@ -1252,9 +1454,11 @@ class IndexCancelResponse(BaseModel):
     response_model=IndexCancelResponse,
     tags=["Indexação"],
     summary="Cancelar um job de indexação em andamento",
+    description="Marca `cancel_requested` — a thread verifica entre documentos. Requer auth se configurado.",
     response_description="Solicita o cancelamento cooperativo do job",
     responses={
         200: {"description": "Cancelamento solicitado", "model": IndexCancelResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
         404: {"description": "Job não encontrado", "model": ErrorResponse},
         409: {"description": "Job não está em andamento", "model": ErrorResponse},
     },
@@ -1366,10 +1570,15 @@ async def _run_index(
     response_model=DocUploadResponse,
     tags=["Documentos"],
     summary="Fazer upload de documento",
+    description="Envia para `DOCUMENTS_DIR` (máx. 50MB). Nome sanitizado, 409 se já existe. Depois `POST /api/index`. Requer auth se configurado.",
     response_description="Resultado do upload com nome e tamanho do arquivo",
     responses={
         200: {"description": "Upload realizado com sucesso", "model": DocUploadResponse},
-        400: {"description": "Nenhum arquivo enviado", "model": ErrorResponse},
+        400: {"description": "Nenhum arquivo enviado / nome inválido", "model": ErrorResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+        409: {"description": "Arquivo já existe", "model": ErrorResponse},
+        413: {"description": "Arquivo excede 50MB", "model": ErrorResponse},
+        500: {"description": "Erro ao salvar", "model": ErrorResponse},
     },
 )
 async def upload_document(file: UploadFile = File(..., description="Arquivo a ser enviado (PDF, DOCX, TXT, MD, CSV, XLSX, XLS, JPG, PNG, BMP, TIFF)")):
@@ -1420,9 +1629,12 @@ async def upload_document(file: UploadFile = File(..., description="Arquivo a se
     response_model=ClearResponse,
     tags=["Manutenção"],
     summary="Limpar toda a memória (documentos + banco vetorial)",
+    description="Remove arquivos de `DOCUMENTS_DIR` e vetores do Chroma; também limpa métricas. Requer auth se configurado.",
     response_description="Resultado da limpeza",
     responses={
         200: {"description": "Memória limpa com sucesso", "model": ClearResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+        500: {"description": "Erro na limpeza", "model": ErrorResponse},
         503: {"description": "Indexador não foi inicializado", "model": ErrorResponse},
     },
 )
@@ -1435,9 +1647,12 @@ async def clear_all():
     response_model=ClearResponse,
     tags=["Manutenção"],
     summary="Limpar apenas documentos",
+    description="Remove só arquivos de `DOCUMENTS_DIR`. Requer auth se configurado.",
     response_description="Resultado da limpeza de documentos",
     responses={
         200: {"description": "Documentos removidos", "model": ClearResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+        500: {"description": "Erro na limpeza", "model": ErrorResponse},
         503: {"description": "Indexador não foi inicializado", "model": ErrorResponse},
     },
 )
@@ -1450,9 +1665,12 @@ async def clear_documents():
     response_model=ClearResponse,
     tags=["Manutenção"],
     summary="Limpar apenas banco vetorial",
+    description="Remove vetores e limpa métricas (`metrics.db`). Requer auth se configurado.",
     response_description="Resultado da limpeza do banco vetorial",
     responses={
         200: {"description": "Banco vetorial limpo", "model": ClearResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+        500: {"description": "Erro na limpeza", "model": ErrorResponse},
         503: {"description": "Indexador não foi inicializado", "model": ErrorResponse},
     },
 )
@@ -1504,8 +1722,15 @@ def _get_metrics_store():
 
 @app.get(
     "/api/metrics/summary",
+    response_model=MetricsSummaryResponse,
     tags=["Métricas"],
     summary="Resumo das métricas do Watson",
+    description="Agregado no intervalo `hours` (0 = todo histórico). Usado pelos KPIs do dashboard.",
+    response_description="Resumo agregado",
+    responses={
+        200: {"description": "Resumo agregado", "model": MetricsSummaryResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+    },
 )
 async def metrics_summary(hours: Optional[float] = 24.0):
     store = _get_metrics_store()
@@ -1518,8 +1743,15 @@ async def metrics_summary(hours: Optional[float] = 24.0):
 
 @app.get(
     "/api/metrics/tokens",
+    response_model=TokenSeriesResponse,
     tags=["Métricas"],
     summary="Série temporal de tokens (input/output)",
+    description="Buckets de 1h com `input_tokens/output_tokens/calls`. Usado no gráfico Tokens do dashboard.",
+    response_description="Série por hora",
+    responses={
+        200: {"description": "Série por hora", "model": TokenSeriesResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+    },
 )
 async def metrics_tokens(hours: float = 24.0):
     store = _get_metrics_store()
@@ -1528,8 +1760,15 @@ async def metrics_tokens(hours: float = 24.0):
 
 @app.get(
     "/api/metrics/requests",
+    response_model=RequestSeriesResponse,
     tags=["Métricas"],
     summary="Série temporal de requisições de chat",
+    description="Buckets de 1h com `requests/success`. Usado no gráfico Requisições do dashboard.",
+    response_description="Série por hora",
+    responses={
+        200: {"description": "Série por hora", "model": RequestSeriesResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+    },
 )
 async def metrics_requests(hours: float = 24.0):
     store = _get_metrics_store()
@@ -1538,8 +1777,15 @@ async def metrics_requests(hours: float = 24.0):
 
 @app.get(
     "/api/metrics/models",
+    response_model=ModelsMetricsResponse,
     tags=["Métricas"],
     summary="Tokens por modelo",
+    description="Agregação por modelo no intervalo `hours`. Usado no gráfico Tokens por Modelo.",
+    response_description="Agregação por modelo",
+    responses={
+        200: {"description": "Agregação por modelo", "model": ModelsMetricsResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+    },
 )
 async def metrics_models(hours: float = 24.0):
     store = _get_metrics_store()
@@ -1548,8 +1794,15 @@ async def metrics_models(hours: float = 24.0):
 
 @app.get(
     "/api/metrics/llm-calls",
+    response_model=LlmCallsResponse,
     tags=["Métricas"],
     summary="Últimas chamadas ao LLM",
+    description="Últimas `limit` chamadas ao Ollama (tokens, duração, sucesso). Tabela do dashboard.",
+    response_description="Lista decrescente por id",
+    responses={
+        200: {"description": "Últimas chamadas", "model": LlmCallsResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+    },
 )
 async def metrics_llm_calls(limit: int = 50):
     store = _get_metrics_store()
@@ -1558,8 +1811,15 @@ async def metrics_llm_calls(limit: int = 50):
 
 @app.get(
     "/api/metrics/requests-log",
+    response_model=RequestLogResponse,
     tags=["Métricas"],
     summary="Últimas requisições de chat",
+    description="Últimas `limit` requisições de chat (pergunta, evidências, tempo). Tabela do dashboard.",
+    response_description="Lista decrescente por id",
+    responses={
+        200: {"description": "Últimas requisições", "model": RequestLogResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+    },
 )
 async def metrics_requests_log(limit: int = 50):
     store = _get_metrics_store()
@@ -1568,8 +1828,15 @@ async def metrics_requests_log(limit: int = 50):
 
 @app.get(
     "/api/metrics/documents",
+    response_model=DocumentHistoryResponse,
     tags=["Métricas"],
     summary="Histórico de dados indexados",
+    description="Snapshots de `documents/chunks/by_type`. Usado no gráfico Documentos Indexados.",
+    response_description="Histórico de snapshots",
+    responses={
+        200: {"description": "Histórico de snapshots", "model": DocumentHistoryResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+    },
 )
 async def metrics_documents():
     store = _get_metrics_store()
@@ -1578,12 +1845,78 @@ async def metrics_documents():
 
 @app.get(
     "/api/metrics/index-events",
+    response_model=IndexEventsResponse,
     tags=["Métricas"],
     summary="Eventos recentes de indexação",
+    description="Últimos `limit` eventos de indexação (docs/chunks/erro). Tabela do dashboard.",
+    response_description="Eventos recentes",
+    responses={
+        200: {"description": "Eventos recentes", "model": IndexEventsResponse},
+        401: {"description": "Token de API inválido ou ausente", "model": AuthErrorResponse},
+    },
 )
 async def metrics_index_events(limit: int = 50):
     store = _get_metrics_store()
     return {"events": store.recent_index_events(limit)}
+
+
+def _custom_openapi():
+    """Injeta securitySchemes (X-API-Token / Bearer) no OpenAPI — o middleware real valida, o Swagger só documenta."""
+    from fastapi.openapi.utils import get_openapi
+
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+        tags=app.openapi_tags,
+    )
+    openapi_schema.setdefault("components", {}).setdefault("securitySchemes", {}).update(
+        {
+            "ApiToken": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-API-Token",
+                "description": "Token configurado em API_AUTH_TOKEN. Alternativa: Authorization: Bearer <token>. Isento em /api/health*, /docs, /redoc, /dashboard.",
+            },
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+                "description": "Mesmo token de API_AUTH_TOKEN via Authorization: Bearer",
+            },
+        }
+    )
+    # Aplica security global apenas em paths /api/* não isentos
+    for path, methods in openapi_schema.get("paths", {}).items():
+        if not path.startswith("/api/") or path in ("/api/health", "/api/health/ready"):
+            continue
+        for method in methods.values():
+            if isinstance(method, dict) and "security" not in method:
+                method["security"] = [{"ApiToken": []}, {"BearerAuth": []}]
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = _custom_openapi  # type: ignore[assignment]
+
+
+@app.get("/", include_in_schema=False)
+async def chat_page():
+    # Rota raiz serve o Chat (interface premium). Funciona tanto em dev (cli/api.py) quanto em prod (api:app)
+    candidates = [
+        Path(__file__).resolve().parent.parent / "presentation" / "chat.html",
+        Path(__file__).resolve().parent / "presentation" / "chat.html",
+        Path("presentation/chat.html").resolve(),
+        Path(__file__).resolve().parent.parent / "presentation" / "dashboard.html",
+    ]
+    for p in candidates:
+        if p.exists():
+            return FileResponse(str(p), media_type="text/html", headers={"Cache-Control": "no-store"})
+    # último recurso: tenta via FileResponse direto do disco
+    raise HTTPException(status_code=404, detail="Chat interface not found. Verifique presentation/chat.html")
 
 
 @app.get("/dashboard", include_in_schema=False)

@@ -1,649 +1,407 @@
 <!DOCTYPE html>
-<html lang="pt-BR" class="dark">
+<html lang="pt-BR" data-bs-theme="dark">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Watson · AI Dashboard</title>
-  <!-- Tailwind CSS v3 -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Font Awesome 6 -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" />
-  <!-- Google Fonts (Poppins & Montserrat) -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&family=Montserrat:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-
-  <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['Poppins', 'system-ui', 'sans-serif'],
-            heading: ['Montserrat', 'system-ui', 'sans-serif'],
-          },
-          colors: {
-            brand: '#3b82f6',
-          }
-        }
-      }
-    }
-  </script>
-  <style>
-    /* Premium background mesh & grid overlay using standard css */
-    body {
-      background-attachment: fixed;
-      transition: background-color 0.3s ease, color 0.3s ease;
-    }
-    .dark body {
-      background-color: #030712;
-      background-image: 
-        radial-gradient(ellipse 60% 50% at 20% 0%, rgba(59,130,246,0.08) 0%, transparent 60%),
-        radial-gradient(ellipse 50% 40% at 85% 10%, rgba(139,92,246,0.06) 0%, transparent 50%),
-        linear-gradient(160deg, #030712 0%, #080f1e 50%, #0b1326 100%);
-    }
-    html:not(.dark) body {
-      background-color: #f3f4f6;
-      background-image: 
-        radial-gradient(ellipse 60% 50% at 20% 0%, rgba(59,130,246,0.05) 0%, transparent 60%),
-        radial-gradient(ellipse 50% 40% at 85% 10%, rgba(139,92,246,0.04) 0%, transparent 50%),
-        linear-gradient(160deg, #f3f4f6 0%, #eef2f6 50%, #e5eaf2 100%);
-    }
-    body::before {
-      content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
-      background-image: linear-gradient(var(--grid-color) 1px, transparent 1px), linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
-      background-size: 60px 60px;
-    }
-    :root { --grid-color: rgba(59,130,246,0.02); }
-    .dark { --grid-color: rgba(59,130,246,0.035); }
-
-    /* Custom scrollbar */
-    .scroll-area::-webkit-scrollbar { width: 4px; }
-    .scroll-area::-webkit-scrollbar-track { background: transparent; }
-    .scroll-area::-webkit-scrollbar-thumb { background: rgba(59, 130, 246, 0.3); border-radius: 2px; }
-    
-    /* Auto-refresh indicator ring */
-    @keyframes countdown {
-      from { stroke-dashoffset: 100; }
-      to { stroke-dashoffset: 0; }
-    }
-    .refresh-ring {
-      stroke-dasharray: 100; stroke-dashoffset: 100;
-      animation: countdown 15s linear infinite;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Watson · Command Center — Premium</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{ --bs-font-sans-serif:'Poppins',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; --bs-body-font-family:'Poppins',system-ui,sans-serif; }
+  body{ font-family:'Poppins',system-ui,sans-serif; letter-spacing:-.011em; -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
+  .font-mono{ font-family:'JetBrains Mono',monospace !important; }
+  body::before{ content:''; position:fixed; inset:0; z-index:-1; pointer-events:none;
+    background: radial-gradient(1100px 600px at 10% -10%, rgba(13,110,253,.09), transparent 60%),
+                radial-gradient(900px 500px at 92% 0%, rgba(111,66,193,.07), transparent 60%),
+                radial-gradient(900px 600px at 50% 115%, rgba(25,135,84,.04), transparent 70%); }
+  .card{ border:1px solid var(--bs-border-color-translucent); }
+  .card-header{ border-bottom:1px solid var(--bs-border-color-translucent); }
+  .kpi-card{ border:0; box-shadow:0 2px 8px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.04); transition: transform .22s cubic-bezier(.2,.8,.2,1), box-shadow .22s ease; overflow:hidden; position:relative; }
+  .kpi-card::before{ content:''; position:absolute; top:0; left:0; right:0; height:3px; }
+  .kpi-card.c-primary::before{ background:linear-gradient(90deg,#0d6efd,#6f42c1); }
+  .kpi-card.c-violet::before{ background:linear-gradient(90deg,#6f42c1,#d63384); }
+  .kpi-card.c-info::before{ background:linear-gradient(90deg,#0dcaf0,#6366f1); }
+  .kpi-card.c-success::before{ background:linear-gradient(90deg,#198754,#20c997); }
+  .kpi-card.c-warning::before{ background:linear-gradient(90deg,#ffc107,#fd7e14); }
+  .kpi-card:hover{ transform:translateY(-4px); box-shadow:0 16px 40px rgba(0,0,0,.12) !important; }
+  [data-bs-theme="dark"] .kpi-card{ box-shadow:0 8px 28px rgba(0,0,0,.28); }
+  [data-bs-theme="dark"] .kpi-card:hover{ box-shadow:0 20px 48px rgba(0,0,0,.42) !important; }
+  .premium-icon{ width:46px; height:46px; border-radius:12px; display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden; flex-shrink:0; }
+  .premium-icon::after{ content:''; position:absolute; inset:0; border-radius:inherit; background:radial-gradient(130% 130% at 30% 18%, rgba(255,255,255,.18), transparent 58%); }
+  .pulse{ width:8px; height:8px; border-radius:50%; position:relative; display:inline-block; }
+  .pulse::after{ content:''; position:absolute; inset:0; border-radius:50%; animation:pulse 1.9s ease-out infinite; }
+  .pulse-success{ background:#198754; box-shadow:0 0 0 4px rgba(25,135,84,.14); } .pulse-success::after{ background:rgba(25,135,84,.32); }
+  .pulse-warning{ background:#ffc107; box-shadow:0 0 0 4px rgba(255,193,7,.14); } .pulse-warning::after{ background:rgba(255,193,7,.32); }
+  .pulse-danger{ background:#dc3545; box-shadow:0 0 0 4px rgba(220,53,69,.14); } .pulse-danger::after{ background:rgba(220,53,69,.32); }
+  @keyframes pulse{ 0%{ transform:scale(1); opacity:1 } 100%{ transform:scale(2.5); opacity:0 } }
+  .section-divider{ display:flex; align-items:center; gap:1rem; }
+  .section-divider hr{ flex:1; opacity:.10; }
+  .section-badge{ letter-spacing:.14em; font-size:.60rem; font-weight:800; padding:.52rem .9rem; }
+  .table thead th{ font-size:.64rem; letter-spacing:.07em; font-weight:700; text-transform:uppercase; color:var(--bs-secondary-color); border-bottom-width:1px; white-space:nowrap; background:var(--bs-tertiary-bg); position:sticky; top:0; z-index:1; }
+  .table tbody tr{ transition: background .14s ease; }
+  .table tbody tr:hover{ background:rgba(13,110,253,.04); }
+  [data-bs-theme="dark"] .table tbody tr:hover{ background:rgba(99,102,241,.06); }
+  .chart-box{ position:relative; }
+  .navbar{ backdrop-filter:saturate(1.18) blur(10px); }
+  @keyframes fadeUp{ from{ opacity:0; transform:translateY(8px) } to{ opacity:1; transform:translateY(0) } }
+  .fade-up{ animation:fadeUp .45s ease both; }
+  .fade-up:nth-child(1){ animation-delay:.02s } .fade-up:nth-child(2){ animation-delay:.06s } .fade-up:nth-child(3){ animation-delay:.10s } .fade-up:nth-child(4){ animation-delay:.14s } .fade-up:nth-child(5){ animation-delay:.18s }
+</style>
 </head>
-<body class="text-slate-900 dark:text-slate-100 min-h-screen flex flex-col font-sans selection:bg-blue-500/30">
+<body class="bg-body-tertiary">
 
-  <!-- Header -->
-  <header class="sticky top-0 z-50 backdrop-blur-xl border-b border-slate-200/50 dark:border-white/10 bg-white/70 dark:bg-slate-950/70 transition-all duration-300">
-    <div class="max-w-7xl mx-auto px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-      <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center shadow-[0_0_20px_rgba(59,130,246,0.35)]">
-          <i class="fa-solid fa-robot text-white text-lg"></i>
-        </div>
-        <div>
-          <div class="flex items-center gap-2">
-            <span class="text-lg font-bold tracking-tight">Watson</span>
-            <span class="text-[9px] px-2 py-0.5 rounded bg-blue-500/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 font-bold uppercase tracking-wider">AI Platform</span>
-          </div>
-          <p class="text-xs text-slate-500 dark:text-slate-400">Sistema RAG &amp; Agente de IA</p>
-        </div>
+<nav class="navbar navbar-expand-lg bg-body border-bottom sticky-top shadow-sm">
+  <div class="container-fluid px-3 px-lg-4 py-1" style="max-width:1440px">
+    <a class="navbar-brand d-flex align-items-center gap-3" href="#">
+      <span class="rounded-3 d-flex align-items-center justify-content-center text-white shadow" style="width:42px;height:42px;background:linear-gradient(135deg,#0d6efd 0%,#6f42c1 100%)"><i class="fa-solid fa-bolt"></i></span>
+      <span class="d-flex flex-column lh-1">
+        <span class="d-flex align-items-center gap-2">
+          <span class="fw-bold" style="font-size:1.15rem;letter-spacing:-.03em">Watson</span>
+          <span class="badge text-bg-primary fw-bold border border-white border-opacity-10" style="font-size:.52rem;letter-spacing:.10em">AI PLATFORM</span>
+          <span class="badge rounded-pill text-bg-light border d-none d-md-inline-flex align-items-center gap-1 fw-semibold" style="font-size:.60rem"><span class="bg-success rounded-circle" style="width:6px;height:6px"></span> Enterprise</span>
+        </span>
+        <small class="text-body-secondary fw-medium" style="font-size:.68rem;letter-spacing:.02em">Sistema RAG &amp; Agente de IA · Command Center</small>
+      </span>
+    </a>
+    <button class="navbar-toggler border-0 shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#topNav"><span class="navbar-toggler-icon"></span></button>
+    <div class="collapse navbar-collapse" id="topNav">
+      <div class="ms-lg-4 d-none d-xl-flex align-items-center gap-2 small">
+        <span class="d-inline-flex align-items-center gap-2 text-body-secondary"><i class="bi bi-shield-check text-success"></i> Monitoramento em tempo real</span>
+        <span class="vr"></span>
+        <span id="header-doc-info" class="fw-semibold text-body">—</span>
       </div>
-
-      <!-- Controls -->
-      <div class="flex flex-wrap items-center gap-3">
-        <!-- Live Clock -->
-        <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200/50 dark:border-white/10 text-xs text-slate-500 dark:text-slate-400">
-          <i class="fa-regular fa-clock text-blue-500"></i>
-          <span id="clock" class="font-mono font-medium"></span>
+      <div class="ms-auto d-flex flex-wrap align-items-center gap-2 mt-3 mt-lg-0">
+        <span class="badge rounded-pill text-bg-light border d-inline-flex align-items-center gap-2 fw-normal px-3 py-2 shadow-sm">
+          <span class="pulse pulse-success"></span>
+          <span id="clock" class="font-mono small fw-semibold">--:--:--</span>
+          <span id="clock-date" class="text-body-secondary small d-none d-lg-inline border-start ps-2 ms-1">—</span>
+        </span>
+        <div class="btn-group btn-group-sm shadow-sm" role="group" id="headerRange">
+          <button type="button" class="btn btn-primary active fw-semibold px-3" data-range="6">6h</button>
+          <button type="button" class="btn btn-outline-secondary fw-medium px-3" data-range="24">24h</button>
+          <button type="button" class="btn btn-outline-secondary fw-medium px-3" data-range="72">3d</button>
+          <button type="button" class="btn btn-outline-secondary fw-medium px-3" data-range="168">7d</button>
         </div>
-
-        <!-- Range -->
-        <div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-900/60 p-1 rounded-xl border border-slate-200/50 dark:border-white/10" id="headerRange">
-          <button class="px-3 py-1 text-xs font-semibold rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-white transition-all [&.active]:bg-blue-500 [&.active]:text-white active" data-range="6">6h</button>
-          <button class="px-3 py-1 text-xs font-semibold rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-white transition-all [&.active]:bg-blue-500 [&.active]:text-white" data-range="24">24h</button>
-          <button class="px-3 py-1 text-xs font-semibold rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-white transition-all [&.active]:bg-blue-500 [&.active]:text-white" data-range="72">3d</button>
-          <button class="px-3 py-1 text-xs font-semibold rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-white transition-all [&.active]:bg-blue-500 [&.active]:text-white" data-range="168">7d</button>
-        </div>
-
-        <!-- Mode Toggle -->
-        <button id="themeToggle" onclick="toggleTheme()" class="w-9 h-9 rounded-lg border border-slate-200/50 dark:border-white/10 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-white transition-all">
-          <i class="fa-solid fa-sun block dark:hidden"></i>
-          <i class="fa-solid fa-moon hidden dark:block text-blue-400"></i>
-        </button>
-
-        <!-- Refresh -->
-        <button onclick="refresh()" id="refreshBtn" class="w-9 h-9 rounded-lg border border-slate-200/50 dark:border-white/10 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-white transition-all">
-          <i class="fa-solid fa-arrows-rotate text-sm" id="refreshIcon"></i>
-        </button>
-      </div>
-    </div>
-
-    <!-- Status Sub-bar -->
-    <div class="border-t border-slate-200/50 dark:border-white/10 bg-slate-50/50 dark:bg-slate-900/20 px-6 py-2">
-      <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4 text-xs">
-        <div class="flex flex-wrap items-center gap-3" id="healthBar">
-          <div id="healthOverall" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 font-semibold">
-            <span class="status-dot"></span>
-            <span id="healthOverallText">Online</span>
-          </div>
-          <span class="text-slate-400 dark:text-slate-500">|</span>
-          <span id="healthRag" class="text-slate-500 dark:text-slate-400"><i class="fa-solid fa-microchip text-blue-500/70 mr-1"></i> RAG Engine</span>
-          <span id="healthLlm" class="text-slate-500 dark:text-slate-400"><i class="fa-solid fa-brain text-violet-500/70 mr-1"></i> LLM API</span>
-          <span id="healthDb" class="text-slate-500 dark:text-slate-400"><i class="fa-solid fa-database text-cyan-500/70 mr-1"></i> Vector DB</span>
-          <span id="healthStale" class="hidden inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-[10px] font-bold" title="Documentos no manifest sem arquivo no disco"><i class="fa-solid fa-triangle-exclamation mr-1"></i> <span id="healthStaleText"></span> stale</span>
-        </div>
-
-        <div class="flex items-center gap-3 text-slate-400">
-          <span id="lastUpdated"></span>
-          <div class="flex items-center gap-1.5">
-            <svg class="w-3.5 h-3.5" viewBox="0 0 36 36">
-              <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(59,130,246,0.1)" stroke-width="3"/>
-              <circle cx="18" cy="18" r="16" fill="none" stroke="#3b82f6" stroke-width="3" stroke-linecap="round" class="refresh-ring" transform="rotate(-90 18 18)"/>
-            </svg>
-            <span class="text-[10px]">15s</span>
-          </div>
+        <div class="btn-group btn-group-sm shadow-sm">
+          <button class="btn btn-outline-secondary" onclick="toggleTheme()" title="Alternar tema"><i class="fa-solid fa-circle-half-stroke"></i></button>
+          <button class="btn btn-outline-secondary d-none d-sm-inline-flex align-items-center fw-medium" onclick="toggleAutoRefresh()" id="autoBtn"><span class="bg-success rounded-circle me-2" style="width:7px;height:7px;display:inline-block" id="autoDot"></span> Auto</button>
+          <button class="btn btn-primary px-3" onclick="refresh()" id="refreshBtn" title="Atualizar (R)"><i class="fa-solid fa-rotate" id="refreshIcon"></i></button>
         </div>
       </div>
     </div>
-  </header>
+  </div>
+</nav>
 
-  <!-- Main View -->
-  <main class="flex-grow max-w-7xl w-full mx-auto px-6 py-8 space-y-6 z-10">
-    
-    <!-- KPIs -->
-    <div id="kpiGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4"></div>
+<div class="bg-body border-bottom">
+  <div class="container-fluid px-3 px-lg-4 py-2 d-flex flex-wrap align-items-center gap-2 small" style="max-width:1440px">
+    <span id="healthOverall" class="badge rounded-pill text-bg-success d-inline-flex align-items-center gap-2 px-3 py-2 fw-bold shadow-sm"><i class="bi bi-circle-fill" style="font-size:.42rem"></i> <span id="healthOverallText">Online</span></span>
+    <span class="vr d-none d-sm-block mx-1"></span>
+    <span id="healthRag" class="text-body-secondary fw-medium d-inline-flex align-items-center gap-1"><i class="fa-solid fa-microchip text-primary"></i> RAG</span>
+    <span class="text-body-tertiary">·</span>
+    <span id="healthLlm" class="text-body-secondary fw-medium d-inline-flex align-items-center gap-1"><i class="fa-solid fa-brain text-info"></i> LLM</span>
+    <span class="text-body-tertiary">·</span>
+    <span id="healthDb" class="text-body-secondary fw-medium d-inline-flex align-items-center gap-1"><i class="fa-solid fa-database text-success"></i> Vector</span>
+    <span id="healthStale" class="badge rounded-pill text-bg-warning d-none px-3 shadow-sm"><i class="fa-solid fa-triangle-exclamation me-1"></i><span id="healthStaleText">0</span> stale</span>
+    <span class="ms-auto d-flex align-items-center gap-2 text-body-secondary">
+      <span class="d-none d-md-inline-flex align-items-center gap-1 small"><i class="bi bi-clock-history"></i> <span id="lastUpdated" class="fw-medium">—</span></span>
+      <span class="d-none d-md-inline vr"></span>
+      <span class="badge text-bg-light border font-mono fw-semibold px-2 py-1 d-inline-flex align-items-center gap-1 small"><i class="bi bi-arrow-repeat"></i> <span id="countdownText">15s</span></span>
+      <button class="btn btn-link btn-sm p-0 text-decoration-none fw-semibold small" onclick="toggleAutoRefresh()" id="autoToggleText">pausar</button>
+    </span>
+  </div>
+</div>
 
-    <!-- Charts Row 1 -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div class="bg-white/60 dark:bg-slate-900/40 border border-slate-200/50 dark:border-white/10 rounded-2xl p-5 backdrop-blur-xl">
-        <div class="flex items-center justify-between mb-4">
-          <div class="flex items-center gap-2">
-            <i class="fa-solid fa-coins text-blue-500"></i>
-            <h2 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Tokens Input × Output</h2>
-          </div>
-          <div class="flex gap-1" id="tokensRangeBar">
-            <button class="px-2 py-0.5 text-xs font-semibold rounded text-slate-500 hover:text-slate-800 dark:hover:text-white transition-all [&.active]:bg-blue-500/20 [&.active]:text-blue-600 dark:[&.active]:text-blue-400" data-range="6">6h</button>
-            <button class="px-2 py-0.5 text-xs font-semibold rounded text-slate-500 hover:text-slate-800 dark:hover:text-white transition-all [&.active]:bg-blue-500/20 [&.active]:text-blue-600 dark:[&.active]:text-blue-400 active" data-range="24">24h</button>
-            <button class="px-2 py-0.5 text-xs font-semibold rounded text-slate-500 hover:text-slate-800 dark:hover:text-white transition-all [&.active]:bg-blue-500/20 [&.active]:text-blue-600 dark:[&.active]:text-blue-400" data-range="72">3d</button>
-            <button class="px-2 py-0.5 text-xs font-semibold rounded text-slate-500 hover:text-slate-800 dark:hover:text-white transition-all [&.active]:bg-blue-500/20 [&.active]:text-blue-600 dark:[&.active]:text-blue-400" data-range="168">7d</button>
-          </div>
-        </div>
-        <div class="chart-wrap"><canvas id="tokensChart"></canvas></div>
+<main class="container-fluid px-3 px-lg-4 py-4 py-lg-5" style="max-width:1440px">
+
+  <div class="d-flex flex-wrap align-items-end justify-content-between gap-3 mb-4">
+    <div>
+      <div class="d-flex align-items-center gap-2 mb-1">
+        <span class="bg-primary text-white rounded-2 d-inline-flex align-items-center justify-content-center shadow-sm" style="width:28px;height:28px"><i class="fa-solid fa-chart-simple" style="font-size:.85rem"></i></span>
+        <h2 class="h5 fw-bold mb-0" style="letter-spacing:-.02em">Indicadores</h2>
+        <span class="badge text-bg-light border fw-semibold" id="kpiRangeLabel" style="font-size:.68rem;letter-spacing:.04em">últimas 6h</span>
       </div>
+      <p class="small text-body-secondary mb-0" style="font-size:.82rem">Visão consolidada do pipeline RAG — tokens, chamadas, requisições e base vetorial</p>
+    </div>
+    <span class="badge text-bg-light border fw-semibold d-inline-flex align-items-center gap-2 px-3 py-2 rounded-pill shadow-sm"><span class="pulse pulse-success" style="width:7px;height:7px"></span> Tempo real · auto 15s</span>
+  </div>
+  <div class="row g-3 g-lg-4 mb-5" id="kpiGrid">
+    <div class="col-12 col-sm-6 col-xl"><div class="card kpi-card c-primary rounded-4"><div class="card-body p-4"><div class="placeholder-glow"><span class="placeholder col-5 rounded"></span><span class="placeholder col-4 float-end rounded"></span><div class="placeholder col-7 rounded mt-3" style="height:22px"></div></div></div></div></div>
+    <div class="col-12 col-sm-6 col-xl"><div class="card kpi-card c-violet rounded-4"><div class="card-body p-4"><div class="placeholder-glow"><span class="placeholder col-5 rounded"></span><span class="placeholder col-4 float-end rounded"></span><div class="placeholder col-7 rounded mt-3" style="height:22px"></div></div></div></div></div>
+    <div class="col-12 col-sm-6 col-xl"><div class="card kpi-card c-info rounded-4"><div class="card-body p-4"><div class="placeholder-glow"><span class="placeholder col-5 rounded"></span><span class="placeholder col-4 float-end rounded"></span><div class="placeholder col-7 rounded mt-3" style="height:22px"></div></div></div></div></div>
+    <div class="col-12 col-sm-6 col-xl"><div class="card kpi-card c-success rounded-4"><div class="card-body p-4"><div class="placeholder-glow"><span class="placeholder col-5 rounded"></span><span class="placeholder col-4 float-end rounded"></span><div class="placeholder col-7 rounded mt-3" style="height:22px"></div></div></div></div></div>
+    <div class="col-12 col-sm-6 col-xl"><div class="card kpi-card c-warning rounded-4"><div class="card-body p-4"><div class="placeholder-glow"><span class="placeholder col-5 rounded"></span><span class="placeholder col-4 float-end rounded"></span><div class="placeholder col-7 rounded mt-3" style="height:22px"></div></div></div></div></div>
+  </div>
 
-      <div class="bg-white/60 dark:bg-slate-900/40 border border-slate-200/50 dark:border-white/10 rounded-2xl p-5 backdrop-blur-xl">
-        <div class="flex items-center justify-between mb-4">
-          <div class="flex items-center gap-2">
-            <i class="fa-solid fa-arrow-trend-up text-emerald-500"></i>
-            <h2 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Requisições ao Agente</h2>
+  <div class="section-divider my-4">
+    <hr><span class="badge text-bg-primary bg-opacity-10 text-primary border border-primary border-opacity-10 text-uppercase fw-bold px-3 py-2 section-badge d-inline-flex align-items-center gap-2"><i class="fa-solid fa-wave-square"></i> Analytics</span><hr>
+  </div>
+
+  <div class="row g-3 g-lg-4 mb-4">
+    <div class="col-12 col-xl-6">
+      <div class="card shadow-sm rounded-4 overflow-hidden h-100">
+        <div class="card-header bg-body d-flex flex-wrap align-items-center justify-content-between gap-3 py-3">
+          <div class="d-flex gap-3 align-items-center">
+            <span class="premium-icon bg-primary bg-opacity-10 text-primary border border-primary border-opacity-10"><i class="fa-solid fa-coins"></i></span>
+            <div>
+              <div class="fw-bold" style="font-size:.95rem;letter-spacing:-.01em">Tokens Input × Output</div>
+              <div class="small text-body-secondary d-flex align-items-center gap-2" style="font-size:.78rem"><span>Volume por hora</span><span class="vr"></span><span id="tokensTotalLabel" class="font-mono fw-semibold text-body">—</span></div>
+            </div>
           </div>
-          <div class="flex gap-1" id="reqsRangeBar">
-            <button class="px-2 py-0.5 text-xs font-semibold rounded text-slate-500 hover:text-slate-800 dark:hover:text-white transition-all [&.active]:bg-blue-500/20 [&.active]:text-blue-600 dark:[&.active]:text-blue-400" data-range="6">6h</button>
-            <button class="px-2 py-0.5 text-xs font-semibold rounded text-slate-500 hover:text-slate-800 dark:hover:text-white transition-all [&.active]:bg-blue-500/20 [&.active]:text-blue-600 dark:[&.active]:text-blue-400 active" data-range="24">24h</button>
-            <button class="px-2 py-0.5 text-xs font-semibold rounded text-slate-500 hover:text-slate-800 dark:hover:text-white transition-all [&.active]:bg-blue-500/20 [&.active]:text-blue-600 dark:[&.active]:text-blue-400" data-range="72">3d</button>
-            <button class="px-2 py-0.5 text-xs font-semibold rounded text-slate-500 hover:text-slate-800 dark:hover:text-white transition-all [&.active]:bg-blue-500/20 [&.active]:text-blue-600 dark:[&.active]:text-blue-400" data-range="168">7d</button>
+          <div class="btn-group btn-group-sm shadow-sm" id="tokensRangeBar"><button class="btn btn-outline-secondary fw-medium" data-range="6">6h</button><button class="btn btn-primary active fw-semibold" data-range="24">24h</button><button class="btn btn-outline-secondary fw-medium" data-range="72">3d</button><button class="btn btn-outline-secondary fw-medium" data-range="168">7d</button></div>
+        </div>
+        <div class="card-body">
+          <div class="chart-box" style="height:300px"><canvas id="tokensChart"></canvas></div>
+          <div class="d-flex flex-wrap gap-3 small border-top pt-3 mt-3 align-items-center">
+            <span class="d-flex align-items-center gap-2 fw-medium"><span class="rounded-1" style="width:12px;height:12px;background:#0d6efd;display:inline-block"></span> Input</span>
+            <span class="d-flex align-items-center gap-2 fw-medium"><span class="rounded-1" style="width:12px;height:12px;background:#ffc107;display:inline-block"></span> Output</span>
+            <span class="ms-auto text-body-secondary font-mono small" id="tokensHint">—</span>
           </div>
         </div>
-        <div class="chart-wrap"><canvas id="requestsChart"></canvas></div>
       </div>
     </div>
-
-    <!-- Charts Row 2 -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div class="bg-white/60 dark:bg-slate-900/40 border border-slate-200/50 dark:border-white/10 rounded-2xl p-5 backdrop-blur-xl">
-        <div class="flex items-center justify-between mb-4">
-          <div class="flex items-center gap-2">
-            <i class="fa-solid fa-layer-group text-violet-500"></i>
-            <h2 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Tokens por Modelo</h2>
+    <div class="col-12 col-xl-6">
+      <div class="card shadow-sm rounded-4 overflow-hidden h-100">
+        <div class="card-header bg-body d-flex flex-wrap align-items-center justify-content-between gap-3 py-3">
+          <div class="d-flex gap-3 align-items-center">
+            <span class="premium-icon bg-success bg-opacity-10 text-success border border-success border-opacity-10"><i class="fa-solid fa-arrow-trend-up"></i></span>
+            <div>
+              <div class="fw-bold" style="font-size:.95rem;letter-spacing:-.01em">Requisições ao Agente</div>
+              <div class="small text-body-secondary d-flex align-items-center gap-2" style="font-size:.78rem"><span>Total vs sucesso</span><span class="vr"></span><span id="reqTotalLabel" class="font-mono fw-semibold text-body">—</span></div>
+            </div>
+          </div>
+          <div class="btn-group btn-group-sm shadow-sm" id="reqsRangeBar"><button class="btn btn-outline-secondary fw-medium" data-range="6">6h</button><button class="btn btn-primary active fw-semibold" data-range="24">24h</button><button class="btn btn-outline-secondary fw-medium" data-range="72">3d</button><button class="btn btn-outline-secondary fw-medium" data-range="168">7d</button></div>
+        </div>
+        <div class="card-body">
+          <div class="chart-box" style="height:300px"><canvas id="requestsChart"></canvas></div>
+          <div class="d-flex flex-wrap gap-3 small border-top pt-3 mt-3 align-items-center">
+            <span class="d-flex align-items-center gap-2 fw-medium"><span class="rounded-1" style="width:12px;height:12px;background:#6366f1;display:inline-block"></span> Total</span>
+            <span class="d-flex align-items-center gap-2 fw-medium"><span class="rounded-1 bg-success" style="width:12px;height:12px;display:inline-block"></span> Sucesso</span>
+            <span class="ms-auto text-body-secondary font-mono small" id="reqHint">—</span>
           </div>
         </div>
-        <div class="chart-wrap"><canvas id="modelsChart"></canvas></div>
       </div>
+    </div>
+  </div>
 
-      <div class="bg-white/60 dark:bg-slate-900/40 border border-slate-200/50 dark:border-white/10 rounded-2xl p-5 backdrop-blur-xl">
-        <div class="flex items-center justify-between mb-4">
-          <div class="flex items-center gap-2">
-            <i class="fa-solid fa-magnifying-glass text-cyan-500"></i>
-            <h2 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Documentos Indexados</h2>
+  <div class="row g-3 g-lg-4 mb-5">
+    <div class="col-12 col-xl-7">
+      <div class="card shadow-sm rounded-4 overflow-hidden h-100">
+        <div class="card-header bg-body d-flex align-items-center gap-3 py-3">
+          <span class="premium-icon bg-primary bg-opacity-10 text-primary border border-primary border-opacity-10"><i class="fa-solid fa-layer-group"></i></span>
+          <div><div class="fw-bold" style="font-size:.95rem">Tokens por Modelo</div><div class="small text-body-secondary" style="font-size:.78rem">Distribuição no período · custo por modelo</div></div>
+          <span class="ms-auto badge text-bg-light border text-uppercase fw-bold d-none d-sm-inline-flex align-items-center gap-1" style="font-size:.62rem;letter-spacing:.08em"><i class="bi bi-stars text-warning"></i> Top models</span>
+        </div>
+        <div class="card-body"><div class="chart-box" style="height:280px"><canvas id="modelsChart"></canvas></div></div>
+      </div>
+    </div>
+    <div class="col-12 col-xl-5">
+      <div class="card shadow-sm rounded-4 overflow-hidden h-100">
+        <div class="card-header bg-body d-flex align-items-center gap-3 py-3">
+          <span class="premium-icon bg-info bg-opacity-10 text-info border border-info border-opacity-10"><i class="fa-solid fa-file-lines"></i></span>
+          <div><div class="fw-bold" style="font-size:.95rem">Base Indexada</div><div class="small text-body-secondary" style="font-size:.78rem">Documentos &amp; chunks · crescimento</div></div>
+        </div>
+        <div class="card-body">
+          <div class="chart-box" style="height:230px"><canvas id="docsChart"></canvas></div>
+          <div class="row g-3 mt-3">
+            <div class="col-6"><div class="border rounded-4 p-3 bg-body-tertiary h-100 position-relative overflow-hidden"><div class="position-absolute top-0 start-0 w-100" style="height:2px;background:linear-gradient(90deg,#0d6efd,#6f42c1)"></div><div class="text-uppercase fw-bold text-body-secondary" style="font-size:.62rem;letter-spacing:.08em">Documentos</div><div class="h3 fw-bold mb-0 mt-1 font-mono" id="docsCount" style="letter-spacing:-.03em">—</div><div class="small text-body-secondary d-flex align-items-center gap-1" style="font-size:.72rem"><i class="bi bi-file-earmark-text"></i> no manifest</div></div></div>
+            <div class="col-6"><div class="border rounded-4 p-3 bg-body-tertiary h-100 position-relative overflow-hidden"><div class="position-absolute top-0 start-0 w-100" style="height:2px;background:linear-gradient(90deg,#20c997,#0dcaf0)"></div><div class="text-uppercase fw-bold text-body-secondary" style="font-size:.62rem;letter-spacing:.08em">Chunks</div><div class="h3 fw-bold mb-0 mt-1 font-mono text-primary" id="chunksCount" style="letter-spacing:-.03em">—</div><div class="small text-body-secondary d-flex align-items-center gap-1" style="font-size:.72rem"><i class="bi bi-layers"></i> vetores</div></div></div>
           </div>
         </div>
-        <div class="chart-wrap"><canvas id="docsChart"></canvas></div>
       </div>
     </div>
+  </div>
 
-    <!-- Tables -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div class="bg-white/60 dark:bg-slate-900/40 border border-slate-200/50 dark:border-white/10 rounded-2xl p-5 backdrop-blur-xl">
-        <div class="flex items-center gap-2.5 mb-4">
-          <i class="fa-solid fa-terminal text-blue-500"></i>
-          <h2 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Últimas Chamadas LLM</h2>
-        </div>
-        <div class="scroll-area overflow-auto max-h-[300px]" id="llmTable"></div>
+  <div class="section-divider my-4">
+    <hr><span class="badge text-bg-light border text-uppercase fw-bold px-3 py-2 section-badge d-inline-flex align-items-center gap-2"><i class="fa-solid fa-list-check"></i> Atividade Recente — largura total para leitura completa</span><hr>
+  </div>
+
+  <div class="d-flex flex-column gap-3 gap-lg-4">
+    <div class="card shadow-sm rounded-4 overflow-hidden">
+      <div class="card-header bg-body d-flex align-items-center justify-content-between py-3">
+        <span class="d-flex align-items-center gap-2 fw-bold" style="font-size:.95rem"><span class="premium-icon bg-primary bg-opacity-10 text-primary border border-primary border-opacity-10" style="width:34px;height:34px"><i class="fa-solid fa-terminal small"></i></span> Chamadas LLM <span class="d-none d-md-inline text-body-secondary fw-normal small ms-1">· tokens, modelo e custo</span></span>
+        <span class="badge text-bg-light border font-mono fw-semibold px-2 py-1" id="llmCount">—</span>
       </div>
-
-      <div class="bg-white/60 dark:bg-slate-900/40 border border-slate-200/50 dark:border-white/10 rounded-2xl p-5 backdrop-blur-xl">
-        <div class="flex items-center gap-2.5 mb-4">
-          <i class="fa-solid fa-comments text-cyan-500"></i>
-          <h2 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Últimas Requisições</h2>
-        </div>
-        <div class="scroll-area overflow-auto max-h-[300px]" id="reqTable"></div>
-      </div>
-
-      <div class="bg-white/60 dark:bg-slate-900/40 border border-slate-200/50 dark:border-white/10 rounded-2xl p-5 backdrop-blur-xl">
-        <div class="flex items-center gap-2.5 mb-4">
-          <i class="fa-solid fa-database text-violet-500"></i>
-          <h2 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Eventos de Indexação</h2>
-        </div>
-        <div class="scroll-area overflow-auto max-h-[300px]" id="idxTable"></div>
+      <div class="table-responsive">
+        <div id="llmTable" class="p-4 text-center text-body-secondary small"><div class="spinner-border spinner-border-sm text-primary"></div><div class="mt-2 fw-medium">carregando...</div></div>
       </div>
     </div>
-  </main>
-
-  <footer class="border-t border-slate-200/50 dark:border-white/10 py-6 text-center text-xs mt-8 bg-white/40 dark:bg-black/20 text-slate-400 dark:text-slate-500 z-10 transition-all duration-300">
-    <div class="max-w-7xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-      <div class="flex items-center gap-2">
-        <i class="fa-solid fa-robot text-blue-500/70"></i>
-        <span>Watson AI Platform &mdash; Dashboard Operacional</span>
+    <div class="card shadow-sm rounded-4 overflow-hidden">
+      <div class="card-header bg-body d-flex align-items-center justify-content-between py-3">
+        <span class="d-flex align-items-center gap-2 fw-bold" style="font-size:.95rem"><span class="premium-icon bg-info bg-opacity-10 text-info border border-info border-opacity-10" style="width:34px;height:34px"><i class="fa-solid fa-comments small"></i></span> Requisições Chat <span class="d-none d-md-inline text-body-secondary fw-normal small ms-1">· pergunta completa sem corte, evidências e latência</span></span>
+        <span class="badge text-bg-light border font-mono fw-semibold px-2 py-1" id="reqLogCount">—</span>
       </div>
-      <p>&copy; 2026 Watson Engine. Todos os direitos reservados.</p>
+      <div class="table-responsive">
+        <div id="reqTable" class="p-4 text-center text-body-secondary small"><div class="spinner-border spinner-border-sm text-info"></div><div class="mt-2 fw-medium">carregando...</div></div>
+      </div>
     </div>
-  </footer>
-  <script>
-    const fmt = n => n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'k' : String(n||0);
-    const timeStr = ts => new Date(ts*1000).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-    // Ranges curtos (<=24h): só hora. Ranges longos: inclui dia para facilitar leitura.
-    const labelFor = (ts, rng) => {
-      const d = new Date(ts*1000);
-      return (rng > 24)
-        ? d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}) + ' ' + d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})
-        : d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-    };
-    const hourLabel = ts => labelFor(ts, range);
-    const pct = (a,b) => b ? Math.round(a/b*100) : 0;
-    
-    /* Dynamically read custom variables from dark/light modes */
-    const isDark = () => document.documentElement.classList.contains('dark');
-    const getThemeColors = () => {
-      const darkColors = {
-        grid: 'rgba(255,255,255,0.04)',
-        axis: '#475569',
-        label: '#94a3b8',
-        tooltipBg: 'rgba(10,15,30,0.95)',
-        tooltipBorder: 'rgba(59,130,246,0.3)',
-        tooltipText: '#e2e8f0'
-      };
-      const lightColors = {
-        grid: 'rgba(0,0,0,0.05)',
-        axis: '#94a3b8',
-        label: '#475569',
-        tooltipBg: 'rgba(255,255,255,0.98)',
-        tooltipBorder: 'rgba(0,0,0,0.1)',
-        tooltipText: '#0f172a'
-      };
-      return isDark() ? darkColors : lightColors;
-    };
+    <div class="card shadow-sm rounded-4 overflow-hidden">
+      <div class="card-header bg-body d-flex align-items-center justify-content-between py-3">
+        <span class="d-flex align-items-center gap-2 fw-bold" style="font-size:.95rem"><span class="premium-icon bg-success bg-opacity-10 text-success border border-success border-opacity-10" style="width:34px;height:34px"><i class="fa-solid fa-database small"></i></span> Indexação <span class="d-none d-md-inline text-body-secondary fw-normal small ms-1">· docs processados e chunks gerados</span></span>
+        <span class="badge text-bg-light border font-mono fw-semibold px-2 py-1" id="idxCount">—</span>
+      </div>
+      <div class="table-responsive">
+        <div id="idxTable" class="p-4 text-center text-body-secondary small"><div class="spinner-border spinner-border-sm text-success"></div><div class="mt-2 fw-medium">carregando...</div></div>
+      </div>
+    </div>
+  </div>
 
-    Chart.defaults.font.family = "'Poppins', 'Montserrat', 'Inter', sans-serif";
-    Chart.defaults.font.size = 11;
+</main>
 
-    /* Returns chart configuration dynamically matching the active theme's styles */
-    function getChartDefaults(extra = {}) {
-      const c = getThemeColors();
-      return {
-        responsive: true,
-        maintainAspectRatio: false,
-        devicePixelRatio: Math.max(window.devicePixelRatio || 1, 2), // Retina / HD ready crisp rendering
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { labels: { color: c.label, usePointStyle: true, pointStyleWidth: 8, padding: 14, font: { family: "'Poppins', sans-serif", size: 11 } } },
-          tooltip: {
-            backgroundColor: c.tooltipBg, borderColor: c.tooltipBorder, borderWidth: 1, padding: 10, cornerRadius: 8,
-            titleColor: c.tooltipText, bodyColor: c.label, titleFont: { family: "'Montserrat', sans-serif", weight: 'bold' }, bodyFont: { family: "'Poppins', sans-serif" }
-          }
-        },
-        scales: {
-          x: {
-            ticks: {
-              color: c.axis,
-              autoSkip: true,
-              maxTicksLimit: 8,
-              maxRotation: 45,
-              minRotation: 0,
-              padding: 8,
-              font: { family: "'Poppins', sans-serif", size: 10 }
-            },
-            grid: { color: c.grid }
-          },
-          y: {
-            ticks: {
-              color: c.axis,
-              callback: v => fmt(v),
-              maxTicksLimit: 6,
-              padding: 6,
-              font: { family: "'Poppins', sans-serif", size: 10 }
-            },
-            grid: { color: c.grid }
-          }
-        },
-        ...extra
-      };
-    }
+<footer class="border-top bg-body mt-5">
+  <div class="container-fluid px-3 px-lg-4 py-4 d-flex flex-column flex-md-row align-items-center justify-content-between gap-3" style="max-width:1440px">
+    <span class="d-flex align-items-center gap-2 small text-body-secondary"><span class="rounded-3 d-flex align-items-center justify-content-center border" style="width:30px;height:30px;background:linear-gradient(135deg,#0d6efd,#6f42c1)"><i class="fa-solid fa-bolt text-white small"></i></span> <strong class="text-body" style="letter-spacing:-.01em">Watson</strong> · Command Center <span class="d-none d-sm-inline">· RAG &amp; Agente de IA</span> <span class="badge text-bg-light border ms-2 d-none d-lg-inline" style="font-size:.60rem">v0.0.1</span></span>
+    <span class="small text-body-secondary d-flex align-items-center gap-2 flex-wrap justify-content-center">API <code class="bg-body-tertiary border rounded px-2 py-1">/api</code> · Docs <code class="bg-body-tertiary border rounded px-2 py-1">/docs</code> · <span class="d-inline-flex align-items-center gap-1"><i class="fa-regular fa-copyright"></i> 2026 Watson</span></span>
+  </div>
+</footer>
 
-    let range = 6, range2 = 24;
-    let tokensChart, requestsChart, modelsChart, docsChart;
-
-    /* Live Clock */
-    function updateClock() {
-      const el = document.getElementById('clock');
-      if (el) el.textContent = new Date().toLocaleTimeString('pt-BR');
-    }
-    setInterval(updateClock, 1000); updateClock();
-
-    function kpiCard(label, value, hint, colorClass, iconClass, valColorClass) {
-      return `<div class="bg-white/60 dark:bg-slate-900/40 border border-slate-200/50 dark:border-white/10 rounded-2xl p-5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg">
-        <div class="flex items-start justify-between mb-3">
-          <p class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">${label}</p>
-          <div class="w-8 h-8 rounded-lg flex items-center justify-center ${colorClass}">${iconClass}</div>
-        </div>
-        <p class="text-2xl font-extrabold ${valColorClass} tracking-tight tabular-nums">${value}</p>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-2">${hint}</p>
-      </div>`;
-    }
-
-    async function loadKpis() {
-      try {
-        const r = await fetch('/api/metrics/summary?hours=' + range);
-        const d = await r.json();
-        const sr = pct(d.llm_success||0, d.llm_calls||1);
-        const rr = pct(d.request_success||0, d.requests||1);
-        document.getElementById('kpiGrid').innerHTML =
-          kpiCard('Tokens Totais', fmt(d.total_tokens||0), `<span class="text-blue-500">${fmt(d.total_prompt_tokens||0)}</span> in · <span class="text-amber-500">${fmt(d.total_completion_tokens||0)}</span> out`, 'bg-blue-500/10 text-blue-500', '<i class="fa-solid fa-coins"></i>', 'text-blue-600 dark:text-blue-400') +
-          kpiCard('Chamadas LLM', d.llm_calls||0, `<span class="text-emerald-500">${d.llm_success||0} ok</span> · <span class="text-rose-500">${d.llm_errors||0} err</span> · ${sr}%`, 'bg-violet-500/10 text-violet-500', '<i class="fa-solid fa-brain"></i>', 'text-violet-600 dark:text-violet-400') +
-          kpiCard('Requisições Chat', d.requests||0, `<span class="text-emerald-500">${d.request_success||0} ok</span> · <span class="text-rose-500">${d.request_errors||0} err</span> · ${rr}%`, 'bg-cyan-500/10 text-cyan-500', '<i class="fa-solid fa-comments"></i>', 'text-cyan-600 dark:text-cyan-400') +
-          kpiCard('Docs Indexados', d.documents_indexed||0, `${fmt(d.chunks_indexed||0)} chunks indexados`, 'bg-emerald-500/10 text-emerald-500', '<i class="fa-solid fa-file-lines"></i>', 'text-emerald-600 dark:text-emerald-400') +
-          kpiCard('Tempo Médio', d.avg_execution_ms ? (d.avg_execution_ms/1000).toFixed(2)+'s' : '–', d.avg_eval_duration_ms ? (d.avg_eval_duration_ms/1000).toFixed(2)+'s eval LLM' : 'Latência de resposta', 'bg-amber-500/10 text-amber-500', '<i class="fa-solid fa-hourglass-half"></i>', 'text-amber-600 dark:text-amber-400');
-      } catch(e) {
-        document.getElementById('kpiGrid').innerHTML = `<div class="bg-white/60 dark:bg-slate-900/40 border border-slate-200/50 dark:border-white/10 rounded-2xl p-8 text-center text-slate-500 backdrop-blur-xl w-full col-span-5"><p class="text-xs">⚠️ Falha ao carregar KPIs de métricas</p></div>`;
-      }
-    }
-
-    async function loadTokens() {
-      try {
-        const r = await fetch('/api/metrics/tokens?hours=' + range); const d = await r.json();
-        const labels = d.series.map(s => hourLabel(s.ts));
-        const canvas = document.getElementById('tokensChart');
-        const ctx = canvas.getContext('2d');
-        
-        // Dynamic gradients
-        const gradInput = ctx.createLinearGradient(0, 0, 0, 200);
-        gradInput.addColorStop(0, 'rgba(59, 130, 246, 0.85)');
-        gradInput.addColorStop(1, 'rgba(59, 130, 246, 0.15)');
-
-        const gradOutput = ctx.createLinearGradient(0, 0, 0, 200);
-        gradOutput.addColorStop(0, 'rgba(245, 158, 11, 0.85)');
-        gradOutput.addColorStop(1, 'rgba(245, 158, 11, 0.15)');
-
-        if (tokensChart) tokensChart.destroy();
-        tokensChart = new Chart(canvas, {
-          type: 'bar',
-          data: { labels, datasets: [
-            { label:'Input', data: d.series.map(s=>s.input_tokens), backgroundColor: gradInput, borderColor:'#3b82f6', borderWidth:1.5, borderRadius:4 },
-            { label:'Output', data: d.series.map(s=>s.output_tokens), backgroundColor: gradOutput, borderColor:'#f59e0b', borderWidth:1.5, borderRadius:4 },
-          ]},
-          options: getChartDefaults(),
-        });
-      } catch(e) { console.warn(e); }
-    }
-
-    async function loadRequests() {
-      try {
-        const r = await fetch('/api/metrics/requests?hours=' + range2); const d = await r.json();
-        const canvas = document.getElementById('requestsChart');
-        const ctx = canvas.getContext('2d');
-
-        const gradTotal = ctx.createLinearGradient(0, 0, 0, 200);
-        gradTotal.addColorStop(0, 'rgba(59, 130, 246, 0.25)');
-        gradTotal.addColorStop(1, 'rgba(59, 130, 246, 0.00)');
-
-        const gradOk = ctx.createLinearGradient(0, 0, 0, 200);
-        gradOk.addColorStop(0, 'rgba(16, 185, 129, 0.25)');
-        gradOk.addColorStop(1, 'rgba(16, 185, 129, 0.00)');
-
-        if (requestsChart) requestsChart.destroy();
-        requestsChart = new Chart(canvas, {
-          type: 'line',
-          data: { labels: d.series.map(s=>labelFor(s.ts, range2)), datasets: [
-            { label:'Total', data: d.series.map(s=>s.requests), borderColor:'#3b82f6', backgroundColor: gradTotal, fill:true, tension:0.35, borderWidth: 2, pointRadius: 1, pointHoverRadius: 4 },
-            { label:'Sucesso', data: d.series.map(s=>s.success), borderColor:'#10b981', backgroundColor: gradOk, fill:true, tension:0.35, borderWidth: 2, pointRadius: 1, pointHoverRadius: 4 },
-          ]},
-          options: getChartDefaults(),
-        });
-      } catch(e) { console.warn(e); }
-    }
-
-    async function loadModels() {
-      try {
-        const r = await fetch('/api/metrics/models?hours=' + range); const d = await r.json();
-        const canvas = document.getElementById('modelsChart');
-        const ctx = canvas.getContext('2d');
-
-        const gradInput = ctx.createLinearGradient(0, 0, 300, 0);
-        gradInput.addColorStop(0, 'rgba(59, 130, 246, 0.85)');
-        gradInput.addColorStop(1, 'rgba(59, 130, 246, 0.15)');
-
-        const gradOutput = ctx.createLinearGradient(0, 0, 300, 0);
-        gradOutput.addColorStop(0, 'rgba(139, 92, 246, 0.85)');
-        gradOutput.addColorStop(1, 'rgba(139, 92, 246, 0.15)');
-
-        if (modelsChart) modelsChart.destroy();
-        modelsChart = new Chart(canvas, {
-          type: 'bar',
-          data: { labels: d.models.map(m=>m.model), datasets: [
-            { label:'Input', data: d.models.map(m=>m.input_tokens), backgroundColor: gradInput, borderColor:'#3b82f6', borderWidth:1.5, borderRadius:4 },
-            { label:'Output', data: d.models.map(m=>m.output_tokens), backgroundColor: gradOutput, borderColor:'#8b5cf6', borderWidth:1.5, borderRadius:4 },
-          ]},
-          options: getChartDefaults({ indexAxis:'y' }),
-        });
-      } catch(e) { console.warn(e); }
-    }
-
-    async function loadDocs() {
-      try {
-        const r = await fetch('/api/metrics/documents'); const d = await r.json();
-        const h = d.history.slice(-30);
-        const canvas = document.getElementById('docsChart');
-        const ctx = canvas.getContext('2d');
-
-        const gradDocs = ctx.createLinearGradient(0, 0, 0, 200);
-        gradDocs.addColorStop(0, 'rgba(59, 130, 246, 0.25)');
-        gradDocs.addColorStop(1, 'rgba(59, 130, 246, 0.00)');
-
-        const gradChunks = ctx.createLinearGradient(0, 0, 0, 200);
-        gradChunks.addColorStop(0, 'rgba(168, 85, 247, 0.20)');
-        gradChunks.addColorStop(1, 'rgba(168, 85, 247, 0.00)');
-
-        if (docsChart) docsChart.destroy();
-        docsChart = new Chart(canvas, {
-          type: 'line',
-          data: { labels: h.map(x=>timeStr(x.ts)), datasets: [
-            { label:'Documentos', data: h.map(x=>x.documents), borderColor:'#3b82f6', backgroundColor: gradDocs, fill:true, tension:0.35, borderWidth: 2, pointRadius: 1 },
-            { label:'Chunks', data: h.map(x=>x.chunks), borderColor:'#a855f7', backgroundColor: gradChunks, fill:true, tension:0.35, borderWidth: 2, pointRadius: 1 },
-          ]},
-          options: getChartDefaults(),
-        });
-      } catch(e) { console.warn(e); }
-    }
-
-    /* Table Builders */
-    async function loadLlm() {
-      try {
-        const r = await fetch('/api/metrics/llm-calls?limit=10'); const d = await r.json();
-        document.getElementById('llmTable').innerHTML =
-          '<table class="data-table"><thead><tr><th>Hora</th><th>Modelo</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>' +
-          d.calls.map(c => `<tr>
-            <td class="text-slate-400 dark:text-slate-500 font-mono">${timeStr(c.ts)}</td>
-            <td class="text-slate-700 dark:text-slate-300 font-medium">${c.model}</td>
-            <td class="text-blue-500 font-semibold font-mono">${fmt(c.prompt_tokens)}</td>
-            <td class="text-amber-500 font-semibold font-mono">${fmt(c.completion_tokens)}</td>
-            <td><span class="badge ${c.success ? 'badge-ok' : 'badge-err'}">${c.success ? 'ok' : 'err'}</span></td>
-          </tr>`).join('') + '</tbody></table>';
-      } catch(e) { document.getElementById('llmTable').innerHTML = '<p class="text-xs text-slate-500 text-center py-8">Indisponível</p>'; }
-    }
-
-    async function loadReqs() {
-      try {
-        const r = await fetch('/api/metrics/requests-log?limit=10'); const d = await r.json();
-        document.getElementById('reqTable').innerHTML =
-          '<table class="data-table"><thead><tr><th>Hora</th><th>Pergunta</th><th>Evid.</th><th>Tempo</th><th>Status</th></tr></thead><tbody>' +
-          d.requests.map(c => `<tr>
-            <td class="text-slate-400 dark:text-slate-500 font-mono">${timeStr(c.ts)}</td>
-            <td title="${(c.question||'').replace(/"/g,'&quot;')}" class="max-w-[110px] truncate text-slate-700 dark:text-slate-300">${c.question||'—'}</td>
-            <td class="text-cyan-500 font-mono">${c.evidence_count}</td>
-            <td class="text-violet-500 font-mono">${c.execution_ms?(c.execution_ms/1000).toFixed(1)+'s':'—'}</td>
-            <td><span class="badge ${c.success ? 'badge-ok' : 'badge-err'}">${c.success ? 'ok' : 'err'}</span></td>
-          </tr>`).join('') + '</tbody></table>';
-      } catch(e) { document.getElementById('reqTable').innerHTML = '<p class="text-xs text-slate-500 text-center py-8">Indisponível</p>'; }
-    }
-
-    async function loadIdx() {
-      try {
-        const r = await fetch('/api/metrics/index-events?limit=10'); const d = await r.json();
-        document.getElementById('idxTable').innerHTML =
-          '<table class="data-table"><thead><tr><th>Hora</th><th>Docs</th><th>Chunks</th><th>Status</th></tr></thead><tbody>' +
-          d.events.map(e => `<tr>
-            <td class="text-slate-400 dark:text-slate-500 font-mono">${timeStr(e.ts)}</td>
-            <td class="text-blue-500 font-mono">${e.documents_processed}</td>
-            <td class="text-violet-500 font-mono">${e.chunks_indexed}</td>
-            <td><span class="badge ${!e.error ? 'badge-ok' : 'badge-err'}">${!e.error ? 'ok' : 'err'}</span></td>
-          </tr>`).join('') + '</tbody></table>';
-      } catch(e) { document.getElementById('idxTable').innerHTML = '<p class="text-xs text-slate-500 text-center py-8">Indisponível</p>'; }
-    }
-
-    /* Theme */
-    function applyTheme(isLight) {
-      if (isLight) {
-        document.documentElement.classList.add('light');
-        document.documentElement.classList.remove('dark');
-      } else {
-        document.documentElement.classList.remove('light');
-        document.documentElement.classList.add('dark');
-      }
-      setTimeout(() => {
-        loadTokens(); loadRequests(); loadModels(); loadDocs();
-      }, 50);
-    }
-
-    function toggleTheme() {
-      const isLight = !document.documentElement.classList.contains('light');
-      localStorage.setItem('watson-theme', isLight ? 'light' : 'dark');
-      applyTheme(isLight);
-    }
-
-    async function loadHealth() {
-      try {
-        const r = await fetch('/api/health/ready');
-        const d = await r.json();
-        const overall = document.getElementById('healthOverall');
-        const overallText = document.getElementById('healthOverallText');
-        if (overall && overallText) {
-          const isOk = d.status === 'ok';
-          const isDegraded = d.status === 'degraded';
-          overall.className = isOk
-            ? 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 font-semibold'
-            : isDegraded
-            ? 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-600 dark:text-amber-400 font-semibold'
-            : 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-500/10 border border-rose-500/25 text-rose-600 dark:text-rose-400 font-semibold';
-          overallText.textContent = d.status === 'ok' ? 'Online' : d.status;
-        }
-        // Atualiza badges individuais com cor terminal-like: pergunta amarelo, status azul claro, resposta branco
-        const ragEl = document.getElementById('healthRag');
-        const llmEl = document.getElementById('healthLlm');
-        const dbEl = document.getElementById('healthDb');
-        const checks = d.checks || {};
-        const setBadge = (el, key) => {
-          if (!el) return;
-          const v = (checks[key] || '').toLowerCase();
-          const ok = v === 'ok' || v.startsWith('ok');
-          el.className = ok
-            ? 'text-emerald-600 dark:text-emerald-400'
-            : v.includes('unavailable') || v.includes('error') || v.includes('missing')
-            ? 'text-rose-600 dark:text-rose-400'
-            : 'text-amber-600 dark:text-amber-400';
-        };
-        setBadge(ragEl, 'manifest');
-        setBadge(llmEl, 'ollama');
-        setBadge(dbEl, 'vector_db_dir');
-        const staleEl = document.getElementById('healthStale');
-        const staleText = document.getElementById('healthStaleText');
-        if (staleEl && staleText) {
-          const n = d.stale || 0;
-          if (n > 0) {
-            staleText.textContent = n;
-            staleEl.classList.remove('hidden');
-            staleEl.title = n + ' documento(s) no manifest sem arquivo no disco — rode /api/index para limpar';
-          } else {
-            staleEl.classList.add('hidden');
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const fmt = n => { if(n==null||isNaN(n)) return '—'; if(n>=1e6) return (n/1e6).toFixed(1).replace('.0','')+'M'; if(n>=1e3) return (n/1e3).toFixed(1).replace('.0','')+'k'; return String(Math.round(n)); };
+const fmtInt = n => (n??0).toLocaleString('pt-BR');
+const timeStr = ts => new Date(ts*1000).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+const labelFor = (ts, rng) => { const d=new Date(ts*1000); return rng>24 ? d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}) : d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); };
+const hourLabel = ts => labelFor(ts, range);
+const pct = (a,b)=> b? Math.round(a/b*100):0;
+const isDark = ()=> document.documentElement.getAttribute('data-bs-theme')==='dark';
+const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+Chart.defaults.font.family="'Poppins', system-ui, sans-serif"; Chart.defaults.font.size=11; Chart.defaults.font.weight='500';
+function getThemeColors(){ return isDark() ? { grid:'rgba(255,255,255,.06)', axis:'#adb5bd', label:'#adb5bd', tooltipBg:'rgba(18,20,28,.96)', tooltipBorder:'rgba(255,255,255,.08)', tooltipText:'#f8f9fa'} : { grid:'rgba(0,0,0,.05)', axis:'#6c757d', label:'#6c757d', tooltipBg:'rgba(255,255,255,.98)', tooltipBorder:'rgba(0,0,0,.08)', tooltipText:'#212529'}; }
+function getChartDefaults(extra={}){
+  const c=getThemeColors();
+  return {
+    responsive:true, maintainAspectRatio:false, devicePixelRatio:Math.max(window.devicePixelRatio||1,2), interaction:{mode:'index',intersect:false},
+    plugins:{
+      legend:{
+        position:'top', align:'end',
+        labels:{
+          color:c.label, boxWidth:14, boxHeight:8, borderRadius:2, padding:16,
+          usePointStyle:false,
+          font:{family:"'Poppins',sans-serif", weight:'600', size:11},
+          generateLabels(chart){
+            const datasets=chart.data.datasets;
+            return datasets.map((ds,i)=>({
+              text: ds.label,
+              fillStyle: ds.borderColor || ds.backgroundColor,
+              strokeStyle: ds.borderColor,
+              lineWidth: 2,
+              hidden: !chart.isDatasetVisible(i),
+              datasetIndex: i,
+              fontColor: c.label
+            }));
           }
         }
-      } catch(e) { /* sem health ready, mantém Online */ }
-    }
-
-    /* Refresh */
-    function refresh() {
-      const icon = document.getElementById('refreshIcon');
-      if (icon) {
-        icon.classList.add('animate-spin');
-        setTimeout(() => { icon.classList.remove('animate-spin'); }, 500);
-      }
-      Promise.all([loadKpis(), loadTokens(), loadRequests(), loadModels(), loadDocs(), loadLlm(), loadReqs(), loadIdx(), loadHealth()])
-        .finally(() => {
-          const el = document.getElementById('lastUpdated');
-          if (el) el.textContent = 'Última atualização às ' + new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
-        });
-    }
-
-    /* Event Listeners */
-    document.getElementById('headerRange').querySelectorAll('[data-range]').forEach(b => {
-      b.addEventListener('click', () => {
-        range = +b.dataset.range;
-        document.getElementById('headerRange').querySelectorAll('[data-range]').forEach(x => x.classList.remove('active'));
-        b.classList.add('active');
-        loadKpis(); loadTokens(); loadModels();
-      });
-    });
-
-    document.getElementById('tokensRangeBar').querySelectorAll('[data-range]').forEach(b => {
-      b.addEventListener('click', () => {
-        range = +b.dataset.range;
-        document.getElementById('tokensRangeBar').querySelectorAll('[data-range]').forEach(x => x.classList.remove('active'));
-        b.classList.add('active');
-        loadTokens();
-      });
-    });
-
-    document.getElementById('reqsRangeBar').querySelectorAll('[data-range]').forEach(b => {
-      b.addEventListener('click', () => {
-        range2 = +b.dataset.range;
-        document.getElementById('reqsRangeBar').querySelectorAll('[data-range]').forEach(x => x.classList.remove('active'));
-        b.classList.add('active');
-        loadRequests();
-      });
-    });
-
-    /* Init */
-    (function initTheme() {
-      const saved = localStorage.getItem('watson-theme');
-      if (saved === 'light') applyTheme(true);
-      else applyTheme(false); // default dark
-    })();
-
-    refresh();
-    setInterval(refresh, 15000);
-  </script>
+      },
+      tooltip:{ backgroundColor:c.tooltipBg, borderColor:c.tooltipBorder, borderWidth:1, padding:10, cornerRadius:10, titleColor:c.tooltipText, bodyColor:c.label, titleFont:{family:"'Poppins',sans-serif",weight:'700'}, bodyFont:{family:"'Poppins',sans-serif"} }
+    },
+    scales:{
+      x:{ ticks:{ color:c.axis, autoSkip:true, maxTicksLimit:7, maxRotation:0, padding:8, font:{family:"'Poppins',sans-serif",size:10,weight:'500'} }, grid:{color:c.grid}, border:{display:false} },
+      y:{ ticks:{ color:c.axis, callback:v=>fmt(v), maxTicksLimit:5, padding:8, font:{family:"'Poppins',sans-serif",size:10} }, grid:{color:c.grid}, border:{display:false} }
+    },
+    ...extra
+  };
+}
+let range=6, range2=24; let tokensChart, requestsChart, modelsChart, docsChart; let autoRefresh=true, countdown=15, countdownTimer=null;
+function tickClock(){ const n=new Date(); const el=document.getElementById('clock'); const el2=document.getElementById('clock-date'); if(el) el.textContent=n.toLocaleTimeString('pt-BR'); if(el2) el2.textContent=n.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'short'}); }
+setInterval(tickClock,1000); tickClock();
+function startCountdown(){ countdown=15; if(countdownTimer) clearInterval(countdownTimer); const txt=document.getElementById('countdownText'); countdownTimer=setInterval(()=>{ countdown--; if(txt) txt.textContent=countdown+'s'; if(countdown<=0){ countdown=15; if(txt) txt.textContent='15s'; if(autoRefresh) refresh(); } },1000); }
+startCountdown();
+function toggleTheme(){ const cur=document.documentElement.getAttribute('data-bs-theme'); const next=cur==='dark'?'light':'dark'; document.documentElement.setAttribute('data-bs-theme',next); localStorage.setItem('watson-theme',next); setTimeout(()=>{ loadTokens(); loadRequests(); loadModels(); loadDocs(); },60); }
+(function initTheme(){ const saved=localStorage.getItem('watson-theme'); if(saved) document.documentElement.setAttribute('data-bs-theme',saved); })();
+function toggleAutoRefresh(){ autoRefresh=!autoRefresh; const dot=document.getElementById('autoDot'); const txt=document.getElementById('autoToggleText'); const btn=document.getElementById('autoBtn'); if(autoRefresh){ if(dot) dot.className='bg-success rounded-circle me-2'; dot.style.cssText='width:7px;height:7px;display:inline-block'; if(txt) txt.textContent='pausar'; if(btn) btn.classList.remove('opacity-50'); startCountdown(); } else { if(dot) dot.className='bg-secondary rounded-circle me-2'; dot.style.cssText='width:7px;height:7px;display:inline-block'; if(txt) txt.textContent='retomar'; if(btn) btn.classList.add('opacity-50'); if(countdownTimer) clearInterval(countdownTimer); } }
+function kpiCard({label, value, hint, icon, colorClass, trend}){
+  const accentClass = colorClass==='primary'?'c-primary':colorClass==='success'?'c-success':colorClass==='info'?'c-info':colorClass==='warning'?'c-warning':'c-violet';
+  return `<div class="col-12 col-sm-6 col-xl fade-up"><div class="card kpi-card rounded-4 ${accentClass}"><div class="card-body p-4">
+    <div class="d-flex align-items-start justify-content-between mb-2">
+      <div><div class="text-uppercase fw-bold text-body-secondary" style="font-size:.62rem;letter-spacing:.09em">${esc(label)}</div>${trend?`<div class="small fw-semibold mt-1 ${trend.up?'text-success':'text-body-secondary'}"><i class="${trend.up?'fa-solid fa-arrow-trend-up':'fa-solid fa-minus'} me-1"></i>${esc(trend.label)}</div>`:''}</div>
+      <span class="premium-icon bg-${colorClass} bg-opacity-10 text-${colorClass} border border-${colorClass} border-opacity-10"><i class="${icon}"></i></span>
+    </div>
+    <div class="fw-bold font-mono" style="font-size:1.75rem;letter-spacing:-.04em;line-height:1">${esc(value)}</div>
+    <div class="small text-body-secondary lh-sm mt-2" style="font-size:.78rem">${hint}</div>
+  </div></div></div>`;
+}
+async function loadKpis(){
+  try{
+    const r=await fetch('/api/metrics/summary?hours='+range); const d=await r.json();
+    const sr=pct(d.llm_success||0,d.llm_calls||1); const rr=pct(d.request_success||0,d.requests||1);
+    const totalT=d.total_tokens||0, inT=d.total_prompt_tokens||0, outT=d.total_completion_tokens||0, docs=d.documents_indexed||0, chunks=d.chunks_indexed||0;
+    const rangeLabel=range<=6?'últimas 6h':range<=24?'últimas 24h':range<=72?'últimos 3 dias':'últimos 7 dias';
+    const rl=document.getElementById('kpiRangeLabel'); if(rl) rl.textContent=rangeLabel;
+    const hdi=document.getElementById('header-doc-info'); if(hdi) hdi.textContent=docs?`${fmtInt(docs)} docs · ${fmt(chunks)} chunks`:'sem docs indexados';
+    document.getElementById('kpiGrid').innerHTML =
+      kpiCard({label:'Tokens Totais', value:fmt(totalT), hint:`<span class="text-primary font-mono fw-semibold">${fmt(inT)}</span> in · <span class="text-warning font-mono fw-semibold">${fmt(outT)}</span> out · ${d.llm_calls||0} chamadas`, icon:'fa-solid fa-coins', colorClass:'primary', trend: totalT?{up:true,label:`${fmt(inT)} in / ${fmt(outT)} out`}:null})+
+      kpiCard({label:'Chamadas LLM', value:fmtInt(d.llm_calls||0), hint:`<span class="text-success fw-semibold">${d.llm_success||0} ok</span> <span class="text-body-tertiary">·</span> <span class="text-danger fw-semibold">${d.llm_errors||0} err</span> <span class="text-body-tertiary">·</span> ${sr}% sucesso`, icon:'fa-solid fa-brain', colorClass:'violet', trend: d.llm_calls?{up:sr>=90,label:sr+'% sucesso'}:null})+
+      kpiCard({label:'Requisições Chat', value:fmtInt(d.requests||0), hint:`<span class="text-success fw-semibold">${d.request_success||0} ok</span> <span class="text-body-tertiary">·</span> <span class="text-danger fw-semibold">${d.request_errors||0} err</span> <span class="text-body-tertiary">·</span> ${rr}% sucesso`, icon:'fa-solid fa-comments', colorClass:'info', trend: d.requests?{up:rr>=90,label:rr+'% sucesso'}:null})+
+      kpiCard({label:'Docs Indexados', value:fmtInt(docs), hint:`${fmt(chunks)} chunks · base vetorial ativa`, icon:'fa-solid fa-file-lines', colorClass:'success', trend: docs?{up:true,label:`${fmt(chunks)} chunks`}:null})+
+      kpiCard({label:'Tempo Médio', value: d.avg_execution_ms?(d.avg_execution_ms/1000).toFixed(2)+'s':'—', hint: d.avg_eval_duration_ms?`<span class="font-mono text-primary fw-semibold">${(d.avg_eval_duration_ms/1000).toFixed(2)}s</span> eval LLM · latência média`: 'Latência de resposta (média)', icon:'fa-solid fa-hourglass-half', colorClass:'warning'});
+  }catch(e){ document.getElementById('kpiGrid').innerHTML=`<div class="col-12"><div class="alert alert-warning d-flex align-items-center gap-3 rounded-4 shadow-sm"><i class="fa-solid fa-triangle-exclamation fs-5"></i><span>Falha ao carregar KPIs — ${esc(e.message||'verifique /api/metrics/summary')}</span> <button onclick="loadKpis()" class="btn btn-sm btn-warning ms-auto rounded-pill px-3 fw-semibold">Tentar novamente</button></div></div>`; }
+}
+async function loadTokens(){
+  try{
+    const r=await fetch('/api/metrics/tokens?hours='+range); const d=await r.json();
+    const labels=d.series.map(s=>hourLabel(s.ts)); const totalIn=d.series.reduce((a,s)=>a+(s.input_tokens||0),0); const totalOut=d.series.reduce((a,s)=>a+(s.output_tokens||0),0);
+    const tl=document.getElementById('tokensTotalLabel'); if(tl) tl.textContent=(totalIn||totalOut)?`${fmt(totalIn+totalOut)} tokens`:'sem dados';
+    const hint=document.getElementById('tokensHint'); if(hint) hint.textContent=d.series.length?`${d.series.length} buckets · ${fmt(totalIn)} in / ${fmt(totalOut)} out`:'sem dados no período';
+    let cvs=document.getElementById('tokensChart'); if(!cvs) return;
+    if(!d.series.length){ const ctx=cvs.getContext('2d'); ctx.clearRect(0,0,cvs.width,cvs.height); cvs.parentElement.innerHTML='<div class="text-center py-5 text-body-secondary"><i class="fa-solid fa-chart-column fs-1 opacity-50"></i><div class="fw-semibold mt-3">Sem dados no período</div><div class="small">Ajuste o intervalo ou aguarde novas chamadas</div></div><canvas id="tokensChart" style="display:none"></canvas>'; return; }
+    if(!cvs.getContext){ const w=document.querySelector('#tokensChart')?.parentElement; if(w){ w.innerHTML='<canvas id="tokensChart"></canvas>'; cvs=document.getElementById('tokensChart'); } }
+    const ctx=cvs.getContext('2d'); const gIn=ctx.createLinearGradient(0,0,0,300); gIn.addColorStop(0,'rgba(13,110,253,.85)'); gIn.addColorStop(1,'rgba(13,110,253,.08)'); const gOut=ctx.createLinearGradient(0,0,0,300); gOut.addColorStop(0,'rgba(255,193,7,.85)'); gOut.addColorStop(1,'rgba(255,193,7,.08)');
+    if(tokensChart) tokensChart.destroy();
+    tokensChart=new Chart(cvs,{type:'bar',data:{labels,datasets:[{label:'Input',data:d.series.map(s=>s.input_tokens),backgroundColor:gIn,borderColor:'#0d6efd',borderWidth:1,borderRadius:6,barPercentage:.72,categoryPercentage:.82},{label:'Output',data:d.series.map(s=>s.output_tokens),backgroundColor:gOut,borderColor:'#ffc107',borderWidth:1,borderRadius:6,barPercentage:.72,categoryPercentage:.82}]},options:getChartDefaults()});
+  }catch(e){ console.warn(e); }
+}
+async function loadRequests(){
+  try{
+    const r=await fetch('/api/metrics/requests?hours='+range2); const d=await r.json();
+    const labels=d.series.map(s=>labelFor(s.ts,range2)); const total=d.series.reduce((a,s)=>a+(s.requests||0),0); const ok=d.series.reduce((a,s)=>a+(s.success||0),0);
+    const tl=document.getElementById('reqTotalLabel'); if(tl) tl.textContent=total?`${fmtInt(total)} req · ${pct(ok,total)}% ok`:'sem dados';
+    const hint=document.getElementById('reqHint'); if(hint) hint.textContent=d.series.length?`${d.series.length} buckets · ${fmtInt(ok)} sucesso`:'sem dados';
+    let cvs=document.getElementById('requestsChart'); if(!cvs) return;
+    if(!d.series.length){ cvs.parentElement.innerHTML='<div class="text-center py-5 text-body-secondary"><i class="fa-solid fa-wave-square fs-1 opacity-50"></i><div class="fw-semibold mt-3">Sem requisições no período</div><div class="small">As requisições aparecerão aqui</div></div><canvas id="requestsChart" style="display:none"></canvas>'; if(requestsChart) try{requestsChart.destroy()}catch(_){} return; }
+    if(!cvs.getContext){ const w=document.querySelector('#requestsChart')?.parentElement; if(w){ w.innerHTML='<canvas id="requestsChart"></canvas>'; cvs=document.getElementById('requestsChart'); } }
+    const ctx=cvs.getContext('2d'); const gT=ctx.createLinearGradient(0,0,0,300); gT.addColorStop(0,'rgba(99,102,241,.18)'); gT.addColorStop(1,'rgba(99,102,241,0)'); const gOk=ctx.createLinearGradient(0,0,0,300); gOk.addColorStop(0,'rgba(25,135,84,.18)'); gOk.addColorStop(1,'rgba(25,135,84,0)');
+    if(requestsChart) requestsChart.destroy();
+    requestsChart=new Chart(cvs,{type:'line',data:{labels,datasets:[{label:'Total',data:d.series.map(s=>s.requests),borderColor:'#6366f1',backgroundColor:gT,fill:true,tension:.38,borderWidth:2.2,pointRadius:0,pointHoverRadius:4},{label:'Sucesso',data:d.series.map(s=>s.success),borderColor:'#198754',backgroundColor:gOk,fill:true,tension:.38,borderWidth:2.2,pointRadius:0,pointHoverRadius:4}]},options:getChartDefaults()});
+  }catch(e){ console.warn(e); }
+}
+async function loadModels(){
+  try{
+    const r=await fetch('/api/metrics/models?hours='+range); const d=await r.json();
+    let cvs=document.getElementById('modelsChart'); if(!cvs) return;
+    if(!d.models||!d.models.length){ cvs.parentElement.innerHTML='<div class="text-center py-5 text-body-secondary"><i class="fa-solid fa-layer-group fs-2 opacity-50"></i><div class="small mt-2">Nenhum modelo no período</div></div><canvas id="modelsChart" style="display:none"></canvas>'; if(modelsChart) try{modelsChart.destroy()}catch(_){} return; }
+    if(!cvs.getContext){ const w=document.querySelector('#modelsChart')?.parentElement; if(w){ w.innerHTML='<canvas id="modelsChart"></canvas>'; cvs=document.getElementById('modelsChart'); } }
+    const ctx=cvs.getContext('2d'); const gIn=ctx.createLinearGradient(0,0,300,0); gIn.addColorStop(0,'rgba(13,110,253,.85)'); gIn.addColorStop(1,'rgba(13,110,253,.1)'); const gOut=ctx.createLinearGradient(0,0,300,0); gOut.addColorStop(0,'rgba(111,66,193,.85)'); gOut.addColorStop(1,'rgba(111,66,193,.1)');
+    if(modelsChart) modelsChart.destroy();
+    modelsChart=new Chart(cvs,{type:'bar',data:{labels:d.models.map(m=>m.model),datasets:[{label:'Input',data:d.models.map(m=>m.input_tokens),backgroundColor:gIn,borderColor:'#0d6efd',borderWidth:1,borderRadius:6},{label:'Output',data:d.models.map(m=>m.output_tokens),backgroundColor:gOut,borderColor:'#6f42c1',borderWidth:1,borderRadius:6}]},options:getChartDefaults({indexAxis:'y'})});
+  }catch(e){ console.warn(e); }
+}
+async function loadDocs(){
+  try{
+    const r=await fetch('/api/metrics/documents'); const d=await r.json(); const h=(d.history||[]).slice(-30);
+    const docsEl=document.getElementById('docsCount'), chunksEl=document.getElementById('chunksCount'); const last=h.length?h[h.length-1]:null; if(docsEl) docsEl.textContent=last?fmtInt(last.documents):'0'; if(chunksEl) chunksEl.textContent=last?fmtInt(last.chunks):'0';
+    let cvs=document.getElementById('docsChart'); if(!cvs) return;
+    if(!h.length){ cvs.parentElement.innerHTML='<div class="text-center py-5 text-body-secondary"><i class="fa-solid fa-file-circle-question fs-1 opacity-50"></i><div class="small mt-2">Nenhum snapshot — indexe documentos</div></div><canvas id="docsChart" style="display:none"></canvas>'; if(docsChart) try{docsChart.destroy()}catch(_){} return; }
+    if(!cvs.getContext){ const w=document.querySelector('#docsChart')?.parentElement; if(w){ w.innerHTML='<canvas id="docsChart"></canvas>'; cvs=document.getElementById('docsChart'); } }
+    const ctx=cvs.getContext('2d'); const gD=ctx.createLinearGradient(0,0,0,240); gD.addColorStop(0,'rgba(13,110,253,.18)'); gD.addColorStop(1,'rgba(13,110,253,0)'); const gC=ctx.createLinearGradient(0,0,0,240); gC.addColorStop(0,'rgba(111,66,193,.14)'); gC.addColorStop(1,'rgba(111,66,193,0)');
+    if(docsChart) docsChart.destroy();
+    docsChart=new Chart(cvs,{type:'line',data:{labels:h.map(x=>timeStr(x.ts)),datasets:[{label:'Documentos',data:h.map(x=>x.documents),borderColor:'#0d6efd',backgroundColor:gD,fill:true,tension:.38,borderWidth:2,pointRadius:0},{label:'Chunks',data:h.map(x=>x.chunks),borderColor:'#6f42c1',backgroundColor:gC,fill:true,tension:.38,borderWidth:2,pointRadius:0}]},options:getChartDefaults()});
+  }catch(e){ console.warn(e); }
+}
+function emptyState(icon,title,subtitle){ return `<div class="text-center py-5 text-body-secondary"><i class="${icon} fs-2 opacity-50"></i><div class="fw-semibold mt-3" style="font-size:.92rem">${esc(title)}</div><div class="small">${esc(subtitle)}</div></div>`; }
+async function loadLlm(){ try{ const r=await fetch('/api/metrics/llm-calls?limit=10'); const d=await r.json(); const calls=d.calls||[]; const el=document.getElementById('llmTable'); const badge=document.getElementById('llmCount'); if(badge) badge.textContent=calls.length?`${calls.length} recentes`:'vazio'; if(!calls.length){ el.innerHTML=emptyState('fa-solid fa-terminal','Sem chamadas LLM','As chamadas ao Ollama aparecerão aqui'); return; } el.innerHTML='<table class="table table-hover align-middle mb-0"><thead class="table-light"><tr><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Hora</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Modelo</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">In</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Out</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Status</th></tr></thead><tbody>'+calls.map(c=>`<tr><td class="font-mono text-body-secondary" style="font-size:.80rem;white-space:nowrap">${esc(timeStr(c.ts))}</td><td class="fw-medium" style="white-space:normal;word-break:break-word;min-width:160px" title="${esc(c.model)}">${esc(c.model)}</td><td class="font-mono text-primary fw-semibold">${fmt(c.prompt_tokens)}</td><td class="font-mono text-warning fw-semibold">${fmt(c.completion_tokens)}</td><td><span class="badge ${c.success?'text-bg-success':'text-bg-danger'} rounded-pill px-2">${c.success?'ok':'err'}</span></td></tr>`).join('')+'</tbody></table>'; }catch(e){ document.getElementById('llmTable').innerHTML=emptyState('fa-solid fa-triangle-exclamation','Indisponível','Não foi possível carregar'); } }
+async function loadReqs(){ try{ const r=await fetch('/api/metrics/requests-log?limit=10'); const d=await r.json(); const reqs=d.requests||[]; const el=document.getElementById('reqTable'); const badge=document.getElementById('reqLogCount'); if(badge) badge.textContent=reqs.length?`${reqs.length} recentes`:'vazio'; if(!reqs.length){ el.innerHTML=emptyState('fa-solid fa-comments','Sem requisições','As perguntas ao agente aparecerão aqui'); return; } el.innerHTML='<table class="table table-hover align-middle mb-0"><thead class="table-light"><tr><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Hora</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Pergunta</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Evid.</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Tempo</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Status</th></tr></thead><tbody>'+reqs.map(c=>`<tr><td class="font-mono text-body-secondary" style="font-size:.80rem;white-space:nowrap">${esc(timeStr(c.ts))}</td><td style="white-space:normal;word-break:break-word;min-width:320px" title="${esc(c.question||'')}">${esc(c.question||'—')}</td><td class="font-mono text-info fw-semibold">${c.evidence_count??0}</td><td class="font-mono text-primary" style="font-size:.82rem;white-space:nowrap">${c.execution_ms?(c.execution_ms/1000).toFixed(1)+'s':'—'}</td><td><span class="badge ${c.success?'text-bg-success':'text-bg-danger'} rounded-pill px-2">${c.success?'ok':'err'}</span></td></tr>`).join('')+'</tbody></table>'; }catch(e){ document.getElementById('reqTable').innerHTML=emptyState('fa-solid fa-triangle-exclamation','Indisponível','Não foi possível carregar'); } }
+async function loadIdx(){ try{ const r=await fetch('/api/metrics/index-events?limit=10'); const d=await r.json(); const evs=d.events||[]; const el=document.getElementById('idxTable'); const badge=document.getElementById('idxCount'); if(badge) badge.textContent=evs.length?`${evs.length} eventos`:'vazio'; if(!evs.length){ el.innerHTML=emptyState('fa-solid fa-database','Sem eventos','Eventos de indexação aparecerão aqui'); return; } el.innerHTML='<table class="table table-hover align-middle mb-0"><thead class="table-light"><tr><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Hora</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Docs</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Chunks</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Status</th></tr></thead><tbody>'+evs.map(e=>`<tr><td class="font-mono text-body-secondary" style="font-size:.80rem;white-space:nowrap">${esc(timeStr(e.ts))}</td><td class="font-mono text-primary fw-semibold">${e.documents_processed??0}</td><td class="font-mono text-primary fw-semibold">${e.chunks_indexed??0}</td><td><span class="badge ${!e.error?'text-bg-success':'text-bg-danger'} rounded-pill px-2">${!e.error?'ok':'err'}</span></td></tr>`).join('')+'</tbody></table>'; }catch(e){ document.getElementById('idxTable').innerHTML=emptyState('fa-solid fa-triangle-exclamation','Indisponível','Não foi possível carregar'); } }
+async function loadHealth(){ try{ const r=await fetch('/api/health/ready'); const d=await r.json(); const overall=document.getElementById('healthOverall'); if(overall){ const isOk=d.status==='ok', isDeg=d.status==='degraded'; overall.className=isOk?'badge rounded-pill text-bg-success d-inline-flex align-items-center gap-2 px-3 py-2 fw-bold shadow-sm':isDeg?'badge rounded-pill text-bg-warning d-inline-flex align-items-center gap-2 px-3 py-2 fw-bold shadow-sm':'badge rounded-pill text-bg-danger d-inline-flex align-items-center gap-2 px-3 py-2 fw-bold shadow-sm'; overall.innerHTML=`<i class="bi bi-circle-fill" style="font-size:.42rem"></i> ${esc(d.status==='ok'?'Online':d.status)}`; } const checks=d.checks||{}; const setHeader=(id,key)=>{ const el=document.getElementById(id); if(!el) return; const v=(checks[key]||'').toLowerCase(); const ok=v==='ok'||v.startsWith('ok'); const isErr=v.includes('unavailable')||v.includes('error')||v==='missing'; el.className=ok?'text-success fw-semibold':isErr?'text-danger fw-semibold':'text-warning fw-semibold'; }; setHeader('healthRag','manifest'); setHeader('healthLlm','ollama'); setHeader('healthDb','vector_db_dir'); const staleEl=document.getElementById('healthStale'), staleText=document.getElementById('healthStaleText'); const n=d.stale||0; if(n>0){ if(staleText) staleText.textContent=n; if(staleEl) staleEl.classList.remove('d-none'); } else { if(staleEl) staleEl.classList.add('d-none'); } }catch(e){} }
+function refresh(){ const icon=document.getElementById('refreshIcon'); if(icon){ icon.animate([{transform:'rotate(0deg)'},{transform:'rotate(360deg)'}],{duration:600}); } countdown=15; const txt=document.getElementById('countdownText'); if(txt) txt.textContent='15s'; Promise.all([loadKpis(),loadTokens(),loadRequests(),loadModels(),loadDocs(),loadLlm(),loadReqs(),loadIdx(),loadHealth()]).finally(()=>{ const el=document.getElementById('lastUpdated'); if(el) el.textContent='Atualizado às '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }); }
+function bindRange(id,setter){ const root=document.getElementById(id); if(!root) return; root.querySelectorAll('[data-range]').forEach(b=>{ b.addEventListener('click',()=>{ const v=+b.dataset.range; setter(v); document.querySelectorAll('#headerRange [data-range]').forEach(x=>{ x.classList.toggle('btn-primary',+x.dataset.range===range); x.classList.toggle('btn-outline-secondary',+x.dataset.range!==range); x.classList.toggle('active',+x.dataset.range===range); }); root.querySelectorAll('[data-range]').forEach(x=>{ x.classList.toggle('btn-primary',+x.dataset.range===v); x.classList.toggle('btn-outline-secondary',+x.dataset.range!==v); x.classList.toggle('active',+x.dataset.range===v); }); }); }); }
+bindRange('headerRange', v=>{ range=v; loadKpis(); loadTokens(); loadModels(); });
+bindRange('tokensRangeBar', v=>{ range=v; document.querySelectorAll('#headerRange [data-range]').forEach(x=>{ x.classList.toggle('btn-primary',+x.dataset.range===v); x.classList.toggle('btn-outline-secondary',+x.dataset.range!==v); }); loadTokens(); loadKpis(); loadModels(); });
+bindRange('reqsRangeBar', v=>{ range2=v; loadRequests(); });
+document.addEventListener('keydown', e=>{ if((e.key==='r'||e.key==='R')&&!e.metaKey&&!e.ctrlKey&&e.target.tagName!=='INPUT'&&e.target.tagName!=='TEXTAREA') refresh(); });
+refresh();
+</script>
 </body>
 </html>
