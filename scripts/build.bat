@@ -8,7 +8,7 @@ set "PYTHON_EXE=%ROOT%\.venv\Scripts\python.exe"
 set "PIP_EXE=%ROOT%\.venv\Scripts\pip.exe"
 
 :: Chamar setup automatico (sem pausa) para garantir venv + dependencias
-call "%ROOT%\ops\setup.bat" silent
+call "%ROOT%\scripts\setup.bat" silent
 if errorlevel 1 exit /b 1
 
 echo ============================================

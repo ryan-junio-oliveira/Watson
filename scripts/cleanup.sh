@@ -1,6 +1,6 @@
 #!/bin/bash
 # Watson Cleanup - Remove todos artefatos e lixo do repositorio
-# Uso: chmod +x ops/cleanup.sh && ./ops/cleanup.sh
+# Uso: chmod +x scripts/cleanup.sh && ./scripts/cleanup.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"

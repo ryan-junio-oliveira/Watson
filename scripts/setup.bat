@@ -8,7 +8,7 @@ setlocal enabledelayedexpansion
 ::  Uso:  setup.bat            -> setup completo com pausa
 ::        call setup.bat silent -> sem pausa (usado por outros scripts)
 :: ============================================
-:: Ops esta em ops/ -> ROOT eh um nivel acima
+:: Scripts esta em scripts/ -> ROOT eh um nivel acima
 set "ROOT=%~dp0.."
 pushd "%ROOT%" >nul
 set "VENV_DIR=%ROOT%\.venv"

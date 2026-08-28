@@ -2,18 +2,18 @@
 chcp 65001 >nul 2>nul
 setlocal enabledelayedexpansion
 title Watson RAG
-:: Ops esta em ops/ -> ROOT eh um nivel acima
+:: Scripts esta em scripts/ -> ROOT eh um nivel acima
 set "ROOT=%~dp0.."
 pushd "%ROOT%" >nul
 set "PYTHON_EXE=%ROOT%\.venv\Scripts\python.exe"
 
 :: Chamar setup automatico (sem pausa) para garantir venv + dependencias
 :: Loga saida do setup para diagnostico se falhar
-call "%ROOT%\ops\setup.bat" silent
+call "%ROOT%\scripts\setup.bat" silent
 if errorlevel 1 (
     echo.
     echo [ERRO] O setup falhou. Veja as mensagens acima.
-    echo Para resolver, rode manualmente:  "%ROOT%\ops\setup.bat"
+    echo Para resolver, rode manualmente:  "%ROOT%\scripts\setup.bat"
     echo.
     echo Tentando continuar mesmo assim para mostrar o menu...
     pause
