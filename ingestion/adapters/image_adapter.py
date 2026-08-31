@@ -47,14 +47,41 @@ class ImageAdapter(SourceAdapter):
         width, height = image.size
         image_format = image.format or "unknown"
 
-        text = ""
+        # Filtra idioma para tessdata disponível (HyperViewer só tem por)
         try:
-            text = pytesseract.image_to_string(image, lang=self.ocr_lang).strip()
-        except Exception as e:
-            if self.logger:
-                self.logger.warning(f"Image OCR failed for '{filepath.name}': {e}")
+            from ingestion.adapters.ocr import _filter_available_langs
+            from pathlib import Path as _P
+            import pytesseract as _pt
 
-        vision = self.vision.analyze(str(filepath))
+            _tessdata = None
+            _cmd = getattr(_pt.pytesseract, "tesseract_cmd", "")
+            if _cmd:
+                _tessdata = _P(_cmd).parent / "tessdata"
+            ocr_lang_eff = _filter_available_langs(self.ocr_lang, _tessdata) if _tessdata else self.ocr_lang
+        except Exception:
+            ocr_lang_eff = self.ocr_lang
+        text = ""
+        # Skipa OCR para imagens muito pequenas ou com aspecto extremo (mesmo erro pixScaleAreaMap)
+        if width < 50 or height < 50 or (width * height) < 10000 or (width / height < 0.05 if height else False) or (height / width < 0.05 if width else False):
+            if self.logger:
+                self.logger.info(f"Skipping OCR for small/thin image '{filepath.name}': {width}x{height}")
+        else:
+            try:
+                import contextlib
+                import io as _io
+
+                with contextlib.redirect_stderr(_io.StringIO()):
+                    text = pytesseract.image_to_string(image, lang=ocr_lang_eff).strip()
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"Image OCR failed for '{filepath.name}': {e} (lang={ocr_lang_eff})")
+
+        # Só chama vision para imagens com tamanho razoável
+        vision = None
+        if width >= 100 and height >= 100 and (width * height) >= 10000:
+            vision = self.vision.analyze(str(filepath))
+        else:
+            vision = None
         kind = self._classify(width, height, text, vision)
 
         description = ""

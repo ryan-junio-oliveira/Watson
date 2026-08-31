@@ -134,14 +134,28 @@ class TestRetriever:
     def test_retrieve_all_from_source_filters_by_source(self, mock_embedding_generator, mock_chroma):
         mock_collection = MagicMock()
         mock_collection.count.return_value = 5
-        mock_collection.get.return_value = {
-            "documents": ["Pin 1", "Pin 2", "Outro doc"],
-            "metadatas": [
-                {"source": "docs/manual.pdf", "chunk_id": "c1"},
-                {"source": "docs/manual.pdf", "chunk_id": "c2"},
-                {"source": "docs/outro.pdf", "chunk_id": "c3"},
-            ],
-        }
+
+        # Simula filtragem por where no Chroma: quando where={"source": "docs/manual.pdf"}, retorna só os 2 docs filtrados
+        def _fake_get(where=None, limit=None, offset=None, include=None):
+            if where and where.get("source") == "docs/manual.pdf":
+                return {
+                    "documents": ["Pin 1", "Pin 2"],
+                    "metadatas": [
+                        {"source": "docs/manual.pdf", "chunk_id": "c1"},
+                        {"source": "docs/manual.pdf", "chunk_id": "c2"},
+                    ],
+                }
+            # fallback (sem where) retorna tudo — mas retriever deve filtrar manualmente
+            return {
+                "documents": ["Pin 1", "Pin 2", "Outro doc"],
+                "metadatas": [
+                    {"source": "docs/manual.pdf", "chunk_id": "c1"},
+                    {"source": "docs/manual.pdf", "chunk_id": "c2"},
+                    {"source": "docs/outro.pdf", "chunk_id": "c3"},
+                ],
+            }
+
+        mock_collection.get.side_effect = _fake_get
         mock_vector_store = mock_chroma.return_value
         mock_vector_store._collection = mock_collection
 

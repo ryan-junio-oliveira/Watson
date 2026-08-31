@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture(autouse=True)
 def mock_env(tmp_path):
-    with patch("api.app_config") as mock_cfg:
+    with patch("cli.api.app_config") as mock_cfg:
         mock_cfg.vector_db_dir = "/tmp/test_chroma"
         mock_cfg.documents_dir = "/tmp/test_docs"
         mock_cfg.log_level = "INFO"
@@ -46,12 +46,25 @@ def mock_env(tmp_path):
         mock_cfg.google_drive_sync_timeout = 30
         mock_cfg.metrics_db = str(tmp_path / "metrics.db")
         mock_cfg.api_auth_token = ""
+        mock_cfg.api_rate_limit = 1000
+        mock_cfg.api_rate_window = 60
+        mock_cfg.api_rate_enabled = False
+        mock_cfg.enable_reasoning = False
+        mock_cfg.enable_analyst = False
+        mock_cfg.analyst_max_followups = 3
+        mock_cfg.reasoning_top_k = 12
+        mock_cfg.reasoning_temperature = 0.2
+        mock_cfg.reasoning_max_tokens = 3072
+        mock_cfg.enable_query_expansion = False
+        mock_cfg.query_expansion_variants = 3
+        mock_cfg.enable_reranker_reasoning = False
+        mock_cfg.agent_name = "Watson"
         yield mock_cfg
 
 
 @pytest.fixture
 def client():
-    from api import app
+    from cli.api import app
 
     with TestClient(app) as c:
         yield c
@@ -75,7 +88,7 @@ class TestChatEndpoint:
         response = client.post("/api/chat", json={"question": ""})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("api.chatbot")
+    @patch("cli.api.chatbot")
     def test_chat_returns_answer(self, mock_chatbot, client):
         mock_chatbot.ask.return_value = AgentResponse(
             answer="Resposta do modelo.",
@@ -90,7 +103,7 @@ class TestChatEndpoint:
         assert data["answer"] == "Resposta do modelo."
         assert data["confidence"] == 0.95
 
-    @patch("api.chatbot")
+    @patch("cli.api.chatbot")
     def test_chat_response_has_sources_and_metadata(self, mock_chatbot, client):
         from rag.evidence import Evidence
         mock_chatbot.ask.return_value = AgentResponse(
@@ -111,7 +124,7 @@ class TestChatEndpoint:
         assert "evidence_count" in data["metadata"]
         assert "execution_time_ms" in data["metadata"]
 
-    @patch("api.chatbot")
+    @patch("cli.api.chatbot")
     def test_chat_with_history(self, mock_chatbot, client):
         mock_chatbot.ask_with_context.return_value = AgentResponse(
             answer="Resposta contextual.",
@@ -129,7 +142,7 @@ class TestChatEndpoint:
         assert data["answer"] == "Resposta contextual."
         assert data["confidence"] == 0.8
 
-    @patch("api.chatbot")
+    @patch("cli.api.chatbot")
     def test_chat_with_auto_mode(self, mock_chatbot, client):
         mock_chatbot.ask.return_value = AgentResponse(
             answer="Resposta baseada nos documentos.",
@@ -150,7 +163,7 @@ class TestChatEndpoint:
             "Quais servidores estao cadastrados?", mode=Mode.auto, analyze=False
         )
 
-    @patch("api.chatbot")
+    @patch("cli.api.chatbot")
     def test_chat_stream_with_auto_mode(self, mock_chatbot, client):
         result = AgentResponse(
             answer="5 servidores encontrados",
@@ -173,7 +186,7 @@ def _stream_gen(tokens, result):
 
 
 class TestChatStreamEndpoint:
-    @patch("api.chatbot")
+    @patch("cli.api.chatbot")
     def test_chat_stream_returns_sse_events(self, mock_chatbot, client):
         result = AgentResponse(
             answer="Resposta do modelo.",
@@ -200,7 +213,7 @@ class TestChatStreamEndpoint:
         final = json.loads(lines[4].replace("data: ", "", 1))
         assert final["confidence"] == 0.95
 
-    @patch("api.chatbot")
+    @patch("cli.api.chatbot")
     def test_chat_stream_does_not_emit_validation_event(self, mock_chatbot, client):
         result = AgentResponse(
             answer="Resposta.",
@@ -216,7 +229,7 @@ class TestChatStreamEndpoint:
         assert response.status_code == status.HTTP_200_OK
         assert "[VALIDATION]" not in response.text
 
-    @patch("api.chatbot")
+    @patch("cli.api.chatbot")
     def test_chat_stream_with_history(self, mock_chatbot, client):
         result = AgentResponse(
             answer="Resposta contextual.",
@@ -235,7 +248,7 @@ class TestChatStreamEndpoint:
         assert response.status_code == status.HTTP_200_OK
         assert "data: [DONE]" in response.text
 
-    @patch("api.chatbot")
+    @patch("cli.api.chatbot")
     def test_chat_stream_empty_question(self, mock_chatbot, client):
         response = client.post("/api/chat/stream", json={"question": ""})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -245,7 +258,7 @@ class TestChatStreamEndpoint:
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_chat_stream_not_initialized(self, client):
-        with patch("api.chatbot", None):
+        with patch("cli.api.chatbot", None):
             response = client.post(
                 "/api/chat/stream",
                 json={"question": "Qual a capital?"},
@@ -254,7 +267,7 @@ class TestChatStreamEndpoint:
 
 
 class TestUploadEndpoint:
-    @patch("api.cfg")
+    @patch("cli.api.cfg")
     def test_upload_file(self, mock_cfg, client, tmp_path):
         docs_dir = tmp_path / "docs"
         docs_dir.mkdir()
@@ -269,7 +282,7 @@ class TestUploadEndpoint:
         assert data["status"] == "ok"
         assert data["filename"] == "test.txt"
 
-    @patch("api.cfg")
+    @patch("cli.api.cfg")
     def test_upload_sanitizes_filename(self, mock_cfg, client, tmp_path):
         docs_dir = tmp_path / "docs"
         docs_dir.mkdir()
@@ -289,8 +302,8 @@ class TestUploadEndpoint:
 
 
 class TestIndexEndpoints:
-    @patch("api.indexer")
-    @patch("api.cfg")
+    @patch("cli.api.indexer")
+    @patch("cli.api.cfg")
     def test_index_all(self, mock_cfg, mock_indexer, client, tmp_path):
         mock_indexer.has_pending_changes.return_value = (False, [], set())
         mock_indexer.index.return_value = 0
@@ -300,7 +313,7 @@ class TestIndexEndpoints:
         assert response.status_code == status.HTTP_200_OK
 
     def test_index_async_starts_job(self, client):
-        with patch("api._start_index_job") as mock_start:
+        with patch("cli.api._start_index_job") as mock_start:
             mock_start.return_value = "job123"
             response = client.post("/api/index/async", json={"mode": "documents"})
         assert response.status_code == status.HTTP_200_OK
@@ -312,7 +325,7 @@ class TestIndexEndpoints:
         )
 
     def test_index_async_sync_drive_true(self, client):
-        with patch("api._start_index_job") as mock_start:
+        with patch("cli.api._start_index_job") as mock_start:
             mock_start.return_value = "job456"
             response = client.post(
                 "/api/index/async",
@@ -324,15 +337,15 @@ class TestIndexEndpoints:
         )
 
     def test_index_async_prunes_old_jobs(self, client):
-        with patch("api._prune_index_jobs") as mock_prune, \
-             patch("api._start_index_job") as mock_start:
+        with patch("cli.api._prune_index_jobs") as mock_prune, \
+             patch("cli.api._start_index_job") as mock_start:
             mock_start.return_value = "job789"
             response = client.post("/api/index/async", json={"mode": "documents"})
         assert response.status_code == status.HTTP_200_OK
         mock_prune.assert_called_once()
 
     def test_index_async_invalid_mode(self, client):
-        with patch("api._start_index_job") as mock_start:
+        with patch("cli.api._start_index_job") as mock_start:
             response = client.post("/api/index/async", json={"mode": "nope"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_start.assert_not_called()
@@ -342,7 +355,7 @@ class TestIndexEndpoints:
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_index_status_running(self, client):
-        with patch("api._get_index_job") as mock_get:
+        with patch("cli.api._get_index_job") as mock_get:
             mock_get.return_value = {
                 "status": "running", "result": None, "error": None,
                 "progress": 2, "total": 10, "message": "doc.pdf",
@@ -357,7 +370,7 @@ class TestIndexEndpoints:
         assert data["message"] == "doc.pdf"
 
     def test_index_status_done(self, client):
-        with patch("api._get_index_job") as mock_get:
+        with patch("cli.api._get_index_job") as mock_get:
             mock_get.return_value = {
                 "status": "done",
                 "result": {
@@ -376,19 +389,19 @@ class TestIndexEndpoints:
         assert data["progress"] == 3
 
     def test_index_cancel_not_found(self, client):
-        with patch("api._get_index_job", return_value=None):
+        with patch("cli.api._get_index_job", return_value=None):
             response = client.post("/api/index/cancel/inexistente")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
     def test_index_cancel_not_running(self, client):
-        with patch("api._get_index_job") as mock_get:
+        with patch("cli.api._get_index_job") as mock_get:
             mock_get.return_value = {"status": "done", "cancel_requested": False}
             response = client.post("/api/index/cancel/abc123")
         assert response.status_code == status.HTTP_409_CONFLICT
 
     def test_index_cancel_running_sets_flag(self, client):
-        import api as api_mod
+        import cli.api as api_mod
 
         api_mod._index_jobs.clear()
         api_mod._index_jobs["abc123"] = {"status": "running", "cancel_requested": False}
@@ -403,7 +416,7 @@ class TestIndexEndpoints:
         api_mod._index_jobs.clear()
 
     def test_index_async_conflict_when_running(self, client):
-        import api as api_mod
+        import cli.api as api_mod
         import time
 
         api_mod._index_jobs.clear()
@@ -419,7 +432,7 @@ class TestIndexEndpoints:
 
 
 class TestClearEndpoints:
-    @patch("api.indexer")
+    @patch("cli.api.indexer")
     def test_clear_all(self, mock_indexer, client):
         mock_indexer.clear_vectorstore.return_value = 10
         mock_indexer.clear_documents.return_value = 5
@@ -430,7 +443,7 @@ class TestClearEndpoints:
         assert data["documents_removed"] == 5
         assert data["vectorstore_files_removed"] == 10
 
-    @patch("api.indexer")
+    @patch("cli.api.indexer")
     def test_clear_vectorstore_only(self, mock_indexer, client):
         mock_indexer.clear_vectorstore.return_value = 10
 
@@ -441,8 +454,8 @@ class TestClearEndpoints:
 
 
 class TestModelsEndpoint:
-    @patch("api.ollama_client")
-    @patch("api.cfg")
+    @patch("cli.api.ollama_client")
+    @patch("cli.api.cfg")
     def test_list_models(self, mock_cfg, mock_ollama_client, client):
         mock_ollama_client.list_models.return_value = ["model1", "model2"]
 

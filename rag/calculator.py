@@ -135,7 +135,47 @@ class NumberExtractor:
         return NumericFact(label=label, value=value, raw=line,
                            is_month=True, month_index=idx)
 
+    def _extract_table_fact(self, line: str) -> Optional[NumericFact]:
+        """Suporta linhas de tabela markdown: '| Jan | 15 |' ou '| Total | 1.234 |'."""
+        if "|" not in line:
+            return None
+        # Remove bordas e splita
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) < 2:
+            return None
+        # Procura célula com label e célula com número
+        label = ""
+        value_str = ""
+        for i, cell in enumerate(cells):
+            if not cell:
+                continue
+            # Tenta parse número
+            v = parse_number(cell)
+            if v is not None and not value_str:
+                value_str = cell
+                # label é a célula anterior não-numérica mais próxima
+                for j in range(i - 1, -1, -1):
+                    if cells[j] and parse_number(cells[j]) is None:
+                        label = cells[j]
+                        break
+                if not label:
+                    label = f"col{i}"
+                break
+        if not label or not value_str:
+            return None
+        key_low = label.lower().strip()
+        if key_low in _NOISY_KEYS or len(key_low) < 2:
+            return None
+        value = parse_number(value_str)
+        if value is None:
+            return None
+        return NumericFact(label=label.strip(), value=value, raw=line)
+
     def _key_value_fact(self, line: str) -> Optional[NumericFact]:
+        # Primeiro tenta formato tabela
+        table_fact = self._extract_table_fact(line)
+        if table_fact is not None:
+            return table_fact
         m = re.match(r"^([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9\s\-\_]*?)\s*[:=\-]\s*(\d[\d.,\s]*)$", line)
         if not m:
             return None
@@ -170,8 +210,12 @@ class NumberExtractor:
 
 
 class IntentDetector:
-    # Prioridade: percentual > diferença > soma > média > maior > menor
+    # Prioridade: ratio > percentual > diferença > soma > média > maior > menor > contagem
     _RULES = [
+        ("ratio", (
+            r"quantas\s+vezes|vezes\s+maior|vezes\s+menor|razão|razao|"
+            r"proporção|proporcao.*vezes|dividido por|divisão|divisao"
+        )),
         ("percent_change", (
             r"quantos\s*%|% a mais|% a menos|por\s*cento|percentual|"
             r"porcentagem|variação|variacao|percentualmente|cresceu|"
@@ -194,6 +238,10 @@ class IntentDetector:
         ("min", (
             r"\bmenor\b|mais baixo|minimo|mínimo|"
             r"teve\s+menos|tem\s+menos|com\s+menos|imprimiu\s+menos"
+        )),
+        ("count", (
+            r"quantos|quantas|quantidade|número de|numero de|"
+            r"quantos.*existem|quantas.*existem"
         )),
     ]
 
@@ -231,6 +279,17 @@ class Calculator:
             return self._percent_change(ordered)
         if intent == "difference":
             return self._difference(ordered)
+        if intent == "ratio":
+            return self._ratio(ordered)
+        if intent == "count":
+            # Conta distinta de fatos (quando pergunta é "quantos ...")
+            # Usa número de evidências numéricas como proxy
+            return ComputedFact(
+                kind="count",
+                expression=f"Contagem de valores distintos ({', '.join(f.label for f in facts)})",
+                result=float(len(facts)),
+                facts=facts,
+            )
         if intent == "sum":
             total = sum(f.value for f in facts)
             return ComputedFact(
@@ -314,5 +373,25 @@ class Calculator:
             kind="difference",
             expression=expr,
             result=diff,
+            facts=[earlier, later],
+        )
+
+    def _ratio(self, facts: List[NumericFact]) -> Optional[ComputedFact]:
+        pair = self._ordered_pair(facts)
+        if pair is None:
+            return None
+        earlier, later = pair
+        if earlier.value == 0:
+            return None
+        ratio = later.value / earlier.value
+        expr = (
+            f"Razão de {later.label} ({later.display_value}) sobre "
+            f"{earlier.label} ({earlier.display_value}): "
+            f"{later.display_value} ÷ {earlier.display_value}"
+        )
+        return ComputedFact(
+            kind="ratio",
+            expression=expr,
+            result=ratio,
             facts=[earlier, later],
         )

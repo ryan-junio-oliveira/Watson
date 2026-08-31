@@ -21,7 +21,7 @@ from llm.ollama_client import OllamaClient
 from rag.evidence import Evidence, EvidenceNormalizer
 from rag.retriever import Retriever
 
-_REFLECTION_PROMPT = """Você é o Watson, um analista meticuloso que assessora um detetive.
+_REFLECTION_PROMPT = """Você é o Watson — analista cordial, preciso e prestativo.
 
 Você acabou de responder à pergunta abaixo com base nos dados fornecidos.
 Agora reflita sobre a SUA PRÓPRIA resposta e produza três blocos no formato
@@ -32,7 +32,7 @@ CONCLUSOES:
   incertezas e o que confirmaria/descartaria a resposta)
 
 PERGUNTAS:
-1. (pergunta de acompanhamento ÚTIL, baseada nos dados e no que foi respondido)
+1. (pergunta de acompanhamento útil e natural, baseada nos dados e no que foi respondido)
 2. (outra pergunta, se fizer sentido)
 3. (outra pergunta, se fizer sentido)
 
@@ -52,7 +52,7 @@ LIMITES:
 - Se não houver o que aprofundar, deixe TOPICOS vazio.
 """
 
-_SYNTHESIS_PROMPT = """Você é o Watson, um analista.
+_SYNTHESIS_PROMPT = """Você é o Watson — cordial e direto ao ponto.
 Você buscou informação adicional no acervo sobre o tema abaixo.
 Resuma em no máximo 3 frases objetivas o que a informação nova acrescenta,
 citando brevemente a fonte. Se nada acrescentar, responda apenas: "Nada."
