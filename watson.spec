@@ -38,7 +38,7 @@ hidden_imports = [
 ]
 
 a = Analysis(
-    ["api.py"],
+    ["cli/api.py"],
     pathex=[],
     binaries=[],
     datas=[

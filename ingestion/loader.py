@@ -30,8 +30,12 @@ class DocumentLoader:
         tesseract_cmd: str = "",
         image_dir: str = "",
         vision_model: str = "",
+        vision_base_url: str = "",
+        ollama_base_url: str = "",
     ):
         self.logger = logger
+        # Vision base URL cai no ollama base se não especificado
+        _v_base = vision_base_url or ollama_base_url or "http://localhost:11434"
         self.registry = registry or build_default_registry(
             logger=logger,
             ocr_lang=ocr_lang,
@@ -40,6 +44,8 @@ class DocumentLoader:
             tesseract_cmd=tesseract_cmd,
             image_dir=image_dir,
             vision_model=vision_model,
+            vision_base_url=_v_base,
+            ollama_base_url=_v_base,
         )
         self.SUPPORTED_EXTENSIONS = self.registry.supported_extensions
         self._infer_identity = infer_identity

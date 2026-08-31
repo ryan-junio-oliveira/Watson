@@ -41,17 +41,44 @@ class QualityGate:
         min_total: float = 0.35,
         min_text: float = 0.15,
         min_chars: int = 20,
+        min_chars_table: int = 10,
+        min_chars_image: int = 30,
+        table_min_pipes: int = 4,
+        ocr_conf_threshold: float = 0.6,
     ):
         self.min_total = min_total
         self.min_text = min_text
         self.min_chars = min_chars
+        self.min_chars_table = min_chars_table
+        self.min_chars_image = min_chars_image
+        self.table_min_pipes = table_min_pipes
+        self.ocr_conf_threshold = ocr_conf_threshold
 
     def assess(self, chunk: Document, doc: LoadedDocument) -> QualityScore:
         content = chunk.page_content or ""
         meta = chunk.metadata or {}
         reasons: List[str] = []
+        source_type = (meta.get("source_type") or getattr(doc, "source_type", "") or "").lower()
 
-        text_quality = self._text_quality(content)
+        # Limiar por tipo
+        if source_type in ("csv", "xlsx", "xls"):
+            min_chars = self.min_chars_table
+            # Tabelas curtas são válidas se têm pipes suficientes
+            if content.count("|") >= self.table_min_pipes:
+                # Rebaixa exigência de texto para tabelas estruturadas
+                text_quality = max(self._text_quality(content), 0.3)
+            else:
+                text_quality = self._text_quality(content)
+        elif source_type == "image":
+            min_chars = self.min_chars_image
+            text_quality = self._text_quality(content)
+            # Imagem sem texto útil é ruído
+            if len(content.strip()) < min_chars:
+                reasons.append("image_no_text")
+        else:
+            min_chars = self.min_chars
+            text_quality = self._text_quality(content)
+
         if text_quality < self.min_text:
             reasons.append("low_text_quality")
 
@@ -60,6 +87,10 @@ class QualityGate:
             reasons.append("low_structure_quality")
 
         ocr_quality = self._ocr_quality(doc, content)
+        # Se OCR de baixa confiança e sem vision, penaliza mais para imagem/pdf escaneado
+        if source_type == "image" and ocr_quality < self.ocr_conf_threshold:
+            reasons.append("low_ocr_confidence")
+
         metadata_quality = self._metadata_quality(meta)
 
         total = (
@@ -70,11 +101,11 @@ class QualityGate:
         )
 
         accepted = (
-            len(content) >= self.min_chars
+            len(content) >= min_chars
             and text_quality >= self.min_text
             and total >= self.min_total
         )
-        if len(content) < self.min_chars:
+        if len(content) < min_chars:
             reasons.append("too_short")
 
         return QualityScore(

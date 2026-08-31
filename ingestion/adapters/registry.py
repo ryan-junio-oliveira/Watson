@@ -67,6 +67,8 @@ def build_default_registry(
             ocr_dpi=ocr_dpi,
             tesseract_cmd=tesseract_cmd,
             image_dir=image_dir,
+            vision_model=vision_model,
+            vision_base_url=kwargs.get("vision_base_url", kwargs.get("ollama_base_url", "http://localhost:11434")),
         )
     )
     registry.register(DocxAdapter(logger=logger))

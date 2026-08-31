@@ -413,5 +413,5 @@ def get_metrics_store(db_path: Optional[str] = None, logger: Optional[logging.Lo
     """Retorna um MetricsStore com o path configurado (via env METRICS_DB)."""
     if db_path:
         return MetricsStore(db_path=db_path, logger=logger)
-    from config import config
+    from core.config import config
     return MetricsStore(db_path=config.metrics_db, logger=logger)

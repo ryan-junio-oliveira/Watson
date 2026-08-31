@@ -11,12 +11,14 @@ class TestChatBot:
     @pytest.fixture
     def mock_retriever(self):
         retriever = MagicMock()
+        retriever.top_k = 5
         retriever.retrieve.return_value = [
             Document(
                 page_content="Contexto relevante para resposta.",
-                metadata={"filename": "doc.txt"},
+                metadata={"filename": "doc.txt", "chunk_id": "c1", "source": "doc.txt"},
             )
         ]
+        retriever.retrieve_all_from_source.return_value = []
         return retriever
 
     @pytest.fixture
@@ -29,9 +31,14 @@ class TestChatBot:
     @pytest.fixture
     def mock_ollama_client(self):
         client = MagicMock()
+        client.temperature = 0.1
+        client.max_tokens = 2048
+        client.model = "gemma3:4b"
         client.ask.return_value = "Resposta baseada no contexto."
         client._strip_thinking.return_value = "Resposta baseada no contexto."
         client.ask_stream.return_value = iter(["Resposta ", "baseada ", "no ", "contexto."])
+        client.supports_thinking.return_value = False
+        client.supports_thinking = MagicMock(return_value=False)
         return client
 
     @pytest.fixture
@@ -61,21 +68,21 @@ class TestChatBot:
         assert isinstance(result, AgentResponse)
 
     def test_chat_loop_exit(self, chatbot, monkeypatch):
-        monkeypatch.setattr("builtins.input", lambda _: "exit")
+        monkeypatch.setattr("builtins.input", lambda *a, **k: "exit")
         chatbot.chat_loop()
 
     def test_chat_loop_quit(self, chatbot, monkeypatch):
-        monkeypatch.setattr("builtins.input", lambda _: "quit")
+        monkeypatch.setattr("builtins.input", lambda *a, **k: "quit")
         chatbot.chat_loop()
 
     def test_chat_loop_empty_input(self, chatbot, monkeypatch):
         inputs = iter(["", "exit"])
-        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+        monkeypatch.setattr("builtins.input", lambda *a, **k: next(inputs))
         chatbot.chat_loop()
 
     def test_chat_loop_question(self, chatbot, monkeypatch):
         inputs = iter(["Qual a capital?", "exit"])
-        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+        monkeypatch.setattr("builtins.input", lambda *a, **k: next(inputs))
         chatbot.chat_loop()
 
     def test_ask_stream_yields_tokens(self, chatbot, mock_ollama_client):
