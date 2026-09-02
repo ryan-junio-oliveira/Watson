@@ -1,0 +1,47 @@
+# Git / venv / caches
+.git
+.gitignore
+.venv
+venv
+env
+__pycache__
+*.py[cod]
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+*.egg-info
+
+# Build
+dist
+build
+*.spec.bak
+
+# Dados locais (persistidos em volumes, não na imagem)
+database/chroma
+database/*.db
+database/*.sqlite
+database/*.sqlite3
+database/images
+database/dedup.json
+database/index_jobs.json
+database/embedding_cache.sqlite3
+logs
+*.log
+watson.log
+
+# Tesseract Windows (47MB) — não entra na imagem Linux (usa apt tesseract-ocr)
+libs/
+# .env com segredos não deve ser baked na imagem — entrypoint cria a partir de .env.example
+.env
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode
+.idea
+*.swp
+
+# Docs não necessários pra runtime (opcional — comente se quiser docs na imagem)
+# docs/
