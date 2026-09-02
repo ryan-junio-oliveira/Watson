@@ -58,6 +58,18 @@ class PromptBuilder:
         "4. Não use bullet points em excesso; prefira um parágrafo curto e natural.\n"
         "5. Responda em português, de forma cordial e objetiva."
     )
+    WEB_SYSTEM_PROMPT = (
+        "Você é o Watson — assistente preciso e didático, com toque humano de Gemini, Claude e ChatGPT.\n"
+        "Responda DIRETAMENTE à pergunta com base nas EVIDÊNCIAS DA WEB fornecidas (título, URL, conteúdo).\n"
+        "Regras obrigatórias:\n"
+        "1. SINTETIZE, não apenas comente: defina, compare, explique princípios, implementação, vantagens/desvantagens e casos de uso com base nas evidências.\n"
+        "2. FORMATAÇÃO MARKDOWN OBRIGATÓRIA: use ### para seções, **negrito** para termos-chave, listas com - , e tabela Markdown | Aspecto | RAG | LoRA | ou | Cruzeiro | Atlético | quando comparar.\n"
+        "3. NÃO inclua links inline no meio do texto — as fontes serão exibidas automaticamente como chips clicáveis abaixo da resposta; apenas responda com base nas evidências.\n"
+        "4. NUNCA invente números, datas ou fatos: copie exatamente o que está nas evidências. Para comparações, valide a conta (ex: 2 > 1, então Cruzeiro tem 1 a mais) e NUNCA inverta. Se houver contradição entre fontes, aponte as duas versões.\n"
+        "5. Se a evidência for insuficiente ou contraditória, diga o que falta em vez de chutar.\n"
+        "6. Português claro, direto ao ponto, como no modo RAG, mas SEMPRE formatado em Markdown legível.\n"
+        "7. NÃO crie seção ### Fontes separada."
+    )
 
     @staticmethod
     def _format_evidence_block(ev: Evidence) -> str:
@@ -76,8 +88,11 @@ class PromptBuilder:
         block += f"\n{ev.content}\n"
         return block
 
-    def _choose_system(self, reasoning: bool = False, hint: str = "") -> str:
-        base = self.REASONING_SYSTEM_PROMPT if reasoning else self.SYSTEM_PROMPT
+    def _choose_system(self, reasoning: bool = False, hint: str = "", mode: Mode = Mode.auto) -> str:
+        if mode == Mode.web:
+            base = self.WEB_SYSTEM_PROMPT
+        else:
+            base = self.REASONING_SYSTEM_PROMPT if reasoning else self.SYSTEM_PROMPT
         if hint:
             return f"{base}\n\nInstrução adicional para esta pergunta: {hint}"
         return base
@@ -90,7 +105,7 @@ class PromptBuilder:
         reasoning: bool = False,
         reasoning_hint: str = "",
     ) -> str:
-        system = self._choose_system(reasoning, reasoning_hint)
+        system = self._choose_system(reasoning, reasoning_hint, mode=mode)
         if evidences:
             blocks = [self._format_evidence_block(ev) for ev in evidences]
             evidence_section = "Evidências:\n\n" + "\n\n".join(blocks)
@@ -108,7 +123,7 @@ class PromptBuilder:
         reasoning: bool = False,
         reasoning_hint: str = "",
     ) -> str:
-        system = self._choose_system(reasoning, reasoning_hint)
+        system = self._choose_system(reasoning, reasoning_hint, mode=mode)
         if evidences:
             blocks = [self._format_evidence_block(ev) for ev in evidences]
             evidence_section = "Evidências:\n\n" + "\n\n".join(blocks)

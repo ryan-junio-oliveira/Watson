@@ -45,10 +45,9 @@ class ChatRequest(BaseModel):
     )
     mode: Mode = Field(
         Mode.auto,
-        description="Modo de consulta. `auto` e `rag` são equivalentes: "
-                    "ambos respondem com base nos documentos e dados indexados (RAG). "
-                    "Modos: auto | rag.",
-        examples=["auto", "rag"],
+        description="Modo de consulta. `auto` e `rag` respondem com base nos documentos indexados (RAG). `web` busca na internet com fontes citadas (título + URL). "
+                    "Modos: auto | rag | web.",
+        examples=["auto", "rag", "web"],
     )
     analyze: bool = Field(
         False,

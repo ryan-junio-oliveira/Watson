@@ -197,5 +197,31 @@ class Config:
         default_factory=lambda: os.getenv("API_RATE_ENABLED", "true").lower() == "true"
     )
 
+    web_search_enabled: bool = field(
+        default_factory=lambda: os.getenv("WEB_SEARCH_ENABLED", "true").lower() == "true"
+    )
+    web_search_provider: str = field(
+        default_factory=lambda: os.getenv("WEB_SEARCH_PROVIDER", "duckduckgo")
+    )
+    web_search_api_key: str = field(
+        default_factory=lambda: os.getenv("WEB_SEARCH_API_KEY", "").strip()
+    )
+    web_search_max_results: int = field(
+        default_factory=lambda: int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))
+    )
+    web_search_timeout: int = field(
+        default_factory=lambda: int(os.getenv("WEB_SEARCH_TIMEOUT", "15"))
+    )
+    # Tavily (quando provider=tavily)
+    tavily_search_depth: str = field(
+        default_factory=lambda: os.getenv("TAVILY_SEARCH_DEPTH", "basic")
+    )
+    web_search_trusted_domains: str = field(
+        default_factory=lambda: os.getenv(
+            "WEB_SEARCH_TRUSTED_DOMAINS",
+            "g1.globo.com,uol.com.br,folha.uol.com.br,estadao.com.br,terra.com.br,veja.abril.com.br,cnnbrasil.com,cnn.com,bbc.com,band.uol.com.br,jovempan.com.br,sbt.com.br,record.r7.com,correiobraziliense.com.br,metropoles.com,gazetadopovo.com.br,exame.com,infomoney.com.br",
+        )
+    )
+
 
 config = Config()

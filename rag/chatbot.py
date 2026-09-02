@@ -65,6 +65,7 @@ class ChatBot:
         enable_query_expansion: Optional[bool] = None,
         query_expansion_variants: int = 3,
         enable_reranker_reasoning: Optional[bool] = None,
+        web_search: Optional[object] = None,
     ):
         self.retriever = retriever
         self.prompt_builder = prompt_builder
@@ -101,6 +102,7 @@ class ChatBot:
         self.query_expander = QueryExpander(max_variants=_qev) if _eqe else None
         self._enable_query_expansion = bool(_eqe)
         self._enable_reranker_reasoning = bool(_err)
+        self.web_search = web_search
 
     def _is_analytical(self, question: str) -> bool:
         q = question.lower()
@@ -461,6 +463,7 @@ class ChatBot:
         answer: str,
         evidences: List[Evidence],
         start_time: float,
+        provider: str = "rag",
     ) -> AgentResponse:
         elapsed = time.time() - start_time
         return AgentResponse(
@@ -469,7 +472,7 @@ class ChatBot:
             confidence=1.0 if evidences else 0.5,
             verdict="ok",
             metadata={
-                "provider": "rag",
+                "provider": provider,
                 "evidence_count": len(evidences),
             },
             execution_time=elapsed,
@@ -589,6 +592,31 @@ class ChatBot:
                 self.logger.warning(f"Analyst pass failed: {e}")
         return resp
 
+    def _prepare_web_evidence(self, question: str) -> List[Evidence]:
+        """Busca na web (modo web isolado) — retorna evidences com provider=web e url obrigatório."""
+        if not self.web_search:
+            if self.logger:
+                self.logger.warning("Web search requested but provider not configured")
+            return []
+        try:
+            from core.config import config as _cfg
+
+            if not getattr(_cfg, "web_search_enabled", True):
+                if self.logger:
+                    self.logger.info("Web search disabled (WEB_SEARCH_ENABLED=false)")
+                return []
+        except Exception:
+            pass
+        try:
+            evidences = self.web_search.search(question)
+            if self.logger:
+                self.logger.info(f"Web search: {len(evidences)} evidences for '{question[:60]}'")
+            return evidences
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Web search failed: {e}")
+            return []
+
     def _process(
         self,
         question: str,
@@ -597,13 +625,14 @@ class ChatBot:
         analyze: bool = False,
     ) -> AgentResponse:
         start = time.time()
-        provider = "rag"
+        # provider reflete o modo real (auto/rag → rag, web → web)
+        provider = "web" if mode == Mode.web else "rag"
 
         if self.logger:
-            self.logger.info(f"Question: {question}")
+            self.logger.info(f"Question: {question} [mode={mode}]")
 
         try:
-            # Saudações não devem disparar RAG — resposta direta e leve
+            # Saudações não devem disparar RAG/web — resposta direta e leve
             if self._is_greeting(question):
                 if self.logger:
                     self.logger.info(f"Greeting detected: {question!r} -> no retrieval")
@@ -612,19 +641,33 @@ class ChatBot:
                 return resp
 
             plan, hint, reasoning_needed = self._make_plan(question)
-            evidence = self._prepare_evidence(question)
+            if mode == Mode.web:
+                evidence = self._prepare_web_evidence(question)
+            else:
+                evidence = self._prepare_evidence(question)
 
             if not evidence:
                 if self.logger:
-                    self.logger.info("No evidence found in indexed documents")
-                prompt = self.prompt_builder.build(question, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint)
+                    self.logger.info(f"No evidence found (mode={mode})")
+                web_hint = ""
+                if mode == Mode.web:
+                    web_hint = (
+                        "MODO WEB ATIVO: Responda DIRETAMENTE à pergunta de forma precisa e factual, com base NAS EVIDÊNCIAS DA WEB "
+                        "(título, URL e conteúdo). NÃO apenas comente as fontes — SINTETIZE: defina, compare, explique princípios, "
+                        "implementação, vantagens/desvantagens e casos de uso quando a pergunta exigir. Não inclua links inline — as fontes serão exibidas como chips clicáveis abaixo. "
+                        "Se a evidência for insuficiente, diga o que falta. Responda em português, direto ao ponto, como no modo RAG. "
+                        + (hint + " " if hint else "")
+                    )
+                    prompt = self.prompt_builder.build(question, mode=mode, reasoning=reasoning_needed, reasoning_hint=web_hint.strip())
+                else:
+                    prompt = self.prompt_builder.build(question, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint)
                 answer = self._call_llm(
                     prompt,
                     reasoning=self._should_reason(question),
                     temperature=plan.temperature if plan else None,
                     max_tokens=plan.max_tokens if plan else None,
                 )
-                resp = self._build_response(answer, [], start)
+                resp = self._build_response(answer, [], start, provider=provider)
                 resp.metadata["fallback"] = "no_documents"
                 if plan:
                     resp.metadata["reasoning_intent"] = plan.intent
@@ -634,13 +677,23 @@ class ChatBot:
                 self._record_request(question, mode, provider, resp, start, analyze)
                 return resp
 
+            web_hint = ""
+            if mode == Mode.web:
+                web_hint = (
+                    "MODO WEB ATIVO: Responda DIRETAMENTE à pergunta de forma precisa e factual, com base NAS EVIDÊNCIAS DA WEB "
+                    "(título, URL e conteúdo). NÃO apenas comente as fontes — SINTETIZE: defina, compare, explique princípios, "
+                    "implementação, vantagens/desvantagens e casos de uso quando a pergunta exigir. Não inclua links inline — as fontes serão exibidas como chips clicáveis abaixo. "
+                    "Se a evidência for insuficiente, diga o que falta. Responda em português, direto ao ponto, como no modo RAG. "
+                    + (hint + " " if hint else "")
+                )
+            effective_hint = web_hint.strip() if mode == Mode.web else hint
             prompt = (
                 self.prompt_builder.build_with_history(
                     question, evidence, history_context, mode=mode,
-                    reasoning=reasoning_needed, reasoning_hint=hint,
+                    reasoning=reasoning_needed, reasoning_hint=effective_hint,
                 )
                 if history_context
-                else self.prompt_builder.build(question, evidence, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint)
+                else self.prompt_builder.build(question, evidence, mode=mode, reasoning=reasoning_needed, reasoning_hint=effective_hint)
             )
 
             answer_clean = self._call_llm(
@@ -649,7 +702,7 @@ class ChatBot:
                 temperature=plan.temperature if plan else None,
                 max_tokens=plan.max_tokens if plan else None,
             )
-            result = self._build_response(answer_clean, evidence, start)
+            result = self._build_response(answer_clean, evidence, start, provider=provider)
             if plan:
                 result.metadata["reasoning_intent"] = plan.intent
                 result.metadata["reasoning_cot"] = reasoning_needed
@@ -707,7 +760,7 @@ class ChatBot:
         return self._process(question, history_context, mode, analyze=analyze)
 
     def _stream_evidence(
-        self, prompt: str, evidence: List[Evidence]
+        self, prompt: str, evidence: List[Evidence], provider: str = "rag"
     ) -> Generator[str, None, AgentResponse]:
         start = time.time()
         full_answer: List[str] = []
@@ -720,7 +773,7 @@ class ChatBot:
                 self.logger.warning(f"Stream interrupted: {e}")
 
         answer_clean = "".join(full_answer)
-        result = self._build_response(answer_clean, evidence, start)
+        result = self._build_response(answer_clean, evidence, start, provider=provider)
 
         if self.logger:
             self.logger.info(f"Stream result: time={result.execution_time:.2f}s")
@@ -739,6 +792,13 @@ class ChatBot:
             plan = self._make_plan(question)[0]
         hint = plan.reasoning_hint if plan else ""
         reasoning_needed = bool(plan and plan.needs_cot)
+        if mode == Mode.web and hint is not None:
+            hint = (
+                "MODO WEB ATIVO: Responda DIRETAMENTE à pergunta de forma precisa e factual, com base NAS EVIDÊNCIAS DA WEB "
+                "(título, URL e conteúdo). NÃO apenas comente as fontes — SINTETIZE: defina, compare, explique princípios, "
+                "implementação, vantagens/desvantagens e casos de uso quando a pergunta exigir. Não inclua links inline — as fontes serão exibidas como chips clicáveis abaixo. "
+                "Se a evidência for insuficiente, diga o que falta. Responda em português, direto ao ponto, como no modo RAG. " + (hint or "")
+            )
         prompt = (
             self.prompt_builder.build_with_history(
                 question, None, history_context, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint
@@ -752,7 +812,8 @@ class ChatBot:
             max_tokens=plan.max_tokens if plan else None,
             reasoning=self._should_reason(question),
         )
-        resp = self._build_response(full_answer, [], start)
+        provider = "web" if mode == Mode.web else "rag"
+        resp = self._build_response(full_answer, [], start, provider=provider)
         resp.metadata["fallback"] = "no_documents"
         if plan:
             resp.metadata["reasoning_intent"] = plan.intent
@@ -785,17 +846,28 @@ class ChatBot:
                 return resp
 
             plan, hint, reasoning_needed = self._make_plan(question)
-            evidence = self._prepare_evidence(question)
+            if mode == Mode.web:
+                evidence = self._prepare_web_evidence(question)
+            else:
+                evidence = self._prepare_evidence(question)
 
             if not evidence:
                 if self.logger:
-                    self.logger.info("No evidence found in indexed documents")
+                    self.logger.info(f"No evidence found (stream, mode={mode})")
                 resp = yield from self._stream_no_evidence(question, history_context, mode, plan)
+                provider = "web" if mode == Mode.web else "rag"
                 if analyze:
                     resp = self._run_analyst(question, resp)
-                self._record_request(question, mode, "rag", resp, start, analyze)
+                self._record_request(question, mode, provider, resp, start, analyze)
                 return resp
 
+            if mode == Mode.web:
+                hint = (
+                    "MODO WEB ATIVO: Responda DIRETAMENTE à pergunta de forma precisa e factual, com base NAS EVIDÊNCIAS DA WEB "
+                    "(título, URL e conteúdo). NÃO apenas comente as fontes — SINTETIZE: defina, compare, explique princípios, "
+                    "implementação, vantagens/desvantagens e casos de uso quando a pergunta exigir. Não inclua links inline — as fontes serão exibidas como chips clicáveis abaixo. "
+                    "Se a evidência for insuficiente, diga o que falta. Responda em português, direto ao ponto, como no modo RAG. " + (hint or "")
+                )
             prompt = (
                 self.prompt_builder.build_with_history(
                     question, evidence, history_context, mode=mode,
@@ -804,17 +876,19 @@ class ChatBot:
                 if history_context
                 else self.prompt_builder.build(question, evidence, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint)
             )
-            result = yield from self._stream_evidence(prompt, evidence)
+            provider = "web" if mode == Mode.web else "rag"
+            result = yield from self._stream_evidence(prompt, evidence, provider=provider)
             if plan:
                 result.metadata["reasoning_intent"] = plan.intent
                 result.metadata["reasoning_cot"] = reasoning_needed
             if analyze:
                 result = self._run_analyst(question, result)
-            self._record_request(question, mode, "rag", result, start, analyze)
+            self._record_request(question, mode, provider, result, start, analyze)
             return result
         except Exception as e:
+            provider = "web" if mode == Mode.web else "rag"
             self.metrics.record_request(
-                question=question, mode=str(mode), provider="rag",
+                question=question, mode=str(mode), provider=provider,
                 execution_ms=(time.time() - start) * 1000,
                 analyze=analyze, success=False, error=str(e),
             )

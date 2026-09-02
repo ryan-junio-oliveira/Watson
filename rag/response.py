@@ -8,6 +8,7 @@ from rag.evidence import Evidence
 class Mode(str, Enum):
     auto = "auto"
     rag = "rag"
+    web = "web"
 
 
 @dataclass
@@ -56,7 +57,10 @@ class Source:
         sources: List[Source] = []
         for ev in evidences:
             src = Source.from_evidence(ev)
-            key = src.url or src.title
+            # normaliza url para deduplicar (lower + sem barra final)
+            raw = (src.url or "").strip().lower().replace(" ", "")
+            norm = raw.rstrip("/") if raw else (src.title or "").strip().lower()
+            key = norm
             if key and key not in seen:
                 seen.add(key)
                 sources.append(src)

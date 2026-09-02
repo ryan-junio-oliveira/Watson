@@ -23,6 +23,7 @@ from rag.chatbot import ChatBot
 from rag.prompt import PromptBuilder
 from rag.reranker import Reranker as RagReranker
 from rag.retriever import Retriever
+from rag.web_search import WebSearchProvider
 
 
 def ensure_directories(cfg: Config) -> None:
@@ -102,6 +103,18 @@ def build_analyst(
     )
 
 
+def build_web_search(cfg: Config, logger: logging.Logger = None) -> WebSearchProvider:
+    return WebSearchProvider(
+        provider=getattr(cfg, "web_search_provider", "duckduckgo"),
+        api_key=getattr(cfg, "web_search_api_key", ""),
+        max_results=getattr(cfg, "web_search_max_results", 5),
+        timeout=getattr(cfg, "web_search_timeout", 15),
+        tavily_search_depth=getattr(cfg, "tavily_search_depth", "basic"),
+        trusted_domains=getattr(cfg, "web_search_trusted_domains", ""),
+        logger=logger,
+    )
+
+
 def build_chatbot(cfg: Config, logger: logging.Logger = None) -> ChatBot:
     metrics = build_metrics(cfg, logger)
     emb_gen = build_embedding_generator(cfg, logger)
@@ -109,6 +122,7 @@ def build_chatbot(cfg: Config, logger: logging.Logger = None) -> ChatBot:
     ollama_client = build_ollama(cfg, metrics, logger)
     reranker = build_reranker(cfg, logger)
     analyst = build_analyst(cfg, retriever, ollama_client, logger)
+    web_search = build_web_search(cfg, logger)
     return ChatBot(
         retriever=retriever,
         prompt_builder=PromptBuilder(),
@@ -125,6 +139,7 @@ def build_chatbot(cfg: Config, logger: logging.Logger = None) -> ChatBot:
         enable_query_expansion=cfg.enable_query_expansion,
         query_expansion_variants=cfg.query_expansion_variants,
         enable_reranker_reasoning=cfg.enable_reranker_reasoning,
+        web_search=web_search,
     )
 
 
