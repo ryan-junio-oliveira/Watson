@@ -29,13 +29,15 @@ Todos os comandos usam `-c /etc/supervisor/supervisord.conf` para apontar para a
 |---|---|
 | `sudo supervisorctl -c /etc/supervisor/supervisord.conf status watson` | Ver status |
 | `sudo supervisorctl -c /etc/supervisor/supervisord.conf start watson` | Iniciar |
-| `sudo supervisorctl -c /etc/supervisor/supervisord.conf stop watson` | Parar |
+| `sudo supervisorctl -c /etc/supervisor/supervisord.conf stop watson` | Parar (correto com `autorestart=true`) |
 | `sudo supervisorctl -c /etc/supervisor/supervisord.conf restart watson` | Reiniciar |
 | `sudo supervisorctl -c /etc/supervisor/supervisord.conf reread` | Reler configs alterados |
 | `sudo supervisorctl -c /etc/supervisor/supervisord.conf update` | Aplicar configs novos |
 | `sudo supervisorctl -c /etc/supervisor/supervisord.conf tail -f watson` | Log em tempo real |
 | `sudo supervisorctl -c /etc/supervisor/supervisord.conf tail -100 watson` | Últimas 100 linhas |
 | `sudo supervisorctl -c /etc/supervisor/supervisord.conf status` | Status de todos os programas |
+
+> **Importante:** não use `kill`/`stop.sh` antigo sem supervisor. Com `autorestart=true` o supervisord reinicia o `watson` automaticamente. O `scripts/stop.sh` atual já faz `supervisorctl stop watson` antes do `kill` como fallback. Para parar manualmente, sempre prefira `supervisorctl stop watson`.
 
 > **Dica (alias):** adicione `alias sw='sudo supervisorctl -c /etc/supervisor/supervisord.conf'` no `~/.bashrc` e use `sw status watson`, `sw restart watson`, etc.
 
@@ -84,6 +86,8 @@ python service.py remove     REM remove o serviço
 
 - Nome do serviço: `WatsonRAG`
 - Executa o uvicorn em `0.0.0.0:9000`
+
+> `scripts/stop.bat` já tenta parar o serviço (`service.py stop` + `sc stop WatsonRAG`) antes do `taskkill` na porta, evitando restart do serviço.
 
 ---
 

@@ -119,7 +119,10 @@ Limpa `__pycache__`, `.pytest_cache`, caches de lint, `build/`, `dist/`, `logs/`
 stop.bat            # Windows
 ```
 
-Encontra e encerra o processo do uvicorn na porta configurada.
+- **Linux/macOS (`stop.sh`):** primeiro tenta `supervisorctl -c /etc/supervisor/supervisord.conf stop watson` (evita `autorestart`). Se não houver supervisord, faz fallback para `lsof`/`pgrep` e `kill` na porta configurada.
+- **Windows (`stop.bat`):** primeiro tenta parar o serviço `WatsonRAG` (`cli/service.py stop` + `sc stop WatsonRAG`), depois faz fallback para `netstat`/`taskkill` na porta configurada.
+
+> **Produção Linux (supervisord):** o `kill` direto não basta — com `autorestart=true` o supervisord reinicia o processo. Use sempre `sudo supervisorctl -c /etc/supervisor/supervisord.conf stop watson` ou simplesmente `./stop.sh` (que já faz isso).
 
 ---
 
