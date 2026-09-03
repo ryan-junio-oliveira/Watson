@@ -66,6 +66,8 @@ class ChatBot:
         query_expansion_variants: int = 3,
         enable_reranker_reasoning: Optional[bool] = None,
         web_search: Optional[object] = None,
+        query_rewriter: Optional[object] = None,
+        analyst_ollama_client: Optional[OllamaClient] = None,
     ):
         self.retriever = retriever
         self.prompt_builder = prompt_builder
@@ -103,6 +105,13 @@ class ChatBot:
         self._enable_query_expansion = bool(_eqe)
         self._enable_reranker_reasoning = bool(_err)
         self.web_search = web_search
+        self.query_rewriter = query_rewriter
+        self._last_rewritten = None  # para expor em metadata/debug
+        self.analyst_ollama_client = analyst_ollama_client or ollama_client
+        self._profiles = {
+            "flash": {"top_k": 5, "enable_query_rewriter": False, "use_reranker": False, "enable_analyst": False, "enable_reasoning": False},
+            "pro": {"top_k": 12, "enable_query_rewriter": True, "use_reranker": True, "enable_analyst": True, "enable_reasoning": True},
+        }
 
     def _is_analytical(self, question: str) -> bool:
         q = question.lower()
@@ -219,18 +228,46 @@ class ChatBot:
             execution_time=time.time() - start,
         )
 
-    def _retrieve_rag(self, question: str) -> List[Evidence]:
-        # Plano de raciocínio decide top_k, multi-query e rerank
+    def _retrieve_rag(self, question: str, profile: str = "") -> List[Evidence]:
+        # Plano de raciocínio decide top_k, multi-query e rerank — perfil Watson (flash/plus/pro) pode sobrescrever
         try:
             plan = self.reasoning_engine.plan(question)
         except Exception:
             plan = None
+        # Aplica overrides de perfil por request (se enviado via select no prompt)
+        p = (profile or "").strip().lower()
+        if p in self._profiles:
+            prof = self._profiles[p]
+            if plan:
+                # Sobrescreve top_k do plano com o do perfil
+                try:
+                    plan.top_k = int(prof.get("top_k", plan.top_k))
+                except Exception:
+                    pass
+
+        # --- Query Understanding Layer (LLM rewriter) — antes de tudo ---
+        rewritten = None
+        if getattr(self, "query_rewriter", None):
+            try:
+                rewritten = self.query_rewriter.rewrite(question)
+                self._last_rewritten = rewritten
+                if self.logger:
+                    self.logger.info(
+                        f"Rewriter: normalized='{rewritten.normalized_query[:80]}' | {len(rewritten.expanded_queries)} vars | entities={rewritten.entities} intent={rewritten.intent}"
+                    )
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"Rewriter failed, fallback: {e}")
+                rewritten = None
+                self._last_rewritten = None
 
         full = self._wants_full_context(question)
         # full-context tem prioridade (listagem completa)
         if full:
+            # Usa normalized do rewriter se houver, preserva termos técnicos
+            q_full = rewritten.normalized_query if rewritten and rewritten.normalized_query else question
             top_k = (plan.top_k * 2 if plan else self.retriever.top_k * 4)
-            docs = self.retriever.retrieve(question, k=top_k)
+            docs = self.retriever.retrieve(q_full, k=top_k)
             # Rerank se disponível
             if self._rag_reranker and docs:
                 from rag.reranker import Reranker as RagReranker
@@ -246,7 +283,72 @@ class ChatBot:
             evidence = self._expand_document_context(evidence)
             return evidence
 
-        # Caminho com reasoning + multi-query RRF
+        # Caminho com rewriter (prioritário) — 5 queries especializadas preservando termos técnicos
+        if rewritten and rewritten.expanded_queries:
+            try:
+                variants = rewritten.all_queries()  # normalized + 5 expandidas
+                # Limita para não estourar latência; usa todas do rewriter (até 6)
+                per_k = max(3, (plan.top_k // len(variants)) if plan and plan.top_k else self.retriever.top_k)
+                ranked_lists: List[List[Document]] = []
+                for v in variants[:5]:
+                    docs_v = self.retriever.retrieve(v, k=per_k)
+                    if docs_v:
+                        ranked_lists.append(docs_v)
+                if len(ranked_lists) > 1:
+                    docs = reciprocal_rank_fusion(ranked_lists, top_n=plan.top_k if plan else per_k * len(variants))
+                    if self.logger:
+                        self.logger.info(f"Rewriter RRF: {len(variants)} vars -> {len(docs)} docs (intent={rewritten.intent} entities={rewritten.entities})")
+                elif ranked_lists:
+                    docs = ranked_lists[0]
+                else:
+                    docs = []
+                # Boost por entidades (manufacturer/model) se detectadas
+                if rewritten.entities:
+                    for ev in [EvidenceNormalizer.from_chroma_document(d) for d in docs]:
+                        # Placeholder para boost por entidade será aplicado abaixo após conversão
+                        pass
+                should_rerank = (plan.use_reranker if plan else self._is_analytical(question)) and self._rag_reranker and docs and self._enable_reranker_reasoning
+                # Sempre reranka quando rewriter foi usado e reranker disponível — melhora híbrido
+                if should_rerank or (self._rag_reranker and docs and rewritten.intent in ("troubleshooting", "procedural")):
+                    from rag.reranker import Reranker as RagReranker
+                    docs = RagReranker.rerank(self._rag_reranker, question, docs, top_k=len(docs))
+                evidence = [EvidenceNormalizer.from_chroma_document(d) for d in docs]
+                # Boost por entidades + reasoning
+                if rewritten.entities:
+                    man = (rewritten.entities.get("manufacturer") or "").lower()
+                    mod = (rewritten.entities.get("model") or "").lower()
+                    for ev in evidence:
+                        txt = (ev.content or "").lower()
+                        boost = 0.0
+                        if man and man in txt:
+                            boost += 0.08
+                        if mod and any(tok in txt for tok in mod.split() if len(tok) >= 3):
+                            boost += 0.12
+                        if boost:
+                            ev.score = min(1.0, ev.score + boost)
+                            ev.metadata["entity_boost"] = boost
+                if plan:
+                    for ev in evidence:
+                        b = self.reasoning_engine.evidence_boost(ev.content, question)
+                        if b:
+                            ev.score = min(1.0, ev.score + b)
+                            ev.metadata["relevance_score"] = ev.score
+                if plan and plan.needs_cot and len(evidence) < 2:
+                    stripped = re.sub(r"\b(por que|porque|explique|analise|comparar|variação|percentual)\b", "", question, flags=re.IGNORECASE).strip()
+                    if stripped and stripped != question:
+                        extra = self.retriever.retrieve(stripped, k=3)
+                        for d in extra:
+                            ev = EvidenceNormalizer.from_chroma_document(d)
+                            if ev.chunk_id not in {e.chunk_id for e in evidence}:
+                                evidence.append(ev)
+                                if len(evidence) >= (plan.top_k if plan else 8):
+                                    break
+                return evidence
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"Rewriter RRF failed, fallback: {e}")
+
+        # Caminho com reasoning + multi-query RRF (fallback determinístico antigo)
         if self._enable_query_expansion and plan and plan.needs_multi_query and self.query_expander:
             try:
                 expanded = self.query_expander.expand(question)
@@ -395,27 +497,77 @@ class ChatBot:
         )
         return evidence
 
+    def _choose_llm(self, analyze: bool = False) -> OllamaClient:
+        if analyze and getattr(self, "analyst_ollama_client", None) and self.analyst_ollama_client is not self.ollama_client:
+            return self.analyst_ollama_client
+        return self.ollama_client
+
     def _call_llm(
         self,
         prompt: str,
         reasoning: Optional[bool] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        analyze: bool = False,
     ) -> str:
+        client = self._choose_llm(analyze)
         kwargs: dict = {}
-        if reasoning is not None:
+        # Em modo analisar, força think se cliente suporta (modelo inteligente)
+        if analyze and client.supports_thinking():
+            kwargs["think"] = True
+        elif reasoning is not None:
             kwargs["think"] = reasoning
         if temperature is not None:
             kwargs["temperature"] = temperature
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
-        answer = self.ollama_client.ask(prompt, **kwargs)
-        return self.ollama_client._strip_thinking(answer)
+        try:
+            answer = client.ask(prompt, **kwargs)
+        except Exception as e:
+            msg = str(e).lower()
+            # Fallback se modelo inteligente não baixado (ex: qwen3:8b ainda não existe) → usa gemma
+            if analyze and client is not self.ollama_client and ("not found" in msg or "model" in msg and "not" in msg):
+                if self.logger:
+                    self.logger.warning(f"Analyst model {client.model} não encontrado, fallback para {self.ollama_client.model}: {e}")
+                # Tenta sem think no modelo principal
+                kwargs.pop("think", None)
+                answer = self.ollama_client.ask(prompt, **kwargs)
+                return self.ollama_client._strip_thinking(answer)
+            raise
+        return client._strip_thinking(answer)
 
-    def _should_reason(self, question: str) -> bool:
+    def _strip_inline_sources(self, text: str) -> str:
+        """Remove qualquer URL ou menção a fonte inline que o LLM tenha gerado — sanitização final.
+        Chips abaixo já exibem as fontes; URLs no corpo poluem e violam a regra do WEB prompt."""
+        import re
+        if not text:
+            return text
+        # Remove markdown links [texto](https://...)
+        text = re.sub(r'\[([^\]]+)\]\s*\(\s*https?://[^\)]+\s*\)', r'\1', text)
+        # Remove URLs soltas
+        text = re.sub(r'https?://\S+', '', text)
+        text = re.sub(r'www\.\S+', '', text)
+        # Remove linhas tipo "Fonte: https..." ou "fonte https..." que sobraram
+        text = re.sub(r'(?m)^\s*Fonte\s*:?.*https.*$', '', text)
+        text = re.sub(r'(?m)^\s*fonte\s*:?.*https.*$', '', text)
+        # Remove "A fonte https..." inline residual
+        text = re.sub(r'\b[Aa]\s+fonte\s+https?://\S+', '', text)
+        # Limpa parênteses vazios ou com só espaços que sobraram: "texto ()"
+        text = re.sub(r'\(\s*\)', '', text)
+        # Remove linhas que viraram só "Fonte:" ou "Fontes:"
+        text = re.sub(r'(?m)^\s*Fontes?\s*:?\s*$', '', text)
+        # Colapsa espaços duplos e linhas vazias excessivas
+        text = re.sub(r' {2,}', ' ', text)
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        # Remove espaços antes de pontuação
+        text = re.sub(r'\s+([.,;:!?])', r'\1', text)
+        return text.strip()
+
+    def _should_reason(self, question: str, analyze: bool = False) -> bool:
         """Habilita raciocínio (think) para perguntas analíticas, se configurado
         e o modelo suportar. Usa ReasoningEngine para decisão mais precisa."""
-        if not self.ollama_client.supports_thinking():
+        client = self._choose_llm(analyze)
+        if not client.supports_thinking():
             return False
         # Se reasoning global desabilitado, só permite se plano indicar necessidade forte
         try:
@@ -439,21 +591,38 @@ class ChatBot:
         )
 
     def _call_llm_stream(
-        self, prompt: str, temperature: Optional[float] = None, max_tokens: Optional[int] = None, reasoning: Optional[bool] = None,
+        self, prompt: str, temperature: Optional[float] = None, max_tokens: Optional[int] = None, reasoning: Optional[bool] = None, analyze: bool = False,
     ) -> Generator[str, None, str]:
+        client = self._choose_llm(analyze)
         full_answer: List[str] = []
         kwargs: dict = {}
+        if analyze and client.supports_thinking():
+            kwargs["think"] = True
+        elif reasoning is not None:
+            kwargs["think"] = reasoning
         if temperature is not None:
             kwargs["temperature"] = temperature
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
-        if reasoning is not None:
-            kwargs["think"] = reasoning
         try:
-            for token in self.ollama_client.ask_stream(prompt, **kwargs):
+            for token in client.ask_stream(prompt, **kwargs):
                 full_answer.append(token)
                 yield token
         except Exception as e:
+            msg = str(e).lower()
+            if analyze and client is not self.ollama_client and ("not found" in msg or "model" in msg and "not" in msg):
+                if self.logger:
+                    self.logger.warning(f"Analyst stream model {client.model} não encontrado, fallback para {self.ollama_client.model}")
+                kwargs.pop("think", None)
+                try:
+                    for token in self.ollama_client.ask_stream(prompt, **kwargs):
+                        full_answer.append(token)
+                        yield token
+                    return "".join(full_answer)
+                except Exception as e2:
+                    if self.logger:
+                        self.logger.warning(f"Fallback stream falhou: {e2}")
+                    raise e2
             if self.logger:
                 self.logger.warning(f"Stream interrupted: {e}")
         return "".join(full_answer)
@@ -564,9 +733,9 @@ class ChatBot:
             pass
         return evidence
 
-    def _prepare_evidence(self, question: str) -> List[Evidence]:
+    def _prepare_evidence(self, question: str, profile: str = "") -> List[Evidence]:
         """Pipeline comum de evidências: retrieve -> dedup -> rank -> filtro -> cálculo."""
-        evidence = self._retrieve_rag(question)
+        evidence = self._retrieve_rag(question, profile=profile)
         evidence = self.aggregator.collect(rag_evidence=evidence)
         evidence = self.aggregator.rank(evidence)
         evidence = self._apply_relevance_filter(question, evidence)
@@ -623,13 +792,16 @@ class ChatBot:
         history_context: str = "",
         mode: Mode = Mode.auto,
         analyze: bool = False,
+        style: str = "",
+        custom_instructions: str = "",
+        profile: str = "",
     ) -> AgentResponse:
         start = time.time()
         # provider reflete o modo real (auto/rag → rag, web → web)
         provider = "web" if mode == Mode.web else "rag"
 
         if self.logger:
-            self.logger.info(f"Question: {question} [mode={mode}]")
+            self.logger.info(f"Question: {question} [mode={mode}] profile={profile} analyze={analyze}")
 
         try:
             # Saudações não devem disparar RAG/web — resposta direta e leve
@@ -641,14 +813,20 @@ class ChatBot:
                 return resp
 
             plan, hint, reasoning_needed = self._make_plan(question)
+            self._last_rewritten = None
+            if not style:
+                if profile == "flash":
+                    style = "concise"
+                elif profile == "pro":
+                    style = "analyst"
             if mode == Mode.web:
                 evidence = self._prepare_web_evidence(question)
             else:
-                evidence = self._prepare_evidence(question)
+                evidence = self._prepare_evidence(question, profile=profile)
 
             if not evidence:
                 if self.logger:
-                    self.logger.info(f"No evidence found (mode={mode})")
+                    self.logger.info(f"No evidence found (mode={mode}) profile={profile}")
                 web_hint = ""
                 if mode == Mode.web:
                     web_hint = (
@@ -658,20 +836,30 @@ class ChatBot:
                         "Se a evidência for insuficiente, diga o que falta. Responda em português, direto ao ponto, como no modo RAG. "
                         + (hint + " " if hint else "")
                     )
-                    prompt = self.prompt_builder.build(question, mode=mode, reasoning=reasoning_needed, reasoning_hint=web_hint.strip())
+                    prompt = self.prompt_builder.build(question, mode=mode, reasoning=reasoning_needed, reasoning_hint=web_hint.strip(), style=style, custom_instructions=custom_instructions)
                 else:
-                    prompt = self.prompt_builder.build(question, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint)
+                    prompt = self.prompt_builder.build(question, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint, style=style, custom_instructions=custom_instructions)
                 answer = self._call_llm(
                     prompt,
-                    reasoning=self._should_reason(question),
+                    reasoning=self._should_reason(question, analyze=analyze),
                     temperature=plan.temperature if plan else None,
                     max_tokens=plan.max_tokens if plan else None,
+                    analyze=analyze,
                 )
                 resp = self._build_response(answer, [], start, provider=provider)
                 resp.metadata["fallback"] = "no_documents"
                 if plan:
                     resp.metadata["reasoning_intent"] = plan.intent
                     resp.metadata["reasoning_cot"] = reasoning_needed
+                if style:
+                    resp.metadata["style"] = style
+                if custom_instructions:
+                    resp.metadata["custom_instructions"] = True
+                # Expõe rewriter mesmo sem evidências para debug
+                if getattr(self, "_last_rewritten", None):
+                    resp.metadata["rewritten"] = self._last_rewritten.to_dict()
+                    resp.metadata["expanded_queries"] = self._last_rewritten.expanded_queries
+                    resp.metadata["rewriter_intent"] = self._last_rewritten.intent
                 if analyze:
                     resp = self._run_analyst(question, resp)
                 self._record_request(question, mode, provider, resp, start, analyze)
@@ -690,28 +878,40 @@ class ChatBot:
             prompt = (
                 self.prompt_builder.build_with_history(
                     question, evidence, history_context, mode=mode,
-                    reasoning=reasoning_needed, reasoning_hint=effective_hint,
+                    reasoning=reasoning_needed or analyze, reasoning_hint=effective_hint, style=style, custom_instructions=custom_instructions,
                 )
                 if history_context
-                else self.prompt_builder.build(question, evidence, mode=mode, reasoning=reasoning_needed, reasoning_hint=effective_hint)
+                else self.prompt_builder.build(question, evidence, mode=mode, reasoning=reasoning_needed or analyze, reasoning_hint=effective_hint, style=style, custom_instructions=custom_instructions)
             )
 
             answer_clean = self._call_llm(
                 prompt,
-                reasoning=self._should_reason(question),
+                reasoning=self._should_reason(question, analyze=analyze),
                 temperature=plan.temperature if plan else None,
                 max_tokens=plan.max_tokens if plan else None,
+                analyze=analyze,
             )
+            # Sanitiza: remove URLs inline que o LLM insiste em gerar (chips já exibem fontes)
+            answer_clean = self._strip_inline_sources(answer_clean)
             result = self._build_response(answer_clean, evidence, start, provider=provider)
             if plan:
                 result.metadata["reasoning_intent"] = plan.intent
                 result.metadata["reasoning_cot"] = reasoning_needed
                 result.metadata["reasoning_top_k"] = plan.top_k
+            if style:
+                result.metadata["style"] = style
+            if custom_instructions:
+                result.metadata["custom_instructions"] = True
+            if getattr(self, "_last_rewritten", None):
+                result.metadata["rewritten"] = self._last_rewritten.to_dict()
+                result.metadata["expanded_queries"] = self._last_rewritten.expanded_queries
+                result.metadata["rewriter_intent"] = self._last_rewritten.intent
+                result.metadata["rewriter_entities"] = self._last_rewritten.entities
 
             if self.logger:
                 self.logger.info(
                     f"AgentResponse: evidence={len(evidence)}, "
-                    f"time={result.execution_time:.2f}s, intent={plan.intent if plan else 'unknown'}, cot={reasoning_needed}"
+                    f"time={result.execution_time:.2f}s, intent={plan.intent if plan else 'unknown'}, cot={reasoning_needed}, style={style or 'default'}"
                 )
 
             if analyze:
@@ -747,8 +947,11 @@ class ChatBot:
         question: str,
         mode: Mode = Mode.auto,
         analyze: bool = False,
+        style: str = "",
+        custom_instructions: str = "",
+        profile: str = "",
     ) -> AgentResponse:
-        return self._process(question, mode=mode, analyze=analyze)
+        return self._process(question, mode=mode, analyze=analyze, style=style, custom_instructions=custom_instructions, profile=profile)
 
     def ask_with_context(
         self,
@@ -756,23 +959,40 @@ class ChatBot:
         history_context: str = "",
         mode: Mode = Mode.auto,
         analyze: bool = False,
+        style: str = "",
+        custom_instructions: str = "",
+        profile: str = "",
     ) -> AgentResponse:
-        return self._process(question, history_context, mode, analyze=analyze)
+        return self._process(question, history_context, mode, analyze=analyze, style=style, custom_instructions=custom_instructions, profile=profile)
 
     def _stream_evidence(
-        self, prompt: str, evidence: List[Evidence], provider: str = "rag"
+        self, prompt: str, evidence: List[Evidence], provider: str = "rag", analyze: bool = False
     ) -> Generator[str, None, AgentResponse]:
         start = time.time()
         full_answer: List[str] = []
+        client = self._choose_llm(analyze)
         try:
-            for token in self.ollama_client.ask_stream(prompt):
+            kwargs = {"think": True} if analyze and client.supports_thinking() else {}
+            for token in client.ask_stream(prompt, **kwargs):
                 full_answer.append(token)
                 yield token
         except Exception as e:
-            if self.logger:
+            msg = str(e).lower()
+            if analyze and client is not self.ollama_client and ("not found" in msg or "model" in msg and "not" in msg):
+                if self.logger:
+                    self.logger.warning(f"Stream evidence model {client.model} não encontrado, fallback para {self.ollama_client.model}")
+                try:
+                    for token in self.ollama_client.ask_stream(prompt):
+                        full_answer.append(token)
+                        yield token
+                except Exception as e2:
+                    if self.logger:
+                        self.logger.warning(f"Fallback stream evidence falhou: {e2}")
+                    raise e2
+            elif self.logger:
                 self.logger.warning(f"Stream interrupted: {e}")
 
-        answer_clean = "".join(full_answer)
+        answer_clean = self._strip_inline_sources("".join(full_answer))
         result = self._build_response(answer_clean, evidence, start, provider=provider)
 
         if self.logger:
@@ -786,6 +1006,9 @@ class ChatBot:
         history_context: str = "",
         mode: Mode = Mode.auto,
         plan=None,
+        style: str = "",
+        custom_instructions: str = "",
+        analyze: bool = False,
     ) -> Generator[str, None, AgentResponse]:
         start = time.time()
         if plan is None:
@@ -801,22 +1024,30 @@ class ChatBot:
             )
         prompt = (
             self.prompt_builder.build_with_history(
-                question, None, history_context, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint
+                question, None, history_context, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint, style=style, custom_instructions=custom_instructions
             )
             if history_context
-            else self.prompt_builder.build(question, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint)
+            else self.prompt_builder.build(question, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint, style=style, custom_instructions=custom_instructions)
         )
         full_answer = yield from self._call_llm_stream(
             prompt,
             temperature=plan.temperature if plan else None,
             max_tokens=plan.max_tokens if plan else None,
-            reasoning=self._should_reason(question),
+            reasoning=self._should_reason(question, analyze=analyze),
+            analyze=analyze,
         )
         provider = "web" if mode == Mode.web else "rag"
         resp = self._build_response(full_answer, [], start, provider=provider)
         resp.metadata["fallback"] = "no_documents"
         if plan:
             resp.metadata["reasoning_intent"] = plan.intent
+        if style:
+            resp.metadata["style"] = style
+        if custom_instructions:
+            resp.metadata["custom_instructions"] = True
+        if getattr(self, "_last_rewritten", None):
+            resp.metadata["rewritten"] = self._last_rewritten.to_dict()
+            resp.metadata["expanded_queries"] = self._last_rewritten.expanded_queries
         return resp
 
     def _greeting_stream(self, start: float) -> Generator[str, None, AgentResponse]:
@@ -831,6 +1062,9 @@ class ChatBot:
         history_context: str = "",
         mode: Mode = Mode.auto,
         analyze: bool = False,
+        style: str = "",
+        custom_instructions: str = "",
+        profile: str = "",
     ) -> Generator[str, None, AgentResponse]:
         """Core único de streaming — usado por ask_stream e ask_stream_with_history."""
         if self.logger:
@@ -846,16 +1080,25 @@ class ChatBot:
                 return resp
 
             plan, hint, reasoning_needed = self._make_plan(question)
+            self._last_rewritten = None
+            if not style:
+                if profile == "flash":
+                    style = "concise"
+                elif profile == "pro":
+                    style = "analyst"
             if mode == Mode.web:
                 evidence = self._prepare_web_evidence(question)
             else:
-                evidence = self._prepare_evidence(question)
+                evidence = self._prepare_evidence(question, profile=profile)
 
             if not evidence:
                 if self.logger:
-                    self.logger.info(f"No evidence found (stream, mode={mode})")
-                resp = yield from self._stream_no_evidence(question, history_context, mode, plan)
+                    self.logger.info(f"No evidence found (stream, mode={mode}) profile={profile}")
+                resp = yield from self._stream_no_evidence(question, history_context, mode, plan, style=style, custom_instructions=custom_instructions, analyze=analyze)
                 provider = "web" if mode == Mode.web else "rag"
+                if getattr(self, "_last_rewritten", None):
+                    resp.metadata["rewritten"] = self._last_rewritten.to_dict()
+                    resp.metadata["expanded_queries"] = self._last_rewritten.expanded_queries
                 if analyze:
                     resp = self._run_analyst(question, resp)
                 self._record_request(question, mode, provider, resp, start, analyze)
@@ -871,16 +1114,25 @@ class ChatBot:
             prompt = (
                 self.prompt_builder.build_with_history(
                     question, evidence, history_context, mode=mode,
-                    reasoning=reasoning_needed, reasoning_hint=hint,
+                    reasoning=reasoning_needed or analyze, reasoning_hint=hint, style=style, custom_instructions=custom_instructions,
                 )
                 if history_context
-                else self.prompt_builder.build(question, evidence, mode=mode, reasoning=reasoning_needed, reasoning_hint=hint)
+                else self.prompt_builder.build(question, evidence, mode=mode, reasoning=reasoning_needed or analyze, reasoning_hint=hint, style=style, custom_instructions=custom_instructions)
             )
             provider = "web" if mode == Mode.web else "rag"
-            result = yield from self._stream_evidence(prompt, evidence, provider=provider)
+            result = yield from self._stream_evidence(prompt, evidence, provider=provider, analyze=analyze)
             if plan:
                 result.metadata["reasoning_intent"] = plan.intent
-                result.metadata["reasoning_cot"] = reasoning_needed
+                result.metadata["reasoning_cot"] = reasoning_needed or analyze
+            if style:
+                result.metadata["style"] = style
+            if custom_instructions:
+                result.metadata["custom_instructions"] = True
+            if getattr(self, "_last_rewritten", None):
+                result.metadata["rewritten"] = self._last_rewritten.to_dict()
+                result.metadata["expanded_queries"] = self._last_rewritten.expanded_queries
+                result.metadata["rewriter_intent"] = self._last_rewritten.intent
+                result.metadata["rewriter_entities"] = self._last_rewritten.entities
             if analyze:
                 result = self._run_analyst(question, result)
             self._record_request(question, mode, provider, result, start, analyze)
@@ -899,8 +1151,11 @@ class ChatBot:
         question: str,
         mode: Mode = Mode.auto,
         analyze: bool = False,
+        style: str = "",
+        custom_instructions: str = "",
+        profile: str = "",
     ) -> Generator[str, None, AgentResponse]:
-        return self._ask_stream_inner(question, "", mode, analyze)
+        return self._ask_stream_inner(question, "", mode, analyze, style=style, custom_instructions=custom_instructions, profile=profile)
 
     def ask_stream_with_history(
         self,
@@ -908,8 +1163,11 @@ class ChatBot:
         history_context: str = "",
         mode: Mode = Mode.auto,
         analyze: bool = False,
+        style: str = "",
+        custom_instructions: str = "",
+        profile: str = "",
     ) -> Generator[str, None, AgentResponse]:
-        return self._ask_stream_inner(question, history_context, mode, analyze)
+        return self._ask_stream_inner(question, history_context, mode, analyze, style=style, custom_instructions=custom_instructions, profile=profile)
 
     def _format_analyst(self, resp: AgentResponse) -> str:
         parts: List[str] = []

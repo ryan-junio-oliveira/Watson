@@ -12,55 +12,58 @@
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <style>
   :root{ --bs-font-sans-serif:'Poppins',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; --bs-body-font-family:'Poppins',system-ui,sans-serif; }
-  body{ font-family:'Poppins',system-ui,sans-serif; letter-spacing:-.011em; -webkit-font-smoothing:antialiased; }
+  body{ font-family:'Poppins',system-ui,sans-serif; letter-spacing:-.012em; -webkit-font-smoothing:antialiased; font-size:14px; }
   .font-mono{ font-family:'JetBrains Mono',monospace !important; }
-  body::before{ content:''; position:fixed; inset:0; z-index:-1; pointer-events:none; background: radial-gradient(1100px 600px at 10% -10%, rgba(13,110,253,.09), transparent 60%), radial-gradient(900px 500px at 92% 0%, rgba(111,66,193,.07), transparent 60%), radial-gradient(900px 600px at 50% 115%, rgba(25,135,84,.04), transparent 70%); }
-  .card{ border:1px solid var(--bs-border-color-translucent); }
-  .premium-icon{ width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden; flex-shrink:0; }
-  .premium-icon::after{ content:''; position:absolute; inset:0; border-radius:inherit; background:radial-gradient(130% 130% at 30% 18%, rgba(255,255,255,.16), transparent 58%); }
+  body::before{ display:none; }
+  .card{ border:1px solid var(--bs-border-color-translucent); border-radius:.75rem !important; }
+  .premium-icon{ width:28px; height:28px; border-radius:8px; display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden; flex-shrink:0; font-size:.85rem !important; }
+  .premium-icon::after{ display:none; }
   .pulse{ width:8px; height:8px; border-radius:50%; position:relative; display:inline-block; }
   .pulse::after{ content:''; position:absolute; inset:0; border-radius:50%; animation:pulse 1.9s ease-out infinite; }
   .pulse-success{ background:#198754; box-shadow:0 0 0 4px rgba(25,135,84,.14); } .pulse-success::after{ background:rgba(25,135,84,.32); }
   @keyframes pulse{ 0%{ transform:scale(1); opacity:1 } 100%{ transform:scale(2.5); opacity:0 } }
   #app{ height:100dvh; display:flex; flex-direction:column; }
   #mainRow{ flex:1; min-height:0; display:flex; }
-  #sidebar{ width:340px; min-width:340px; border-right:1px solid var(--bs-border-color-translucent); background:var(--bs-body-bg); display:flex; flex-direction:column; overflow:hidden; transition: width .28s ease, min-width .28s ease, opacity .2s ease, border-width .2s ease; }
+  #sidebar{ width:290px; min-width:290px; border-right:1px solid var(--bs-border-color-translucent); background:var(--bs-body-bg); display:flex; flex-direction:column; overflow:hidden; transition: width .28s ease, min-width .28s ease, opacity .2s ease, border-width .2s ease; }
   #sidebar.collapsed{ width:0 !important; min-width:0 !important; opacity:0; border-right-width:0 !important; overflow:hidden; }
-  /* Sidebar menu */
-  .sidebar-tabs{ display:flex; gap:.35rem; padding:.75rem .75rem .5rem; border-bottom:1px solid var(--bs-border-color-translucent); flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
+  /* Sidebar menu — compacto minimal */
+  .sidebar-tabs{ display:flex; gap:.25rem; padding:.5rem; border-bottom:1px solid var(--bs-border-color-translucent); flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
   .sidebar-tabs::-webkit-scrollbar{ display:none; }
-  .sidebar-tab{ flex:1; display:flex; align-items:center; justify-content:center; gap:.4rem; padding:.5rem .6rem; border-radius:999px; border:1px solid transparent; background:transparent; color:var(--bs-secondary-color); font-size:.73rem; font-weight:600; letter-spacing:.01em; white-space:nowrap; transition:all .15s; cursor:pointer; }
+  .sidebar-tab{ flex:1; display:flex; align-items:center; justify-content:center; gap:.3rem; padding:.35rem .45rem; border-radius:999px; border:1px solid transparent; background:transparent; color:var(--bs-secondary-color); font-size:.68rem; font-weight:500; letter-spacing:.01em; white-space:nowrap; transition:all .12s; cursor:pointer; }
   .sidebar-tab:hover{ background:var(--bs-tertiary-bg); color:var(--bs-body-color); border-color:var(--bs-border-color-translucent); }
-  .sidebar-tab.active{ background:var(--bs-primary); color:#fff; border-color:var(--bs-primary); box-shadow:0 4px 14px rgba(13,110,253,.22); }
+  .sidebar-tab.active{ background:#111111; color:#fff; border-color:#111111; box-shadow:none; font-weight:600; }
+  [data-bs-theme="dark"] .sidebar-tab.active{ background:#f4f4f5; color:#111; border-color:#f4f4f5; }
+  [data-bs-theme="dark"] .sidebar-tab.active i{ color:#111 !important; }
   .sidebar-tab.active i{ color:#fff; }
-  .sidebar-panels{ flex:1; overflow-y:auto; overflow-x:hidden; padding:.85rem; display:flex; flex-direction:column; }
-  .sidebar-panel{ display:none; flex-direction:column; gap:.85rem; animation:fadeIn .18s ease; }
+  .sidebar-panels{ flex:1; overflow-y:auto; overflow-x:hidden; padding:.6rem; display:flex; flex-direction:column; }
+  .sidebar-panel{ display:none; flex-direction:column; gap:.6rem; animation:fadeIn .15s ease; }
   .sidebar-panel.active{ display:flex; }
-  @keyframes fadeIn{ from{ opacity:0; transform:translateY(4px)} to{opacity:1; transform:translateY(0)} }
-  .panel-title{ font-size:.68rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--bs-secondary-color); display:flex; align-items:center; gap:.45rem; margin-bottom:.25rem; }
-  #chatCol{ flex:1; min-width:0; display:flex; flex-direction:column; background:var(--bs-tertiary-bg); }
-  #messages{ flex:1; overflow-y:auto; overflow-x:hidden; scroll-behavior:smooth; overscroll-behavior:contain; padding:1rem; display:flex; flex-direction:column; align-items:stretch; }
+  @keyframes fadeIn{ from{ opacity:0; transform:translateY(3px)} to{opacity:1; transform:translateY(0)} }
+  .panel-title{ font-size:.62rem; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--bs-secondary-color); display:flex; align-items:center; gap:.35rem; margin-bottom:.15rem; }
+  #chatCol{ flex:1; min-width:0; display:flex; flex-direction:column; background:var(--bs-body-bg); }
+  #messages{ flex:1; overflow-y:auto; overflow-x:hidden; scroll-behavior:smooth; overscroll-behavior:contain; padding:.75rem; display:flex; flex-direction:column; align-items:stretch; }
   #messagesInner{ width:100%; max-width:1120px; margin:0 auto; display:flex; flex-direction:column; }
-  @media (min-width: 768px){ #messages{ padding:1.25rem 1.75rem; } #messagesInner{ max-width:1120px; } }
-  @media (min-width: 1200px){ #messages{ padding:1.5rem 2.25rem; } #messagesInner{ max-width:1180px; } }
-  @media (min-width: 1600px){ #messagesInner{ max-width:1280px; } }
-  #composer{ border-top:1px solid var(--bs-border-color-translucent); background:var(--bs-body-bg); display:flex; justify-content:center; padding:.85rem 1rem !important; }
+  @media (min-width: 768px){ #messages{ padding:1rem 1.5rem; } #messagesInner{ max-width:1120px; } }
+  @media (min-width: 1200px){ #messages{ padding:1.25rem 2rem; } #messagesInner{ max-width:1120px; } }
+  @media (min-width: 1600px){ #messagesInner{ max-width:1180px; } }
+  #composer{ border-top:1px solid var(--bs-border-color-translucent); background:var(--bs-body-bg); display:flex; justify-content:center; padding:.75rem 1rem !important; }
   #composer > .w-100{ max-width:1120px; width:100%; }
-  @media (min-width: 1200px){ #composer > .w-100{ max-width:1180px; } }
-  @media (min-width: 1600px){ #composer > .w-100{ max-width:1280px; } }
-  /* Chat bubbles - afastadas ao máximo e largura total do container */
-  .msg{ width:100%; display:flex; flex-direction:column; gap:.3rem; }
-  .msg-header{ display:flex; align-items:center; gap:.5rem; font-size:.71rem; font-weight:600; color:var(--bs-secondary-color); padding:0 .1rem; }
+  @media (min-width: 1200px){ #composer > .w-100{ max-width:1120px; } }
+  @media (min-width: 1600px){ #composer > .w-100{ max-width:1180px; } }
+  /* Chat bubbles — compact minimal */
+  .msg{ width:100%; display:flex; flex-direction:column; gap:.25rem; }
+  .msg-header{ display:flex; align-items:center; gap:.35rem; font-size:.66rem; font-weight:500; color:var(--bs-secondary-color); padding:0; }
   .msg.user-msg .msg-header{ justify-content:flex-end; flex-direction:row-reverse; }
   .msg-row{ display:flex; width:100%; }
   .msg.user-msg .msg-row{ justify-content:flex-end; }
   .msg.assistant-msg .msg-row{ justify-content:flex-start; }
-  .bubble{ border-radius:1rem; padding:.7rem .9rem; line-height:1.5; font-size:.835rem; width:fit-content; box-shadow:0 1px 8px rgba(0,0,0,.05); word-wrap:break-word; overflow-wrap:anywhere; }
-  .bubble-user{ background:linear-gradient(135deg,#0d6efd,#6f42c1); color:#fff; border-radius:1.15rem 1.15rem .3rem 1.15rem; box-shadow:0 6px 18px rgba(13,110,253,.18); max-width:68%; }
-  .bubble-assistant{ background:var(--bs-body-bg); border:1px solid var(--bs-border-color-translucent); border-radius:1.15rem 1.15rem 1.15rem .3rem; max-width:78%; }
-  [data-bs-theme="dark"] .bubble-assistant{ box-shadow:0 6px 20px rgba(0,0,0,.18); }
-  .bubble-assistant .markdown{ font-size:.84rem; }
-  .bubble-assistant .markdown p{ margin-bottom:.6rem; }
+  .bubble{ border-radius:.75rem; padding:.45rem .7rem; line-height:1.45; font-size:.78rem; width:fit-content; box-shadow:none; word-wrap:break-word; overflow-wrap:anywhere; }
+  .bubble-user{ background:#111111; color:#fff; border-radius:.75rem .75rem .2rem .75rem; box-shadow:none; max-width:72%; }
+  .bubble-assistant{ background:var(--bs-body-bg); border:1px solid var(--bs-border-color-translucent); border-radius:.75rem .75rem .75rem .2rem; max-width:82%; box-shadow:none; }
+  [data-bs-theme="dark"] .bubble-assistant{ box-shadow:none; border-color:rgba(255,255,255,.12); }
+  [data-bs-theme="dark"] .bubble-user{ background:#f4f4f5; color:#111; }
+  .bubble-assistant .markdown{ font-size:.78rem; line-height:1.5; }
+  .bubble-assistant .markdown p{ margin-bottom:.45rem; }
   .bubble-assistant .markdown p:last-child{ margin-bottom:0; }
   .bubble-assistant .markdown pre{ background:var(--bs-tertiary-bg); border:1px solid var(--bs-border-color-translucent); border-radius:.6rem; padding:.65rem; overflow:auto; font-size:.78rem; }
   .bubble-assistant .markdown code{ font-family:'JetBrains Mono',monospace; font-size:.84em; }
@@ -70,51 +73,57 @@
   .bubble-assistant .markdown table{ width:100%; border-collapse:collapse; margin:.75rem 0; font-size:.78rem; display:block; overflow-x:auto; }
   .bubble-assistant .markdown th, .bubble-assistant .markdown td{ border:1px solid var(--bs-border-color-translucent); padding:.45rem .6rem; text-align:left; }
   .bubble-assistant .markdown th{ background:var(--bs-tertiary-bg); font-weight:700; }
-  .bubble-assistant .markdown a{ color:var(--bs-primary); text-decoration:underline; word-break:break-all; }
+  .bubble-assistant .markdown a{ color:#111; text-decoration:underline; text-underline-offset:2px; word-break:break-all; }
+  [data-bs-theme="dark"] .bubble-assistant .markdown a{ color:#e5e7eb; }
   .bubble-assistant .markdown strong{ font-weight:700; }
   .bubble-assistant .markdown hr{ margin:.9rem 0; opacity:.15; }
-  .source-chip{ font-size:.68rem; border:1px solid var(--bs-border-color-translucent); background:var(--bs-tertiary-bg); color:var(--bs-body-color); }
-  .source-chip i{ color:var(--bs-secondary-color); }
-  .tool-card{ border-radius:.9rem; }
-  .tool-card .card-header{ background:transparent; font-size:.78rem; }
-  .tool-card .card-body{ font-size:.82rem; }
-  textarea#prompt{ resize:none; max-height:160px; font-size:.88rem; }
-  .dropzone{ border:1.5px dashed var(--bs-border-color); border-radius:.9rem; transition: all .15s; }
-  .dropzone.drag{ border-color:var(--bs-primary); background:rgba(13,110,253,.06); }
-  @media (max-width: 991.98px){ #sidebar{ display:none !important; } .bubble-user{ max-width:82%; } .bubble-assistant{ max-width:86%; } #messagesInner{ max-width:100%; } }
-  .offcanvas{ --bs-offcanvas-width:360px; }
+  .source-chip{ font-size:.62rem; border:1px solid var(--bs-border-color-translucent); background:var(--bs-body-bg); color:var(--bs-secondary-color); padding:.2rem .4rem; }
+  .source-chip i{ color:var(--bs-secondary-color); font-size:.6rem; }
+  .tool-card{ border-radius:.6rem; border:1px solid var(--bs-border-color-translucent) !important; box-shadow:none !important; }
+  .tool-card .card-header{ background:transparent; font-size:.72rem; padding:.45rem .6rem !important; border-bottom:1px solid var(--bs-border-color-translucent); }
+  .tool-card .card-body{ font-size:.76rem; padding:.6rem !important; }
+  textarea#prompt{ resize:none; max-height:160px; font-size:.88rem; line-height:1.4; }
+  .dropzone{ border:1px dashed var(--bs-border-color); border-radius:.6rem; transition: all .12s; padding:.75rem !important; }
+  .dropzone.drag{ border-color:#111; background:rgba(0,0,0,.04); }
+  [data-bs-theme="dark"] .dropzone.drag{ border-color:#e5e7eb; background:rgba(255,255,255,.06); }
+  @media (max-width: 991.98px){ #sidebar{ display:none !important; } .bubble-user{ max-width:84%; } .bubble-assistant{ max-width:88%; } #messagesInner{ max-width:100%; } }
+  .offcanvas{ --bs-offcanvas-width:300px; }
+  .offcanvas .offcanvas-header{ padding:.5rem .75rem !important; }
+  .offcanvas .sidebar-panels{ padding:.5rem !important; }
   .offcanvas .sidebar-tabs{ padding-top:.6rem; }
   .typing-dots span{ animation:typingDots 1.2s infinite; opacity:.3; font-weight:700; color:var(--bs-secondary-color); }
   .typing-dots span:nth-child(2){ animation-delay:.2s; }
   .typing-dots span:nth-child(3){ animation-delay:.4s; }
   @keyframes typingDots{ 0%,60%,100%{ opacity:.25 } 30%{ opacity:1 } }
-  .typing-cursor{ display:inline-block; margin-left:1px; animation:cursorBlink 1s step-end infinite; color:var(--bs-primary); font-weight:300; }
+  .typing-cursor{ display:inline-block; margin-left:1px; animation:cursorBlink 1s step-end infinite; color:#111; font-weight:300; }
+  [data-bs-theme="dark"] .typing-cursor{ color:#e5e7eb; }
   @keyframes cursorBlink{ 0%,50%{ opacity:1 } 51%,100%{ opacity:0 } }
 </style>
 </head>
 <body>
 <div id="app">
-<nav class="navbar bg-body border-bottom sticky-top shadow-sm" style="backdrop-filter:saturate(1.15) blur(10px)">
+<nav class="navbar sticky-top py-2" style="background:rgba(255,255,255,.82); backdrop-filter:saturate(180%) blur(16px); -webkit-backdrop-filter:saturate(180%) blur(16px); border-bottom:1px solid rgba(0,0,0,.06); box-shadow:0 1px 3px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.04)">
   <div class="container-fluid px-3 px-lg-4" style="max-width:1600px">
-    <div class="d-flex align-items-center gap-2">
-      <button class="btn btn-outline-secondary d-lg-none" data-bs-toggle="offcanvas" data-bs-target="#sidebarOffcanvas"><i class="fa-solid fa-bars"></i></button>
-      <button class="btn btn-outline-secondary d-none d-lg-inline-flex" id="sidebarToggle" onclick="toggleSidebar()" title="Expandir / ocultar ferramentas"><i class="fa-solid fa-angles-left" id="sidebarToggleIcon"></i></button>
+    <div class="d-flex align-items-center gap-3">
+      <button class="btn btn-sm d-lg-none border-0" data-bs-toggle="offcanvas" data-bs-target="#sidebarOffcanvas" style="width:32px;height:32px; background:var(--bs-tertiary-bg); border-radius:8px"><i class="fa-solid fa-bars" style="font-size:.8rem"></i></button>
+      <button class="btn btn-sm d-none d-lg-inline-flex border-0" id="sidebarToggle" onclick="toggleSidebar()" title="Expandir / ocultar ferramentas" style="width:32px;height:32px; background:var(--bs-tertiary-bg); border-radius:8px"><i class="fa-solid fa-angles-left" id="sidebarToggleIcon" style="font-size:.75rem"></i></button>
       <a class="d-flex align-items-center gap-3 text-decoration-none" href="/">
-        <span class="rounded-3 d-flex align-items-center justify-content-center text-white shadow" style="width:38px;height:38px;background:linear-gradient(135deg,#0d6efd 0%,#6f42c1 100%)"><i class="fa-solid fa-bolt"></i></span>
+        <span class="d-flex align-items-center justify-content-center text-white shadow-sm" style="width:32px;height:32px; background:#111; border-radius:9px; font-size:.8rem"><i class="fa-solid fa-bolt"></i></span>
         <span class="d-flex flex-column lh-1">
-          <span class="d-flex align-items-center gap-2"><span class="fw-bold text-body" style="font-size:1.05rem;letter-spacing:-.03em">Watson</span><span class="badge text-bg-primary" style="font-size:.52rem;letter-spacing:.08em">AI PLATFORM</span></span>
-          <small class="text-body-secondary fw-medium" style="font-size:.68rem">Chat RAG · Streaming SSE</small>
+          <span class="d-flex align-items-center gap-1.5"><span class="fw-bold text-body" style="font-size:.95rem;letter-spacing:-.025em">Watson</span><span class="badge rounded-pill" style="font-size:.5rem; letter-spacing:.07em; font-weight:700; background:#111; color:#fff; padding:.25em .5em">AI · RAG</span></span>
+          <small class="text-body-secondary" style="font-size:.63rem; font-weight:500; letter-spacing:.02em">Inteligência Documental</small>
         </span>
       </a>
-      <span class="vr d-none d-md-block mx-1"></span>
-      <span id="healthBadge" class="badge rounded-pill text-bg-success d-none d-md-inline-flex align-items-center gap-2 px-3 py-2 fw-bold"><span class="pulse pulse-success" style="width:7px;height:7px"></span> Online</span>
+      <span class="vr d-none d-md-block mx-2" style="opacity:.12"></span>
+      <span id="healthBadge" class="d-none d-md-inline-flex align-items-center gap-1.5 px-2.5 py-1 fw-semibold" style="font-size:.66rem; background:#ECFDF5; color:#065F46; border:1px solid #A7F3D0; border-radius:999px"><span class="pulse pulse-success" style="width:6px;height:6px"></span> Online</span>
     </div>
     <div class="d-flex align-items-center gap-2">
-      <span class="badge text-bg-light border d-none d-lg-inline-flex align-items-center gap-2 fw-normal px-3 py-2"><span id="clock" class="font-mono small fw-semibold">--:--:--</span></span>
-      <div class="btn-group btn-group-sm">
-        <a class="btn btn-outline-secondary" href="/dashboard"><i class="fa-solid fa-chart-simple me-1"></i> Dashboard</a>
-        <a class="btn btn-outline-secondary" href="/docs" target="_blank"><i class="bi bi-code-square me-1"></i> API</a>
-        <button class="btn btn-outline-secondary" onclick="toggleTheme()" title="Tema"><i class="fa-solid fa-circle-half-stroke"></i></button>
+      <span id="clock" class="font-mono d-none d-xl-inline-flex align-items-center px-2.5 py-1" style="font-size:.68rem; font-weight:500; color:var(--bs-secondary-color); background:var(--bs-tertiary-bg); border:1px solid var(--bs-border-color-translucent); border-radius:8px; min-width:70px; justify-content:center">--:--</span>
+      <div class="d-flex align-items-center gap-1.5 ms-1">
+        <a class="btn btn-sm d-inline-flex align-items-center gap-1.5" href="/dashboard" style="font-size:.72rem; font-weight:500; padding:.35rem .7rem; background:var(--bs-body-bg); border:1px solid var(--bs-border-color-translucent); border-radius:8px"><i class="fa-solid fa-chart-simple" style="font-size:.68rem; opacity:.7"></i> Dashboard</a>
+        <a class="btn btn-sm d-inline-flex align-items-center gap-1.5" href="/config" style="font-size:.72rem; font-weight:500; padding:.35rem .7rem; background:var(--bs-body-bg); border:1px solid var(--bs-border-color-translucent); border-radius:8px"><i class="fa-solid fa-gear" style="font-size:.68rem; opacity:.7"></i> Config</a>
+        <a class="btn btn-sm d-none d-md-inline-flex align-items-center gap-1.5" href="/docs" target="_blank" style="font-size:.72rem; font-weight:500; padding:.35rem .7rem; background:var(--bs-body-bg); border:1px solid var(--bs-border-color-translucent); border-radius:8px"><i class="bi bi-code-square" style="font-size:.7rem; opacity:.7"></i> API</a>
+        <button class="btn btn-sm d-inline-flex align-items-center justify-content-center" onclick="toggleTheme()" title="Alternar tema" style="width:32px;height:32px; background:var(--bs-body-bg); border:1px solid var(--bs-border-color-translucent); border-radius:8px"><i class="fa-solid fa-circle-half-stroke" style="font-size:.75rem"></i></button>
       </div>
     </div>
   </div>
@@ -130,25 +139,25 @@
     <div class="sidebar-panels">
       <!-- DOCUMENTOS: upload + indexação juntos -->
       <div id="panel-docs" class="sidebar-panel active">
-        <div class="panel-title"><i class="fa-solid fa-cloud-arrow-up text-primary"></i> Upload de documentos</div>
-        <div class="card tool-card">
-          <div class="card-body p-3">
-            <div id="dropzone" class="dropzone p-3 text-center">
-              <i class="fa-solid fa-file-arrow-up fs-5 text-primary opacity-75"></i>
+        <div class="panel-title"><i class="fa-solid fa-cloud-arrow-up"></i> Upload de documentos</div>
+          <div class="card tool-card">
+            <div class="card-body p-2">
+              <div id="dropzone" class="dropzone p-2 text-center">
+              <i class="fa-solid fa-file-arrow-up fs-5 opacity-50"></i>
               <div class="small fw-semibold mt-1" style="font-size:.8rem">Arraste arquivos aqui</div>
               <div class="small text-body-secondary" style="font-size:.7rem">PDF, DOCX, TXT, MD, CSV, XLSX, JPG/PNG (máx 50MB)</div>
               <input type="file" id="fileInput" class="d-none" multiple>
-              <button class="btn btn-primary btn-sm rounded-pill px-3 mt-2" style="font-size:.78rem" onclick="document.getElementById('fileInput').click()"><i class="fa-solid fa-plus me-1"></i> Selecionar</button>
+              <button class="btn btn-dark btn-sm rounded-pill px-3 mt-2" style="font-size:.78rem" onclick="document.getElementById('fileInput').click()"><i class="fa-solid fa-plus me-1"></i> Selecionar</button>
             </div>
             <div id="uploadLog" class="small mt-2 d-flex flex-column gap-1"></div>
           </div>
         </div>
-        <div class="panel-title mt-1"><i class="fa-solid fa-layer-group text-success"></i> Indexação</div>
+        <div class="panel-title mt-1"><i class="fa-solid fa-layer-group"></i> Indexação</div>
         <div class="card tool-card">
           <div class="card-body p-2 d-flex flex-column gap-2">
             <div class="d-flex gap-2">
-              <button class="btn btn-primary btn-sm flex-fill" style="font-size:.78rem" onclick="runIndex(false)"><i class="fa-solid fa-bolt me-1"></i> Indexar</button>
-              <button class="btn btn-outline-primary btn-sm flex-fill" style="font-size:.78rem" onclick="runIndex(true)"><i class="fa-solid fa-rocket me-1"></i> Async</button>
+              <button class="btn btn-dark btn-sm flex-fill" style="font-size:.78rem" onclick="runIndex(false)"><i class="fa-solid fa-bolt me-1"></i> Indexar</button>
+              <button class="btn btn-outline-dark btn-sm flex-fill" style="font-size:.78rem" onclick="runIndex(true)"><i class="fa-solid fa-rocket me-1"></i> Async</button>
             </div>
             <div class="d-flex gap-2 align-items-center">
               <button class="btn btn-outline-secondary btn-sm flex-fill" style="font-size:.76rem" onclick="runIndexDocs()"><i class="bi bi-file-earmark-text me-1"></i> Só docs</button>
@@ -158,7 +167,7 @@
             </div>
             <div id="indexProgress" class="d-none">
               <div class="d-flex justify-content-between small" style="font-size:.72rem"><span id="indexMsg" class="text-body-secondary">—</span><span id="indexPct" class="font-mono">—</span></div>
-              <div class="progress" style="height:6px"><div id="indexBar" class="progress-bar progress-bar-striped progress-bar-animated" style="width:0%"></div></div>
+              <div class="progress" style="height:6px"><div id="indexBar" class="progress-bar bg-dark" style="width:0%"></div></div>
               <div class="d-flex gap-2 mt-2"><button class="btn btn-sm btn-outline-danger" style="font-size:.72rem" onclick="cancelJob()"><i class="fa-solid fa-stop me-1"></i> Cancelar</button><span id="jobIdBadge" class="badge text-bg-light border font-mono ms-auto" style="font-size:.65rem">—</span></div>
             </div>
             <div id="indexResult" class="small" style="font-size:.75rem"></div>
@@ -168,7 +177,7 @@
       </div>
       <!-- DRIVE -->
       <div id="panel-drive" class="sidebar-panel">
-        <div class="panel-title"><i class="fa-brands fa-google-drive text-warning"></i> Google Drive</div>
+        <div class="panel-title"><i class="fa-brands fa-google-drive"></i> Google Drive</div>
         <div class="card tool-card">
           <div class="card-body p-2 d-flex flex-column gap-2">
             <div class="input-group input-group-sm">
@@ -182,8 +191,8 @@
             </div>
             <div id="driveSelection" class="small border rounded p-2 bg-body-tertiary" style="max-height:120px;overflow:auto;font-size:.72rem">—</div>
             <div class="d-flex gap-2">
-              <button class="btn btn-warning btn-sm flex-fill" style="font-size:.76rem" onclick="driveSync()"><i class="fa-solid fa-rotate me-1"></i> Sync</button>
-              <button class="btn btn-outline-warning btn-sm" style="font-size:.76rem" onclick="driveClear()" title="Limpar arquivos do Drive local"><i class="fa-solid fa-eraser"></i></button>
+              <button class="btn btn-dark btn-sm flex-fill" style="font-size:.76rem" onclick="driveSync()"><i class="fa-solid fa-rotate me-1"></i> Sync</button>
+              <button class="btn btn-outline-secondary btn-sm" style="font-size:.76rem" onclick="driveClear()" title="Limpar arquivos do Drive local"><i class="fa-solid fa-eraser"></i></button>
             </div>
             <div id="driveResult" class="small" style="font-size:.72rem"></div>
             <div class="small text-body-secondary" style="font-size:.65rem"><i class="fa-solid fa-circle-info me-1"></i> Sync baixa do Drive; Limpar remove cópias locais.</div>
@@ -206,7 +215,7 @@
           </div>
         </div>
         <div class="card tool-card">
-          <div class="card-header py-2 fw-semibold d-flex align-items-center gap-2" style="font-size:.76rem"><i class="fa-solid fa-circle-info text-primary"></i> Atalhos</div>
+          <div class="card-header py-2 fw-semibold d-flex align-items-center gap-2" style="font-size:.76rem"><i class="fa-solid fa-circle-info"></i> Atalhos</div>
           <div class="card-body p-2 d-flex flex-column gap-1 small" style="font-size:.72rem">
             <a href="/dashboard" class="text-decoration-none"><i class="fa-solid fa-chart-simple me-1"></i> Dashboard de métricas</a>
             <a href="/docs" target="_blank" class="text-decoration-none"><i class="bi bi-code-square me-1"></i> Documentação da API</a>
@@ -221,61 +230,63 @@
     <div id="messages">
       <div id="messagesInner">
         <div class="msg assistant-msg">
-          <div class="card rounded-4 border-0 shadow-sm w-100" style="background:linear-gradient(135deg,rgba(13,110,253,.08),rgba(111,66,193,.08))">
-            <div class="card-body p-3">
+          <div class="card w-100" style="background:var(--bs-body-bg); border:1px solid var(--bs-border-color-translucent); border-radius:.6rem !important">
+            <div class="card-body p-2">
               <div class="d-flex gap-2">
-                <span class="premium-icon bg-primary text-white fw-bold d-flex align-items-center justify-content-center" style="background:linear-gradient(135deg,#0d6efd 0%, #6f42c1 100%); font-size:1rem; letter-spacing:-.02em">W</span>
+                <span class="premium-icon text-white fw-bold d-flex align-items-center justify-content-center" style="background:#111; font-size:.8rem; letter-spacing:-.02em">W</span>
                 <div>
-                  <div class="fw-bold" style="font-size:.95rem">Olá, sou o Watson</div>
-                  <div class="text-body-secondary mt-1" style="font-size:.78rem; line-height:1.45">Pergunte sobre seus documentos (<span class="badge text-bg-light border" style="font-size:.65rem">RAG</span>) ou busque na web (<span class="badge text-bg-success border" style="font-size:.65rem">web</span> com fontes citadas). Use <span class="badge text-bg-light border" style="font-size:.65rem">analisar</span> para reflexão proativa e <span class="badge text-bg-light border" style="font-size:.65rem">streaming</span> para resposta em tempo real.</div>
-                  <div class="d-flex flex-wrap gap-2 mt-2">
-                    <button class="btn btn-sm btn-outline-primary rounded-pill" style="font-size:.74rem" onclick="fillExample('Como corrigir o erro E123 na impressora E52645?')"><i class="fa-solid fa-lightbulb me-1"></i> Exemplo E123</button>
-                    <button class="btn btn-sm btn-outline-secondary rounded-pill" style="font-size:.74rem" onclick="fillExample('Quais manuais citam troca do kit de fusão?')"><i class="bi bi-search me-1"></i> Buscar manuais</button>
-                    <button class="btn btn-sm btn-outline-secondary rounded-pill" style="font-size:.74rem" onclick="document.getElementById('prompt').focus()"><i class="fa-solid fa-keyboard me-1"></i> Começar</button>
-                  </div>
+                  <div class="fw-semibold" style="font-size:.82rem">Olá, sou o Watson</div>
+                  <div class="text-body-secondary mt-1" style="font-size:.72rem; line-height:1.4">Pergunte sobre seus documentos (<span class="badge text-bg-light border" style="font-size:.58rem">RAG</span>) ou web (<span class="badge text-bg-light border" style="font-size:.58rem">web</span>). Use <span class="badge text-bg-light border" style="font-size:.58rem">analisar</span> + <span class="badge text-bg-light border" style="font-size:.58rem">streaming</span>.</div>
+
                 </div>
               </div>
             </div>
           </div>
         </div>
-        <div id="thread" class="d-flex flex-column" style="gap:1.1rem; margin-top:1.25rem"></div>
+        <div id="thread" class="d-flex flex-column" style="gap:.75rem; margin-top:.9rem"></div>
       </div>
     </div>
 
     <div id="composer" class="p-3">
       <div class="w-100">
-        <div class="card rounded-4 shadow-sm">
-          <div class="card-body p-2 p-md-3">
+        <div class="border rounded-3 bg-body" style="border-color:var(--bs-border-color-translucent) !important">
+          <div class="p-2 p-md-3">
             <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+              <div class="dropdown" id="watsonProfileDropdown">
+                <button id="watsonProfileBtn" class="btn btn-sm btn-outline-dark d-flex align-items-center gap-1.5" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="font-size:.76rem; font-weight:500; min-width:110px; justify-content:space-between">
+                  <span class="d-flex align-items-center gap-1.5"><i id="watsonProfileIcon" class="fa-solid fa-bolt text-warning" style="width:14px"></i><span id="watsonProfileText">Flash</span></span><i class="fa-solid fa-chevron-down" style="font-size:.6rem; opacity:.6"></i>
+                </button>
+                <ul class="dropdown-menu shadow-sm border" style="min-width:150px; font-size:.76rem">
+                  <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-value="flash"><i class="fa-solid fa-bolt text-warning" style="width:14px"></i> Flash <span class="ms-auto text-body-secondary" style="font-size:.65rem">rápido</span></button></li>
+                  <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-value="pro"><i class="fa-solid fa-brain text-success" style="width:14px"></i> Pro <span class="ms-auto text-body-secondary" style="font-size:.65rem">inteligente</span></button></li>
+                </ul>
+              </div>
+              <input type="hidden" id="watsonProfile" value="flash">
               <div class="btn-group btn-group-sm" role="group">
-                <input type="radio" class="btn-check" name="mode" id="modeAuto" value="auto" checked><label class="btn btn-outline-primary fw-semibold" style="font-size:.76rem" for="modeAuto"><i class="fa-solid fa-wand-magic-sparkles me-1"></i>auto</label>
-                <input type="radio" class="btn-check" name="mode" id="modeRag" value="rag"><label class="btn btn-outline-primary fw-semibold" style="font-size:.76rem" for="modeRag"><i class="fa-solid fa-book me-1"></i>rag</label>
-                <input type="radio" class="btn-check" name="mode" id="modeWeb" value="web"><label class="btn btn-outline-success fw-semibold" style="font-size:.76rem" for="modeWeb"><i class="fa-solid fa-globe me-1"></i>web</label>
+                <input type="radio" class="btn-check" name="mode" id="modeAuto" value="auto" checked><label class="btn btn-outline-dark fw-medium" style="font-size:.76rem; padding:.35rem .65rem" for="modeAuto">auto</label>
+                <input type="radio" class="btn-check" name="mode" id="modeRag" value="rag"><label class="btn btn-outline-dark fw-medium" style="font-size:.76rem; padding:.35rem .65rem" for="modeRag">rag</label>
+                <input type="radio" class="btn-check" name="mode" id="modeWeb" value="web"><label class="btn btn-outline-dark fw-medium" style="font-size:.76rem; padding:.35rem .65rem" for="modeWeb">web</label>
               </div>
-              <div class="form-check form-switch m-0">
-                <input class="form-check-input" type="checkbox" id="analyzeCheck"><label class="form-check-label fw-medium" style="font-size:.78rem" for="analyzeCheck"><i class="fa-solid fa-magnifying-glass-chart me-1"></i>analisar</label>
+              <div class="form-check form-switch m-0 d-flex align-items-center gap-1">
+                <input class="form-check-input" type="checkbox" id="streamCheck" checked><label class="form-check-label fw-medium" style="font-size:.78rem" for="streamCheck">streaming</label>
               </div>
-              <div class="form-check form-switch m-0">
-                <input class="form-check-input" type="checkbox" id="streamCheck" checked><label class="form-check-label fw-medium" style="font-size:.78rem" for="streamCheck"><i class="fa-solid fa-bolt me-1"></i>streaming</label>
-              </div>
-              <div class="ms-auto d-flex align-items-center gap-2">
-                <button class="btn btn-sm btn-outline-secondary" style="font-size:.76rem" onclick="clearThread()" title="Limpar conversa"><i class="fa-solid fa-trash-can"></i> <span class="d-none d-sm-inline ms-1">Limpar</span></button>
-                <span class="badge text-bg-light border font-mono" style="font-size:.68rem" id="tokenHint">—</span>
+              <div class="ms-auto">
+                <button class="btn btn-sm btn-outline-secondary" style="font-size:.76rem" onclick="clearThread()" title="Limpar"><i class="fa-solid fa-trash-can"></i> <span class="d-none d-sm-inline ms-1">Limpar</span></button>
               </div>
             </div>
             <div class="input-group">
               <textarea id="prompt" class="form-control border-0 shadow-none" rows="1" placeholder="Pergunte sobre seus documentos... (Shift+Enter quebra linha)" style="min-height:42px"></textarea>
-              <button class="btn btn-primary px-3 px-md-4 fw-semibold" id="sendBtn" onclick="send()"><i class="fa-solid fa-paper-plane me-1"></i><span class="d-none d-sm-inline">Enviar</span></button>
+              <button class="btn btn-dark px-3 px-md-4 fw-semibold" id="sendBtn" onclick="send()"><i class="fa-solid fa-paper-plane me-1"></i><span>Enviar</span></button>
             </div>
             <div class="d-flex align-items-center gap-2 mt-2 text-body-secondary" style="font-size:.7rem">
-              <span class="d-inline-flex align-items-center gap-1"><i class="fa-solid fa-keyboard"></i> Enter envia · Shift+Enter nova linha</span>
-              <span class="ms-auto d-none d-md-inline-flex align-items-center gap-1"><i class="bi bi-lightning-charge"></i> <span id="execHint">—</span></span>
+              <span class="d-inline-flex align-items-center gap-1"><i class="fa-solid fa-keyboard"></i> Enter envia · Shift+Enter quebra</span>
+              <span class="ms-auto d-none d-md-inline-flex align-items-center gap-1"><span id="execHint">—</span></span>
             </div>
           </div>
         </div>
         <div class="d-flex justify-content-between align-items-center mt-2 text-body-secondary" style="font-size:.68rem">
           <span><i class="fa-solid fa-shield-halved me-1"></i> Rate limit 30 req/60s</span>
-          <a href="/dashboard" class="text-decoration-none"><i class="fa-solid fa-chart-simple me-1"></i> Dashboard</a>
+          <a href="/dashboard" class="text-decoration-none">Dashboard</a>
         </div>
       </div>
     </div>
@@ -285,7 +296,7 @@
 
 <div class="offcanvas offcanvas-start" tabindex="-1" id="sidebarOffcanvas">
   <div class="offcanvas-header border-bottom py-2">
-    <h6 class="offcanvas-title fw-bold d-flex align-items-center gap-2" style="font-size:.9rem"><i class="fa-solid fa-screwdriver-wrench text-primary"></i> Ferramentas</h6>
+    <h6 class="offcanvas-title fw-bold d-flex align-items-center gap-2" style="font-size:.9rem"><i class="fa-solid fa-screwdriver-wrench"></i> Ferramentas</h6>
     <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
   </div>
   <div class="offcanvas-body d-flex flex-column p-0">
@@ -305,7 +316,7 @@
 <div class="modal fade" id="driveModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content rounded-4">
-      <div class="modal-header"><h6 class="modal-title fw-bold"><i class="fa-brands fa-google-drive me-2 text-warning"></i> Navegar Drive</h6><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-header"><h6 class="modal-title fw-bold"><i class="fa-brands fa-google-drive me-2"></i> Navegar Drive</h6><button class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
         <nav aria-label="breadcrumb"><ol class="breadcrumb small mb-2" id="driveBreadcrumb"></ol></nav>
         <div id="driveList" class="list-group small"></div>
@@ -364,10 +375,26 @@ function switchMobilePanel(id, btn){
 })();
 
 function fillExample(t){ $('#prompt').value=t; $('#prompt').focus(); }
-function clearThread(){ historyMsgs=[]; $('#thread').innerHTML=''; $('#tokenHint').textContent='—'; $('#execHint').textContent='—'; }
+function clearThread(){ historyMsgs=[]; $('#thread').innerHTML=''; const th=$('#tokenHint'); if(th) th.textContent='—'; const eh=$('#execHint'); if(eh) eh.textContent='—'; }
 $('#prompt').addEventListener('keydown', e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } });
 $('#prompt').addEventListener('input', function(){ this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,160)+'px'; });
 $('#fileInput').addEventListener('change', e=> handleFiles(e.target.files));
+(function(){
+  const wp=$('#watsonProfile'); const btn=$('#watsonProfileBtn'); const icon=$('#watsonProfileIcon'); const text=$('#watsonProfileText');
+  const MAP={flash:{icon:'fa-bolt',cls:'text-warning',label:'Flash'}, pro:{icon:'fa-brain',cls:'text-success',label:'Pro'}};
+  function applyProfile(v){
+    if(v==='plus') v='flash';
+    const m=MAP[v]||MAP.flash;
+    if(icon){ icon.className='fa-solid '+m.icon+' '+m.cls; icon.style.width='14px'; }
+    if(text) text.textContent=m.label;
+    if(wp) wp.value=v;
+    localStorage.setItem('watson-profile', v);
+    document.querySelectorAll('#watsonProfileDropdown .dropdown-item').forEach(b=> b.classList.toggle('active', b.dataset.value===v));
+  }
+  const saved=localStorage.getItem('watson-profile');
+  if(saved && MAP[saved]) applyProfile(saved); else if(saved==='plus') applyProfile('flash'); else applyProfile('flash');
+  document.querySelectorAll('#watsonProfileDropdown .dropdown-item').forEach(b=> b.addEventListener('click', ()=>{ applyProfile(b.dataset.value); }));
+})();
 const dz = $('#dropzone');
 if(dz){
   ['dragenter','dragover'].forEach(ev=> dz.addEventListener(ev, e=>{ e.preventDefault(); dz.classList.add('drag'); }));
@@ -402,7 +429,7 @@ async function handleFiles(files){
   const log=$('#uploadLog');
   for(const f of files){
     const row=document.createElement('div'); row.className='d-flex align-items-center gap-2 border rounded px-2 py-1 bg-body-tertiary';
-    row.innerHTML=`<i class="fa-solid fa-file" style="font-size:.75rem"></i><span class="flex-fill text-truncate" style="font-size:.74rem" title="${esc(f.name)}">${esc(f.name)}</span><span class="badge text-bg-light border font-mono" style="font-size:.65rem">${(f.size/1024).toFixed(1)}KB</span><span class="spinner-border spinner-border-sm text-primary" style="width:14px;height:14px"></span>`;
+     row.innerHTML=`<i class="fa-solid fa-file" style="font-size:.75rem"></i><span class="flex-fill text-truncate" style="font-size:.74rem" title="${esc(f.name)}">${esc(f.name)}</span><span class="badge text-bg-light border font-mono" style="font-size:.65rem">${(f.size/1024).toFixed(1)}KB</span><span class="spinner-border spinner-border-sm" style="width:14px;height:14px"></span>`;
     log.prepend(row);
     const offLog=document.querySelector('#m-panel-docs #uploadLog');
     if(offLog) offLog.prepend(row.cloneNode(true));
@@ -429,7 +456,7 @@ async function runIndex(asyncMode){
       const data=await api('/api/index/async', { method:'POST', body:{ mode:'all', sync_drive:!!sync } });
       currentJobId=data.job_id; document.querySelectorAll('#jobIdBadge').forEach(el=> el.textContent=data.job_id);
       document.querySelectorAll('#indexProgress').forEach(el=> el.classList.remove('d-none'));
-      resultEl.innerHTML=`<span class="text-primary">Job ${esc(data.job_id)} iniciado...</span>`; if(offResult) offResult.innerHTML=resultEl.innerHTML;
+      resultEl.innerHTML=`<span class="text-body-secondary">Job ${esc(data.job_id)} iniciado...</span>`; if(offResult) offResult.innerHTML=resultEl.innerHTML;
       startPoll();
     } else {
       resultEl.innerHTML='<span class="spinner-border spinner-border-sm" style="width:14px;height:14px"></span> indexando...'; if(offResult) offResult.innerHTML=resultEl.innerHTML;
@@ -480,7 +507,7 @@ async function browseDrive(){
 function renderDrive(items, current){
   const list=$('#driveList'); const bc=$('#driveBreadcrumb');
   bc.innerHTML=driveStack.map((fid,i)=>`<li class="breadcrumb-item ${i===driveStack.length-1?'active':''}">${esc(fid)}</li>`).join('');
-  list.innerHTML=items.map(it=>`<button class="list-group-item list-group-item-action d-flex align-items-center gap-2" data-id="${esc(it.id)}" data-type="${esc(it.type)}"><i class="${it.type==='folder'?'fa-solid fa-folder text-warning':'fa-solid fa-file text-primary'}"></i><span class="flex-fill text-truncate">${esc(it.name)}</span><small class="text-body-secondary">${esc(it.type)}</small></button>`).join('') || '<div class="text-body-secondary small p-3">vazio</div>';
+  list.innerHTML=items.map(it=>`<button class="list-group-item list-group-item-action d-flex align-items-center gap-2" data-id="${esc(it.id)}" data-type="${esc(it.type)}"><i class="${it.type==='folder'?'fa-solid fa-folder':'fa-solid fa-file'} opacity-75"></i><span class="flex-fill text-truncate">${esc(it.name)}</span><small class="text-body-secondary">${esc(it.type)}</small></button>`).join('') || '<div class="text-body-secondary small p-3">vazio</div>';
   list.querySelectorAll('button').forEach(b=> b.addEventListener('click', async()=>{
     const id=b.dataset.id, type=b.dataset.type;
     if(type==='folder'){ try{ const items=await api(`/api/drive/folder/${encodeURIComponent(id)}`); driveStack.push(id); renderDrive(items,id); }catch(e){} }
@@ -521,7 +548,10 @@ function addMessage(role, content, meta){
   const wrap=document.createElement('div'); wrap.className='msg ' + (role==='user'?'user-msg':'assistant-msg');
   const isUser=role==='user';
   const bubbleClass=isUser?'bubble bubble-user':'bubble bubble-assistant';
-  const avatar=isUser?'<span class="d-inline-flex align-items-center justify-content-center rounded-2 text-white fw-bold" style="width:20px;height:20px;background:#6c757d;font-size:.62rem">U</span>':'<span class="d-inline-flex align-items-center justify-content-center rounded-2 text-white fw-bold" style="width:20px;height:20px;background:linear-gradient(135deg,#0d6efd,#6f42c1);font-size:.66rem">W</span>';
+  const isDark=document.documentElement.getAttribute('data-bs-theme')==='dark';
+  const watsonBg=isDark?'#f4f4f5':'#111111';
+  const watsonFg=isDark?'#111':'#fff';
+  const avatar=isUser?'<span class="d-inline-flex align-items-center justify-content-center rounded-2 text-white fw-bold" style="width:20px;height:20px;background:#6c757d;font-size:.62rem">U</span>':`<span class="d-inline-flex align-items-center justify-content-center rounded-2 fw-bold" style="width:20px;height:20px;background:${watsonBg};color:${watsonFg};font-size:.66rem">W</span>`;
   const header=`<div class="msg-header">${avatar}<span>${isUser?'Você':'Watson'}</span><span class="ms-auto font-mono opacity-75" style="font-size:.65rem">${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span></div>`;
   let body='';
   if(isUser){ body=`<div class="msg-row"><div class="${bubbleClass}">${esc(content)}</div></div>`; }
@@ -546,11 +576,10 @@ function addMessage(role, content, meta){
       }
       return `<span class="badge source-chip">${icon}${label}${s.page?` · p.${s.page}`:''}${s.section?` · ${esc(s.section)}`:''}</span>`;
     }).join(' ');
-    const metaLine=meta?`<div class="d-flex flex-wrap gap-2 text-body-secondary border-top pt-2 mt-2" style="font-size:.68rem"><span><i class="fa-solid fa-bullseye me-1"></i>conf ${(meta.confidence??0).toFixed(2)}</span><span>·</span><span><i class="fa-solid fa-layer-group me-1"></i>${meta.metadata?.evidence_count??0} evidências</span><span>·</span><span><i class="fa-solid fa-stopwatch me-1"></i>${meta.metadata?.execution_time_ms??0}ms</span><span class="badge ${meta.metadata?.verdict==='ok'?'text-bg-success':'text-bg-warning'}" style="font-size:.62rem">${esc(meta.metadata?.verdict||'')}</span></div>`:'';
-    const follow=(meta?.follow_up||[]).length?`<div class="mt-2" style="font-size:.76rem"><div class="fw-semibold small"><i class="fa-solid fa-lightbulb text-warning me-1"></i>Follow-up</div><ul class="mb-0 ps-3">${meta.follow_up.map(f=>`<li>${esc(f)}</li>`).join('')}</ul></div>`:'';
-    const conclusions=(meta?.conclusions||[]).length?`<div class="mt-2" style="font-size:.76rem"><div class="fw-semibold small"><i class="fa-solid fa-check text-success me-1"></i>Conclusões</div><ul class="mb-0 ps-3">${meta.conclusions.map(c=>`<li>${esc(c)}</li>`).join('')}</ul></div>`:'';
+    const metaLine=meta?`<div class="d-flex flex-wrap gap-2 text-body-secondary border-top pt-2 mt-2" style="font-size:.68rem"><span><i class="fa-solid fa-bullseye me-1"></i>conf ${(meta.confidence??0).toFixed(2)}</span><span>·</span><span><i class="fa-solid fa-layer-group me-1"></i>${meta.metadata?.evidence_count??0} evidências</span><span>·</span><span><i class="fa-solid fa-stopwatch me-1"></i>${((meta.metadata?.execution_time_ms??0)/1000).toFixed(2)}s</span><span class="badge ${meta.metadata?.verdict==='ok'?'text-bg-success':'text-bg-warning'}" style="font-size:.62rem">${esc(meta.metadata?.verdict||'')}</span></div>`:'';
+    const conclusions=(meta?.conclusions||[]).length?`<div class="mt-2" style="font-size:.76rem"><div class="fw-semibold small"><i class="fa-solid fa-check me-1"></i>Conclusões</div><ul class="mb-0 ps-3">${meta.conclusions.map(c=>`<li>${esc(c)}</li>`).join('')}</ul></div>`:'';
     const addInfo=(meta?.additional_info||[]).length?`<div class="mt-2" style="font-size:.76rem"><div class="fw-semibold small"><i class="fa-solid fa-circle-info text-info me-1"></i>Info adicional</div><ul class="mb-0 ps-3">${meta.additional_info.map(a=>`<li>${esc(a)}</li>`).join('')}</ul></div>`:'';
-    body=`<div class="msg-row"><div class="${bubbleClass}"><div class="markdown">${html}</div>${sources?`<div class="d-flex flex-wrap gap-1 mt-2">${sources}</div>`:''}${metaLine}${follow}${conclusions}${addInfo}</div></div>`;
+    body=`<div class="msg-row"><div class="${bubbleClass}"><div class="markdown">${html}</div>${sources?`<div class="d-flex flex-wrap gap-1 mt-2">${sources}</div>`:''}${metaLine}${conclusions}${addInfo}</div></div>`;
   }
   wrap.innerHTML=header+body;
   thread.appendChild(wrap);
@@ -561,7 +590,9 @@ function addMessage(role, content, meta){
 async function send(){
   const promptEl=$('#prompt'); const text=promptEl.value.trim(); if(!text) return;
   const mode=document.querySelector('input[name="mode"]:checked')?.value||'auto';
-  const analyze=$('#analyzeCheck').checked; const streaming=$('#streamCheck').checked;
+  const profile=$('#watsonProfile')?.value || localStorage.getItem('watson-profile') || 'flash';
+  const streaming=$('#streamCheck').checked;
+  const analyze = profile === 'pro';
   const btn=$('#sendBtn'); btn.disabled=true; btn.innerHTML='<span class="spinner-border spinner-border-sm" style="width:14px;height:14px"></span>';
   addMessage('user', text);
   historyMsgs.push({role:'user', content:text});
@@ -570,7 +601,10 @@ async function send(){
   const thread=$('#thread');
   const placeholder=document.createElement('div'); placeholder.className='msg assistant-msg';
   const _time=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-  placeholder.innerHTML=`<div class="msg-header"><span class="d-inline-flex align-items-center justify-content-center rounded-2 text-white fw-bold" style="width:20px;height:20px;background:linear-gradient(135deg,#0d6efd,#6f42c1);font-size:.66rem">W</span><span>Watson</span><span class="ms-auto font-mono opacity-75" style="font-size:.65rem">${_time}</span></div><div class="msg-row"><div class="bubble bubble-assistant"><div class="d-flex align-items-center gap-2"><span class="spinner-border spinner-border-sm text-primary" style="width:14px;height:14px"></span><span class="text-body-secondary" style="font-size:.82rem">Watson está pensando</span><span class="typing-dots"><span>.</span><span>.</span><span>.</span></span></div><div class="small text-body-secondary mt-1" style="font-size:.68rem">Buscando nos documentos e gerando resposta...</div></div></div>`;
+  const _isDark=document.documentElement.getAttribute('data-bs-theme')==='dark';
+  const _wBg=_isDark?'#f4f4f5':'#111111';
+  const _wFg=_isDark?'#111':'#fff';
+  placeholder.innerHTML=`<div class="msg-header"><span class="d-inline-flex align-items-center justify-content-center rounded-2 fw-bold" style="width:20px;height:20px;background:${_wBg};color:${_wFg};font-size:.66rem">W</span><span>Watson</span><span class="ms-auto font-mono opacity-75" style="font-size:.65rem">${_time}</span></div><div class="msg-row"><div class="bubble bubble-assistant"><div class="d-flex align-items-center gap-2"><span class="spinner-border spinner-border-sm" style="width:14px;height:14px; color:#111"></span><span class="text-body-secondary" style="font-size:.82rem">Watson está pensando</span><span class="typing-dots"><span>.</span><span>.</span><span>.</span></span></div><div class="small text-body-secondary mt-1" style="font-size:.68rem">Buscando nos documentos e gerando resposta...</div></div></div>`;
   thread.appendChild(placeholder); $('#messages').scrollTop=$('#messages').scrollHeight;
   const bubble=placeholder.querySelector('.bubble');
   let fullText='';
@@ -579,7 +613,7 @@ async function send(){
     if(streaming){
       const token=localStorage.getItem('watson-token');
       const headers={'Content-Type':'application/json'}; if(token) headers['X-API-Token']=token;
-      const res=await fetch('/api/chat/stream', { method:'POST', headers, body:JSON.stringify({ question:text, history:historyMsgs.slice(0,-1), mode, analyze }) });
+      const res=await fetch('/api/chat/stream', { method:'POST', headers, body:JSON.stringify({ question:text, history:historyMsgs.slice(0,-1), mode, analyze, profile }) });
       if(!res.ok){ const t=await res.text(); throw { status:res.status, text:t }; }
       const reader=res.body.getReader(); const decoder=new TextDecoder();
       let buffer=''; let started=false;
@@ -606,8 +640,8 @@ async function send(){
         placeholder.remove();
         addMessage('assistant', fullText, finalMeta);
         historyMsgs.push({role:'assistant', content:fullText});
-        $('#tokenHint').textContent=`${fmt(finalMeta.sources?.length||0)} fontes · conf ${(finalMeta.confidence??0).toFixed(2)}`;
-        $('#execHint').textContent=`${finalMeta.metadata?.execution_time_ms||0}ms`;
+        const _th=$('#tokenHint'); if(_th) _th.textContent=`${fmt(finalMeta.sources?.length||0)} fontes · conf ${(finalMeta.confidence??0).toFixed(2)}`;
+        const _eh=$('#execHint'); if(_eh) _eh.textContent=`${((finalMeta.metadata?.execution_time_ms||0)/1000).toFixed(2)}s`;
       } else if(started) {
         placeholder.dataset.done="1";
         historyMsgs.push({role:'assistant', content:fullText});
@@ -618,12 +652,12 @@ async function send(){
         historyMsgs.push({role:'assistant', content:fullText});
       }
     } else {
-      const data=await api('/api/chat', { method:'POST', body:{ question:text, history:historyMsgs.slice(0,-1), mode, analyze } });
+      const data=await api('/api/chat', { method:'POST', body:{ question:text, history:historyMsgs.slice(0,-1), mode, analyze, profile } });
       placeholder.remove();
       addMessage('assistant', data.answer, data);
       historyMsgs.push({role:'assistant', content:data.answer});
-      $('#tokenHint').textContent=`${fmt(data.sources?.length||0)} fontes · conf ${(data.confidence??0).toFixed(2)}`;
-      $('#execHint').textContent=`${data.metadata?.execution_time_ms||0}ms`;
+      const _th2=$('#tokenHint'); if(_th2) _th2.textContent=`${fmt(data.sources?.length||0)} fontes · conf ${(data.confidence??0).toFixed(2)}`;
+      const _eh2=$('#execHint'); if(_eh2) _eh2.textContent=`${((data.metadata?.execution_time_ms||0)/1000).toFixed(2)}s`;
     }
   }catch(err){
     const msg=err.data?.detail||err.data?.error?.message||err.text||'Erro ao consultar';

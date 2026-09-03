@@ -124,7 +124,23 @@ A interface web (DokViewerManager) e outros consumidores usam a **API REST** em 
 
 ---
 
+---
+
+## Interfaces web
+
+| URL | O que é |
+|---|---|
+| `/` | Chat — seletor Flash/Plus/Pro, streaming SSE, fontes com chips |
+| `/compare` | Comparar — mesma pergunta em Flash vs Plus vs Pro lado a lado |
+| `/config` | Configuração — edita `.env` por sessões (Ollama/RAG/Web Search/Sistema) |
+| `/dashboard` | Dashboard — tokens, latência, documentos |
+| `/docs` | Swagger — referência interativa da API |
+
+---
+
 ## Próximos passos
 
-- [Pipeline de indexação](ingestion-pipeline.md) — detalhes do módulo `ingestion/`
-- [Pipeline de consulta (RAG)](rag-pipeline.md) — detalhes do módulo `rag/`
+Você entendeu a arquitetura (passo 1 da [Jornada](../index.md#jornada-recomendada--do-zero-à-produção)). Siga para:
+
+- **[Instalação](../getting-started/installation.md)** → **[Início rápido](../getting-started/quickstart.md)** → **[Configuração — Perfis](../getting-started/configuration.md#11-perfis-watson--flash--plus--pro)**
+- Ou aprofunde: [Ingestão](ingestion-pipeline.md) → [RAG](rag-pipeline.md)

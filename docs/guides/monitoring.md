@@ -88,7 +88,12 @@ Veja [Solução de problemas](../operations/troubleshooting.md).
 
 ---
 
+---
+
 ## Próximos passos
 
-- [Referência da API](../api/api-reference.md)
-- [Solução de problemas](../operations/troubleshooting.md)
+Você opera com observabilidade (passo 9 da [Jornada](../index.md#jornada-recomendada--do-zero-à-produção)). Siga para:
+
+- **[Implantação](../operations/deployment.md)** ← próximo (produção)
+- **[Solução de problemas](../operations/troubleshooting.md)** quando algo falhar
+- **[Desenvolvimento](../development/development.md)** se for estender o código

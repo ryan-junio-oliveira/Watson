@@ -1,7 +1,19 @@
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from rag.evidence import Evidence
 from rag.response import Mode
+
+# Estilos preset — como Claude/ChatGPT/Gemini permitem system instruction por request.
+# Cada estilo é um modifier anexado ao SYSTEM_PROMPT base sem quebrar regras de fidelidade.
+STYLE_PRESETS: Dict[str, str] = {
+    "default": "",
+    "concise": "ESTILO CONCISO: responda em 3–6 frases no máximo, direto ao ponto, sem seções extras. Priorize a resposta direta. NÃO use tabelas.",
+    "detailed": "ESTILO DETALHADO: use seções com ###, parágrafos explicativos, listas e exemplos. Aprofunde cada ponto com contexto.",
+    "technical": "ESTILO TÉCNICO: linguagem precisa, jargão da área, foco em especificações, passos numerados e detalhes de implementação. Evite simplificações.",
+    "friendly": "ESTILO ACOLHEDOR: tom caloroso e próximo, como colega experiente, frases naturais e encorajadoras, sem perder precisão.",
+    "formal": "ESTILO FORMAL: tom profissional e impessoal, evite coloquialismos, estrutura clara e vocabulário formal.",
+    "analyst": "ESTILO ANALISTA: raciocínio verificável, seja profundo e cite contas quando útil (ex: 20/15-1=+33%), e feche com conclusão objetiva. Só use tabela se o prompt pedir para \"comparar\" de forma direta ou indireta (ex: comparar, comparação, vs, versus, diferença entre, prós e contras); caso contrário prefira parágrafos/listas.",
+}
 
 
 class PromptBuilder:
@@ -63,12 +75,12 @@ class PromptBuilder:
         "Responda DIRETAMENTE à pergunta com base nas EVIDÊNCIAS DA WEB fornecidas (título, URL, conteúdo).\n"
         "Regras obrigatórias:\n"
         "1. SINTETIZE, não apenas comente: defina, compare, explique princípios, implementação, vantagens/desvantagens e casos de uso com base nas evidências.\n"
-        "2. FORMATAÇÃO MARKDOWN OBRIGATÓRIA: use ### para seções, **negrito** para termos-chave, listas com - , e tabela Markdown | Aspecto | RAG | LoRA | ou | Cruzeiro | Atlético | quando comparar.\n"
-        "3. NÃO inclua links inline no meio do texto — as fontes serão exibidas automaticamente como chips clicáveis abaixo da resposta; apenas responda com base nas evidências.\n"
-        "4. NUNCA invente números, datas ou fatos: copie exatamente o que está nas evidências. Para comparações, valide a conta (ex: 2 > 1, então Cruzeiro tem 1 a mais) e NUNCA inverta. Se houver contradição entre fontes, aponte as duas versões.\n"
+        "2. FORMATAÇÃO MARKDOWN: use ### para seções, **negrito** para termos-chave e listas com - . Só use tabela Markdown (| Col1 | Col2 |) se o prompt pedir para \"comparar\" de forma direta ou indireta (ex: comparar, comparação, vs, versus, diferença entre, prós e contras); caso contrário prefira parágrafos/listas.\n"
+        "3. PROIBIDO CITAR FONTE NO TEXTO: NUNCA escreva URLs, links, 'https://', 'http://', 'www.', 'fonte:', 'Fonte https', 'em https' ou '[texto](https://...)'. NUNCA mencione domínio (gazetadopovo, uol, wikipedia, jusbrasil). As fontes já serão exibidas automaticamente como chips clicáveis abaixo da resposta — o corpo deve conter APENAS a síntese, sem qualquer referência à origem.\n"
+        "4. NUNCA invente números, datas ou fatos: copie exatamente o que está nas evidências. Para comparações, valide a conta (ex: 2 > 1, então Cruzeiro tem 1 a mais) e NUNCA inverta. Se houver contradição entre fontes, aponte as duas versões SEM citar URL.\n"
         "5. Se a evidência for insuficiente ou contraditória, diga o que falta em vez de chutar.\n"
         "6. Português claro, direto ao ponto, como no modo RAG, mas SEMPRE formatado em Markdown legível.\n"
-        "7. NÃO crie seção ### Fontes separada."
+        "7. NÃO crie seção ### Fontes, ## Referências ou lista de links no final."
     )
 
     @staticmethod
@@ -88,14 +100,72 @@ class PromptBuilder:
         block += f"\n{ev.content}\n"
         return block
 
-    def _choose_system(self, reasoning: bool = False, hint: str = "", mode: Mode = Mode.auto) -> str:
+    def _choose_system(
+        self,
+        reasoning: bool = False,
+        hint: str = "",
+        mode: Mode = Mode.auto,
+        style: str = "",
+        custom_instructions: str = "",
+    ) -> str:
         if mode == Mode.web:
             base = self.WEB_SYSTEM_PROMPT
         else:
             base = self.REASONING_SYSTEM_PROMPT if reasoning else self.SYSTEM_PROMPT
+
+        extras: List[str] = []
+
+        # 1) Preset de estilo (Claude/ChatGPT style param)
+        if style:
+            key = style.strip().lower()
+            preset = STYLE_PRESETS.get(key, "")
+            if preset:
+                extras.append(preset)
+            elif key != "default":
+                extras.append(f"ESTILO SOLICITADO: {style}")
+
+        # 2) Instrução livre do chamante (Claude system / ChatGPT system message / Gemini systemInstruction)
+        if custom_instructions and custom_instructions.strip():
+            # Limita tamanho e isola para não sobrescrever regras críticas
+            ci = custom_instructions.strip()[:2000]
+            extras.append(
+                "INSTRUÇÃO DO CHAMANTE (prioridade de estilo/comportamento, mas NUNCA invente dados além das evidências):\n"
+                + ci
+            )
+            # Reforço de segurança — sempre após instrução custom
+            extras.append(
+                "Lembre-se: mesmo com instrução custom, NUNCA invente números/datas/fatos fora das evidências; "
+                "se faltar dado, declare a lacuna."
+            )
+
+        # 3) Hint interno de reasoning
         if hint:
-            return f"{base}\n\nInstrução adicional para esta pergunta: {hint}"
+            extras.append(f"Instrução adicional para esta pergunta: {hint}")
+
+        if extras:
+            return base + "\n\n" + "\n\n".join(extras)
         return base
+
+    def _extra_block(self, style: str = "", custom_instructions: str = "", hint: str = "") -> str:
+        extras: List[str] = []
+        if style:
+            key = style.strip().lower()
+            preset = STYLE_PRESETS.get(key, "")
+            if preset:
+                extras.append(preset)
+            elif key != "default":
+                extras.append(f"ESTILO SOLICITADO: {style}")
+        if custom_instructions and custom_instructions.strip():
+            ci = custom_instructions.strip()[:2000]
+            extras.append(
+                "INSTRUÇÃO DO CHAMANTE (prioridade de estilo/comportamento, mas NUNCA invente dados além das evidências):\n" + ci
+            )
+            extras.append(
+                "Lembre-se: mesmo com instrução custom, NUNCA invente números/datas/fatos fora das evidências; se faltar dado, declare a lacuna."
+            )
+        if hint:
+            extras.append(f"Instrução adicional para esta pergunta: {hint}")
+        return "\n\n".join(extras)
 
     def build(
         self,
@@ -104,14 +174,20 @@ class PromptBuilder:
         mode: Mode = Mode.auto,
         reasoning: bool = False,
         reasoning_hint: str = "",
+        style: str = "",
+        custom_instructions: str = "",
     ) -> str:
-        system = self._choose_system(reasoning, reasoning_hint, mode=mode)
+        system = self._choose_system(reasoning, reasoning_hint, mode=mode, style=style, custom_instructions=custom_instructions)
         if evidences:
             blocks = [self._format_evidence_block(ev) for ev in evidences]
             evidence_section = "Evidências:\n\n" + "\n\n".join(blocks)
             base = f"{system}\n\n{evidence_section}\n\n"
         else:
-            base = f"{self.NO_EVIDENCE_PROMPT}\n\n"
+            extra = self._extra_block(style=style, custom_instructions=custom_instructions, hint=reasoning_hint)
+            if extra:
+                base = f"{self.NO_EVIDENCE_PROMPT}\n\n{extra}\n\n"
+            else:
+                base = f"{self.NO_EVIDENCE_PROMPT}\n\n"
         return f"{base}Pergunta: {question}\n\nResposta:"
 
     def build_with_history(
@@ -122,14 +198,20 @@ class PromptBuilder:
         mode: Mode = Mode.auto,
         reasoning: bool = False,
         reasoning_hint: str = "",
+        style: str = "",
+        custom_instructions: str = "",
     ) -> str:
-        system = self._choose_system(reasoning, reasoning_hint, mode=mode)
+        system = self._choose_system(reasoning, reasoning_hint, mode=mode, style=style, custom_instructions=custom_instructions)
         if evidences:
             blocks = [self._format_evidence_block(ev) for ev in evidences]
             evidence_section = "Evidências:\n\n" + "\n\n".join(blocks)
             prompt = f"{system}\n\n{evidence_section}\n\n"
         else:
-            prompt = f"{self.NO_EVIDENCE_PROMPT}\n\n"
+            extra = self._extra_block(style=style, custom_instructions=custom_instructions, hint=reasoning_hint)
+            if extra:
+                prompt = f"{self.NO_EVIDENCE_PROMPT}\n\n{extra}\n\n"
+            else:
+                prompt = f"{self.NO_EVIDENCE_PROMPT}\n\n"
         if history_context:
             prompt += f"Histórico da conversa:\n{history_context}\n\n"
         prompt += f"Pergunta: {question}\n\nResposta:"
@@ -141,8 +223,11 @@ class PromptBuilder:
         evidences: List[Evidence],
         reasoning_hint: str = "",
         history_context: str = "",
+        style: str = "",
+        custom_instructions: str = "",
     ) -> str:
         """Atalho para perguntas que exigem CoT: sempre usa REASONING_SYSTEM_PROMPT."""
         return self.build_with_history(
-            question, evidences, history_context, reasoning=True, reasoning_hint=reasoning_hint
+            question, evidences, history_context, reasoning=True, reasoning_hint=reasoning_hint,
+            style=style, custom_instructions=custom_instructions,
         )

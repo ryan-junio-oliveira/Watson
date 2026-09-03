@@ -606,7 +606,13 @@ Serve o dashboard de métricas (HTML single-page). Excluído do schema OpenAPI.
 
 ---
 
+---
+
 ## Próximos passos
 
-- [Integração](integration.md) — exemplos de consumo
-- [Monitoramento](../guides/monitoring.md)
+Você domina a API (passo 8 da [Jornada](../index.md#jornada-recomendada--do-zero-à-produção)). Continue em:
+
+- **[Integração](integration.md)** — Python / Node / PHP / DokViewerManager com `profile`
+- **[Monitoramento](../guides/monitoring.md)** → **[Implantação](../operations/deployment.md)** → **[Solução de problemas](../operations/troubleshooting.md)**
+
+> Teste perfis via `POST /api/chat { "question": "...", "profile": "pro" }` ou `http://localhost:9000/compare`.

@@ -5,7 +5,7 @@ import threading
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncGenerator, Callable, Dict, List, Optional
+from typing import AsyncGenerator, Callable, Dict, List, Literal, Optional
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -54,9 +54,79 @@ class ChatRequest(BaseModel):
         description="Se true, roda a análise proativa (reflexão sobre a própria "
                     "resposta, conclusões e perguntas de acompanhamento) e busca "
                     "mais informação no acervo. Respostas chegam em "
-                    "`follow_up`, `conclusions` e `additional_info`.",
+                    "`follow_up`, `conclusions` e `additional_info`. "
+                    "Em `profile=pro` é true por padrão (ignorado se `profile` enviado).",
         examples=[True],
     )
+    profile: Optional[str] = Field(
+        None,
+        description="Perfil Watson: `flash` (rápido, default) e `pro` (analista profundo, mais inteligente e lento). "
+                    "`plus` é alias legado de `flash`. Igual ao seletor do Gemini/ChatGPT. Em `pro`, `analisar` é default true.",
+        examples=["flash", "pro"],
+    )
+    # --- Instruções dinâmicas por request (Claude system / ChatGPT system message / Gemini systemInstruction) ---
+    instructions: Optional[str] = Field(
+        None,
+        max_length=2000,
+        description="Instrução de sistema livre por requisição (estilo Claude `system` / ChatGPT `system` / Gemini `systemInstruction`). "
+                    "Controla tom, formato e comportamento sem quebrar regras de fidelidade às evidências. "
+                    "Ex: 'Responda como consultor técnico sênior, use tabelas' ou 'Seja ultra conciso'.",
+        examples=["Responda de forma técnica e detalhada, com passos numerados"],
+    )
+    style: Optional[str] = Field(
+        None,
+        description="Preset de estilo: `default` (Watson padrão), `concise` (3–6 frases), `detailed` (seções + listas), "
+                    "`technical` (jargão técnico), `friendly` (acolhedor), `formal` (profissional), `analyst` (raciocínio verificável). "
+                    "Equivale a system presets de Claude/ChatGPT/Gemini.",
+        examples=["concise", "technical", "detailed"],
+    )
+    # Alias compatível com Gemini/Claude: system == instructions
+    system: Optional[str] = Field(
+        None,
+        max_length=2000,
+        description="Alias para `instructions` — compatível com `system` de Claude/Gemini. Se ambos enviados, `instructions` prevalece.",
+        examples=["Você é um assistente focado em troubleshooting de impressoras"],
+    )
+
+    def resolve_instructions(self) -> tuple[str, str]:
+        """Retorna (custom_instructions, style) normalizados para o PromptBuilder."""
+        ci = (self.instructions or self.system or "").strip()
+        st = (self.style or "").strip().lower()
+        return ci[:2000], st
+
+    def resolve_profile_and_analyze(self) -> tuple[str, bool]:
+        """Resolve perfil Watson e flag analisar (pro → analisar default true, como Gemini/ChatGPT)."""
+        raw_profile = (self.profile or "").strip().lower()
+        # Normaliza aliases — plus removido, mapeia para flash
+        if raw_profile in ("flash", "plus", "pro", "core", "balanced"):
+            if raw_profile in ("plus", "core", "balanced"):
+                raw_profile = "flash"
+            profile = raw_profile
+        else:
+            profile = ""
+        # Se perfil é pro, analisar é default true (remove necessidade do switch)
+        if profile == "pro":
+            analyze = True
+        elif profile == "flash":
+            # Em flash, respeita o campo analyze se enviado, senão false
+            analyze = bool(self.analyze)
+        else:
+            # Sem perfil, usa campo analyze normal (compatibilidade)
+            # Se não tem perfil mas vem de .env WATSON_PROFILE, fallback para config
+            try:
+                from core.config import config as _cfg
+                cfg_profile = (getattr(_cfg, "watson_profile", "flash") or "flash").strip().lower()
+                if cfg_profile in ("plus", "core", "balanced"):
+                    cfg_profile = "flash"
+                if cfg_profile == "pro":
+                    analyze = True
+                else:
+                    analyze = bool(self.analyze)
+                profile = cfg_profile if not profile else profile
+            except Exception:
+                analyze = bool(self.analyze)
+                profile = profile or "flash"
+        return profile or "flash", analyze
 
 
 class SourceItem(BaseModel):
@@ -981,18 +1051,26 @@ async def chat(request: ChatRequest, req: Request):
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
     try:
+        custom_instructions, style = request.resolve_instructions()
+        profile, analyze = request.resolve_profile_and_analyze()
         if request.history:
             context = ""
             for msg in request.history:
+                # Suporte a mensagens com role=system (ChatGPT/Claude style) — injeta como instrução se presente no histórico
                 role = msg.get("role", "user")
                 content = msg.get("content", "")
+                if role == "system" and content and not custom_instructions:
+                    custom_instructions = content.strip()[:2000]
+                    continue
                 context += f"{role}: {content}\n"
             result = chatbot.ask_with_context(
-                question, context, mode=request.mode, analyze=request.analyze
+                question, context, mode=request.mode, analyze=analyze,
+                style=style, custom_instructions=custom_instructions, profile=profile,
             )
         else:
             result = chatbot.ask(
-                question, mode=request.mode, analyze=request.analyze
+                question, mode=request.mode, analyze=analyze,
+                style=style, custom_instructions=custom_instructions, profile=profile,
             )
 
         logger.info(
@@ -1064,18 +1142,25 @@ async def chat_stream(request: ChatRequest, req: Request):
 
             result = None
             context = ""
+            custom_instructions, style = request.resolve_instructions()
+            profile, analyze = request.resolve_profile_and_analyze()
             if request.history:
                 for msg in request.history:
                     role = msg.get("role", "user")
                     content = msg.get("content", "")
+                    if role == "system" and content and not custom_instructions:
+                        custom_instructions = content.strip()[:2000]
+                        continue
                     context += f"{role}: {content}\n"
             gen = (
                 chatbot.ask_stream_with_history(
-                    question, context, mode=request.mode, analyze=request.analyze
+                    question, context, mode=request.mode, analyze=analyze,
+                    style=style, custom_instructions=custom_instructions, profile=profile,
                 )
                 if request.history
                 else chatbot.ask_stream(
-                    question, mode=request.mode, analyze=request.analyze
+                    question, mode=request.mode, analyze=analyze,
+                    style=style, custom_instructions=custom_instructions, profile=profile,
                 )
             )
             try:
@@ -1925,6 +2010,153 @@ async def dashboard():
     if not p.exists():
         p = Path(__file__).resolve().parent.parent / "presentation" / "dashboard.html"
     return FileResponse(p)
+
+
+# --- Configuração via Web UI (.env) ---
+from dotenv import dotenv_values, load_dotenv  # type: ignore
+
+def _get_env_path() -> Path:
+    for c in [Path(".env"), Path(__file__).resolve().parent.parent / ".env", Path(__file__).parent / ".env"]:
+        if c.exists() or c.parent.exists():
+            # Retorna o primeiro .env existente ou o da raiz como alvo de escrita
+            if c.exists():
+                return c
+    return Path(__file__).resolve().parent.parent / ".env"
+
+def _read_env_dict() -> Dict[str, str]:
+    env_path = _get_env_path()
+    try:
+        vals = dotenv_values(str(env_path))
+        # dotenv_values retorna None para valores ausentes; converte para string
+        return {k: (v if v is not None else "") for k, v in vals.items()}
+    except Exception:
+        return {}
+
+def _write_env_updates(updates: Dict[str, str]) -> Dict[str, str]:
+    env_path = _get_env_path()
+    current = _read_env_dict()
+    # Essenciais — só esses são salvos se não vazios; avançados vazios são removidos para não quebrar int()
+    essential = {"OLLAMA_BASE_URL","OLLAMA_MODEL","TEMPERATURE","MAX_TOKENS","AGENT_NAME","EMBEDDING_MODEL","EMBEDDING_DEVICE","TOP_K","CHUNK_SIZE","ENABLE_QUERY_REWRITER","WEB_SEARCH_ENABLED","WEB_SEARCH_PROVIDER","SEARXNG_URL","WEB_SEARCH_MAX_RESULTS","API_HOST","API_PORT","API_AUTH_TOKEN","LOG_LEVEL"}
+    # Lê .env.example para preservar ordem/comentários na escrita (opcional: usa ordem do example)
+    example_path = env_path.parent / ".env.example"
+    order: List[str] = []
+    if example_path.exists():
+        try:
+            for line in example_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k = line.split("=", 1)[0].strip()
+                    if k and k not in order:
+                        order.append(k)
+        except Exception:
+            pass
+    # Mescla updates (sanitiza: remove quebras de linha) — vazios não essenciais são removidos
+    for k, v in updates.items():
+        kk = str(k).strip().upper()
+        if not kk or "=" in kk or "\n" in kk:
+            continue
+        vv = str(v).replace("\n", " ").replace("\r", "") if v is not None else ""
+        vv = vv.strip()
+        if not vv and kk not in essential:
+            # Avançado vazio → remove do .env (usa default do código)
+            current.pop(kk, None)
+            if kk in order:
+                order.remove(kk)
+            continue
+        current[kk] = vv
+        if kk not in order:
+            order.append(kk)
+    # Escreve arquivo preservando ordem — pula avançados vazios
+    lines: List[str] = []
+    written = set()
+    for k in order:
+        if k in current:
+            v = current[k]
+            if not str(v).strip() and k not in essential:
+                continue
+            lines.append(f"{k}={v}")
+            written.add(k)
+    for k, v in current.items():
+        if k not in written:
+            if not str(v).strip() and k not in essential:
+                continue
+            lines.append(f"{k}={v}")
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Recarrega no ambiente
+    try:
+        load_dotenv(str(env_path), override=True)
+        for k, v in updates.items():
+            kk = str(k).strip().upper()
+            os.environ[kk] = str(v).replace("\n", " ") if v is not None else ""
+    except Exception:
+        pass
+    return current
+
+class ConfigUpdateRequest(BaseModel):
+    updates: Dict[str, str] = Field(..., description="Chave-valor para gravar no .env", examples=[{"OLLAMA_MODEL": "gemma3:4b", "WEB_SEARCH_PROVIDER": "searxng"}])
+    # Alias compatível com frontend que envia {key: value} direto
+    model_config = {"extra": "allow"}
+
+@app.get("/api/config", tags=["Config"], summary="Listar configurações do .env")
+async def get_config(req: Request):
+    vals = _read_env_dict()
+    # Mascara segredos
+    masked = {}
+    for k, v in vals.items():
+        if any(s in k for s in ("TOKEN", "KEY", "SECRET", "PASSWORD")) and v:
+            masked[k] = "***" + v[-4:] if len(v) > 4 else "***"
+        else:
+            masked[k] = v
+    return {"env_file": str(_get_env_path()), "exists": _get_env_path().exists(), "values": vals, "masked": masked, "count": len(vals)}
+
+@app.post("/api/config", tags=["Config"], summary="Salvar configurações no .env")
+async def post_config(request: ConfigUpdateRequest, req: Request):
+    # Suporta tanto {"updates": {...}} quanto {"KEY":"VAL"} direto (extra)
+    data = dict(request.updates) if request.updates else {}
+    # Captura campos extra enviados direto
+    extra = {k: v for k, v in request.model_extra.items() if k != "updates"} if hasattr(request, "model_extra") and request.model_extra else {}
+    for k, v in extra.items():
+        if isinstance(v, str):
+            data[k] = v
+    if not data:
+        raise HTTPException(status_code=400, detail="Nenhuma atualização enviada. Envie {\"updates\": {\"KEY\": \"VAL\"}}")
+    try:
+        new_vals = _write_env_updates(data)
+        logger.info(f"[{getattr(req.state,'request_id','?')}] Config updated: {list(data.keys())}")
+        return {"success": True, "updated": list(data.keys()), "values": new_vals, "message": "Salvo em .env — reinicie a API para aplicar mudanças de modelo/provider"}
+    except Exception as e:
+        logger.exception(f"Config write failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Falha ao salvar .env: {e}")
+
+@app.get("/api/config/test/searxng", tags=["Config"], summary="Testar SearXNG")
+async def test_searxng(q: str = "teste", url: str = ""):
+    target = (url or os.getenv("SEARXNG_URL", "http://localhost:8080")).strip().rstrip("/")
+    try:
+        from rag.web_search import WebSearchProvider
+        prov = WebSearchProvider(provider="searxng", searxng_url=target, max_results=3, timeout=10)
+        results = prov._search_searxng(q, 3)
+        return {"success": True, "url": target, "query": q, "count": len(results), "results": [{"title": r.title, "url": r.url, "snippet": r.snippet[:200]} for r in results]}
+    except Exception as e:
+        return JSONResponse(status_code=502, content={"success": False, "url": target, "error": str(e)})
+
+@app.get("/config", include_in_schema=False)
+async def config_page():
+    p = Path(__file__).parent / "presentation" / "config.html"
+    if not p.exists():
+        p = Path(__file__).resolve().parent.parent / "presentation" / "config.html"
+    if p.exists():
+        return FileResponse(str(p), media_type="text/html", headers={"Cache-Control": "no-store"})
+    raise HTTPException(status_code=404, detail="Config page not found. Verifique presentation/config.html")
+
+
+@app.get("/compare", include_in_schema=False)
+async def compare_page():
+    p = Path(__file__).parent / "presentation" / "compare.html"
+    if not p.exists():
+        p = Path(__file__).resolve().parent.parent / "presentation" / "compare.html"
+    if p.exists():
+        return FileResponse(str(p), media_type="text/html", headers={"Cache-Control": "no-store"})
+    raise HTTPException(status_code=404, detail="Compare page not found. Verifique presentation/compare.html")
 
 
 if __name__ == "__main__":

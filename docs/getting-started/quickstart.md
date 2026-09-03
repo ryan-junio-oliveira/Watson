@@ -130,8 +130,13 @@ Consulte também a [solução de problemas](../operations/troubleshooting.md).
 
 ---
 
+---
+
 ## Próximos passos
 
-- [Configuração](configuration.md) — personalize o comportamento
-- [Guia de uso](../guides/usage.md) — todas as operações disponíveis
-- [Google Drive](../guides/google-drive.md) — sincronização de pastas
+Você concluiu o **início rápido** (passo 3 da [Jornada](../index.md#jornada-recomendada--do-zero-à-produção)). Agora:
+
+1. **[Configuração — Perfis Flash/Plus/Pro](configuration.md#11-perfis-watson--flash--plus--pro)** ← próximo (escolha velocidade vs qualidade)
+2. Depois: [Guia de uso](../guides/usage.md) (operações do dia a dia) ou [Comparar modelos](http://localhost:9000/compare) lado a lado
+
+> Chat em `http://localhost:9000/` · Comparar em `/compare` · Config em `/config` · Dashboard em `/dashboard` · API em `/docs`.

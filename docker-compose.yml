@@ -8,6 +8,21 @@
 #   docker compose down -v              # parar + apagar dados (reset total)
 
 services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: watson-searxng
+    ports:
+      - "0.0.0.0:8080:8080"
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080/
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
   watson:
     build:
       context: .
@@ -21,6 +36,7 @@ services:
     environment:
       # Sobrescreve o .env para apontar ao serviço ollama do compose
       OLLAMA_BASE_URL: http://ollama:11434
+      SEARXNG_URL: http://searxng:8080
       API_HOST: 0.0.0.0
       API_PORT: ${API_PORT:-9000}
       # Garante que o cache HF fique no volume (bake não inclui modelo ~1GB)
@@ -76,7 +92,7 @@ services:
       start_period: 30s
 
   # Job efêmero: aguarda ollama ficar healthy e baixa os modelos do .env
-  # (gemma3:4b + moondream). Roda uma vez por `docker compose up`.
+  # (gemma3:4b + moondream + qwen/analyst). Roda uma vez por `docker compose up`.
   ollama-init:
     image: ollama/ollama:latest
     container_name: watson-ollama-init
@@ -87,9 +103,13 @@ services:
       - ollama_data:/root/.ollama
     environment:
       OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:4b}
+      VISION_MODEL: ${VISION_MODEL:-moondream}
+      ANALYST_MODEL: ${ANALYST_MODEL:-}
+      QUERY_REWRITER_MODEL: ${QUERY_REWRITER_MODEL:-}
+      QWEN_MODEL: ${QWEN_MODEL:-}
     entrypoint: ["/bin/sh", "-c"]
-    # Lê OLLAMA_MODEL/VISION_MODEL do .env do host via interpolação do compose
-    # Usa apenas `ollama` CLI (imagem não tem curl/wget)
+    # Lê modelos do .env via environment do compose — inclui gemma, vision, analyst/qwen e rewriter
     command:
       - |
         set -eu
@@ -100,7 +120,10 @@ services:
           sleep 2
         done
         echo "[ollama-init] Ollama pronto. Verificando modelos..."
-        for MODEL in "${OLLAMA_MODEL:-gemma3:4b}" "${VISION_MODEL:-moondream}"; do
+        # Vision, embeddings e LLM são baixados em camadas separadas:
+        # - Ollama: gemma, moondream, qwen/analyst
+        # - HuggingFace: intfloat/multilingual-e5-base é baixado no 1º uso do watson (volume hf_cache)
+        for MODEL in "${OLLAMA_MODEL:-gemma3:4b}" "${VISION_MODEL:-moondream}" "${ANALYST_MODEL:-}" "${QUERY_REWRITER_MODEL:-}" "${QWEN_MODEL:-}"; do
           [ -z "$$MODEL" ] && continue
           echo "[ollama-init] Verificando $$MODEL..."
           if ollama list | grep -qi "$$MODEL"; then

@@ -139,7 +139,13 @@ Se tudo estiver OK, prossiga para o [início rápido](quickstart.md).
 
 ---
 
+---
+
 ## Próximos passos
 
-- [Início rápido](quickstart.md) — primeira indexação e primeira pergunta
-- [Configuração](configuration.md) — todas as variáveis de ambiente
+Você concluiu a **instalação** (passo 2 da [Jornada](../index.md#jornada-recomendada--do-zero-à-produção)). Continue em:
+
+1. **[Início rápido](quickstart.md)** ← próximo (primeira indexação e pergunta)
+2. Depois: [Configuração — Perfis](configuration.md#11-perfis-watson--flash--plus--pro) (Flash/Plus/Pro)
+
+> Dica: use Docker (`docker compose up -d`) para não instalar Python/Ollama/Tesseract manualmente — veja [Implantação](../operations/deployment.md).

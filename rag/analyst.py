@@ -21,35 +21,30 @@ from llm.ollama_client import OllamaClient
 from rag.evidence import Evidence, EvidenceNormalizer
 from rag.retriever import Retriever
 
-_REFLECTION_PROMPT = """Você é o Watson — analista cordial, preciso e prestativo.
+_REFLECTION_PROMPT = """Você é o Watson — analista sênior que PENSA profundamente sobre as evidências antes de concluir.
 
-Você acabou de responder à pergunta abaixo com base nos dados fornecidos.
-Agora reflita sobre a SUA PRÓPRIA resposta e produza três blocos no formato
-exato abaixo (use exatamente os marcadores, sem mais nada):
+Você acabou de responder à pergunta abaixo com base em EVIDÊNCIAS REAIS (web ou documentos). Agora faça uma reflexão CRÍTICA e ESTRUTURADA sobre sua própria resposta, pensando passo a passo sobre as evidências (como faria um analista humano). Pense: as evidências são suficientes? Há contradições entre fontes? Qual a qualidade/confiabilidade de cada fonte? O que foi assumido? O que falta? NUNCA diga apenas "falta de evidências" de forma genérica — se há evidências, analise o CONTEÚDO delas.
+
+Produza EXATAMENTE os dois blocos abaixo (use os marcadores exatamente assim, sem mais nada):
 
 CONCLUSOES:
-- (conclusões que você tirou: o que ficou respondido, suposições assumidas,
-  incertezas e o que confirmaria/descartaria a resposta)
-
-PERGUNTAS:
-1. (pergunta de acompanhamento útil e natural, baseada nos dados e no que foi respondido)
-2. (outra pergunta, se fizer sentido)
-3. (outra pergunta, se fizer sentido)
+- (2 a 4 conclusões substantivas: o que ficou 100% respondido com evidência direta, o que é inferência, suposições assumidas, incertezas concretas, e o que confirmaria/descartaria a resposta — seja específico, cite fonte quando relevante. Se as evidências são fortes, diga POR QUE são fortes)
+- (se houver contradição entre fontes, aponte qual fonte diz o quê)
 
 TOPICOS:
-- (tópico a pesquisar no acervo para aprofundar a análise, se fizer sentido)
+- (1 a 2 tópicos curtos para buscar no acervo e aprofundar — use termos técnicos do domínio, ex: "pedalada fiscal TRF1 decisão", "impeachment causas constitucionais")
 
 Pergunta: {question}
 
 Sua resposta: {answer}
 
-Dados utilizados:
+Evidências utilizadas (analise cada uma criticamente):
 {evidence}
 
 LIMITES:
-- Máximo de {max_followups} perguntas.
-- Não invente dados que não estejam nos fornecidos.
+- NUNCA invente dados além das evidências — se faltar dado, declare explicitamente.
 - Se não houver o que aprofundar, deixe TOPICOS vazio.
+- Seja conciso mas substantivo: cada conclusão deve agregar valor, não repetir a resposta.
 """
 
 _SYNTHESIS_PROMPT = """Você é o Watson — cordial e direto ao ponto.
@@ -114,11 +109,16 @@ class Analyst:
         evidence: List[Evidence],
     ) -> AnalystResult:
         result = AnalystResult()
+        # Se não há evidências (acervo vazio ou pergunta fora do domínio RAG), não gera análise vazia
+        # Evita o "Ausência de Evidências Diretas" genérico que o usuário reportou no Pro
+        if not evidence or all(not (ev.content or "").strip() for ev in evidence):
+            if self.logger:
+                self.logger.info("Analyst skipped: sem evidências, não há o que analisar")
+            return result
         raw = self._reflect(question, answer, evidence)
         result.conclusions = _split_items(_extract_block(raw, "CONCLUSOES"))
-        result.follow_up = _split_items(_extract_block(raw, "PERGUNTAS"))[
-            : self.max_followups
-        ]
+        # follow_up removido para acelerar modo analisar (260s → ~180s) — não gera sugestões
+        result.follow_up = []
         topics = _split_items(_extract_block(raw, "TOPICOS"))
 
         if topics:
@@ -151,7 +151,8 @@ class Analyst:
             max_followups=self.max_followups,
         )
         try:
-            raw = self.ollama_client.ask(prompt, temperature=0.3)
+            use_think = self.ollama_client.supports_thinking()
+            raw = self.ollama_client.ask(prompt, temperature=0.3, think=use_think)
             return self.ollama_client._strip_thinking(raw)
         except Exception as e:
             if self.logger:

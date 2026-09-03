@@ -126,8 +126,14 @@ stop.bat            # Windows
 
 ---
 
+---
+
 ## Próximos passos
 
-- [Google Drive](google-drive.md)
-- [Modo Analista](analyst-mode.md)
-- [Monitoramento](monitoring.md)
+Você domina o uso diário (passo 5 da [Jornada](../index.md#jornada-recomendada--do-zero-à-produção)). Avance para:
+
+- **[Google Drive](google-drive.md)** — indexar pasta pública
+- **[Modo Analista](analyst-mode.md)** — `Pro` com pensamento profundo
+- **[Monitoramento](monitoring.md)** — dashboard e métricas
+
+> Atalho: teste os 3 perfis em `http://localhost:9000/compare` antes de escolher o `WATSON_PROFILE` definitivo.

@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-bs-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Watson · Configurações</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
+<style>
+  :root{ --bs-font-sans-serif:'Inter',system-ui,sans-serif; --bs-body-font-family:'Inter',system-ui,sans-serif; }
+  body{ font-family:'Inter',system-ui,sans-serif; letter-spacing:-.01em; -webkit-font-smoothing:antialiased; background:var(--bs-body-bg); }
+  .font-mono{ font-family:'JetBrains Mono',monospace !important; }
+  .card{ border:1px solid var(--bs-border-color-translucent); border-radius:.75rem; }
+  .section-title{ font-size:.72rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--bs-secondary-color); }
+  .env-input{ font-family:'JetBrains Mono',monospace; font-size:.78rem; }
+  .badge-searxng{ font-size:.65rem; letter-spacing:.06em; }
+  .config-tabs{ display:flex; gap:.25rem; padding:.5rem; border-bottom:1px solid var(--bs-border-color-translucent); overflow-x:auto; scrollbar-width:none; }
+  .config-tabs::-webkit-scrollbar{ display:none; }
+  .config-tab{ flex:1; display:flex; align-items:center; justify-content:center; gap:.35rem; padding:.4rem .6rem; border-radius:999px; border:1px solid transparent; background:transparent; color:var(--bs-secondary-color); font-size:.68rem; font-weight:500; white-space:nowrap; cursor:pointer; transition:all .12s; }
+  .config-tab:hover{ background:var(--bs-tertiary-bg); color:var(--bs-body-color); border-color:var(--bs-border-color-translucent); }
+  .config-tab.active{ background:#111; color:#fff; border-color:#111; font-weight:600; }
+  [data-bs-theme="dark"] .config-tab.active{ background:#f4f4f5; color:#111; border-color:#f4f4f5; }
+  .config-panel{ display:none; }
+  .config-panel.active{ display:block; animation:fadeIn .15s ease; }
+  @keyframes fadeIn{ from{ opacity:0; transform:translateY(3px)} to{opacity:1; transform:translateY(0)} }
+  .field-advanced{ display:none; }
+  .show-advanced .field-advanced{ display:block; }
+  .field-advanced.col-6{ display:none; }
+  .show-advanced .field-advanced.col-6{ display:block; }
+</style>
+</head>
+<body>
+<nav class="navbar bg-body border-bottom sticky-top">
+  <div class="container-fluid px-3" style="max-width:1200px">
+    <div class="d-flex align-items-center gap-2">
+      <a href="/" class="d-flex align-items-center gap-2 text-decoration-none">
+        <span class="rounded-2 d-flex align-items-center justify-content-center text-white" style="width:28px;height:28px;background:#111"><i class="fa-solid fa-bolt" style="font-size:.75rem"></i></span>
+        <span class="fw-semibold text-body" style="font-size:.92rem">Watson</span>
+        <span class="badge text-bg-dark" style="font-size:.48rem">CONFIG</span>
+      </a>
+      <span class="vr d-none d-md-block mx-1"></span>
+      <span class="text-body-secondary small d-none d-md-inline">Edição do .env via web</span>
+    </div>
+    <div class="d-flex align-items-center gap-1">
+      <a href="/" class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-comments me-1"></i> Chat</a>
+      <a href="/dashboard" class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-chart-simple me-1"></i> Dashboard</a>
+      <a href="/docs" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-code me-1"></i> API</a>
+      <button class="btn btn-sm btn-outline-secondary" onclick="toggleTheme()" title="Alternar tema"><i class="fa-solid fa-circle-half-stroke"></i></button>
+    </div>
+  </div>
+</nav>
+
+<div class="container py-3" style="max-width:1200px">
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <h5 class="mb-0 fw-bold" style="letter-spacing:-.02em"><i class="fa-solid fa-gear me-2"></i>Configurações</h5>
+    <span id="envPath" class="badge text-bg-light border font-mono" style="font-size:.62rem">—</span>
+    <span id="saveStatus" class="small text-body-secondary"></span>
+    <div class="ms-auto d-flex gap-1 align-items-center">
+      <div class="form-check form-switch small mb-0 me-1">
+        <input class="form-check-input" type="checkbox" id="showAdvancedCheck" onchange="toggleAdvanced(this.checked)">
+        <label class="form-check-label" style="font-size:.68rem" for="showAdvancedCheck">Avançado</label>
+      </div>
+      <button class="btn btn-sm btn-outline-secondary" onclick="loadConfig()"><i class="fa-solid fa-rotate me-1"></i> Recarregar</button>
+      <button class="btn btn-sm btn-dark" onclick="saveConfig()"><i class="fa-solid fa-floppy-disk me-1"></i> Salvar .env</button>
+    </div>
+  </div>
+
+  <div class="alert alert-light border small" style="font-size:.72rem; line-height:1.5">
+    <i class="fa-solid fa-circle-info me-1"></i> Edite o <code>.env</code> por sessões. Após salvar, <b>reinicie a API</b> (<code>docker compose restart</code> ou reinicie o processo) para aplicar `OLLAMA_MODEL` / `WEB_SEARCH_PROVIDER`.
+  </div>
+
+  <div class="row g-3">
+    <div class="col-12 col-lg-8">
+      <div class="card">
+        <div class="config-tabs" role="tablist">
+          <button class="config-tab active" data-tab="ollama" onclick="switchConfigTab('ollama')"><i class="fa-solid fa-robot"></i> Ollama</button>
+          <button class="config-tab" data-tab="rag" onclick="switchConfigTab('rag')"><i class="fa-solid fa-database"></i> RAG</button>
+          <button class="config-tab" data-tab="web" onclick="switchConfigTab('web')"><i class="fa-solid fa-globe"></i> Web Search</button>
+          <button class="config-tab" data-tab="sistema" onclick="switchConfigTab('sistema')"><i class="fa-solid fa-server"></i> Sistema</button>
+          <button class="config-tab" data-tab="todas" onclick="switchConfigTab('todas')"><i class="fa-solid fa-list"></i> Todas</button>
+        </div>
+        <div class="card-body p-3">
+          <div id="panel-ollama" class="config-panel active">
+            <div class="d-flex align-items-center gap-2 mb-2"><span class="section-title"><i class="fa-solid fa-robot me-1"></i> LLM / Ollama</span><span class="badge text-bg-light border ms-auto" style="font-size:.6rem">OLLAMA_*</span></div>
+            <div class="row g-2" id="group-llm"></div>
+            <hr class="my-3">
+            <div class="d-flex align-items-center gap-2 mb-2"><span class="section-title"><i class="fa-solid fa-cube me-1"></i> Embeddings</span></div>
+            <div class="row g-2" id="group-embeddings"></div>
+            <hr class="my-3">
+            <div class="d-flex align-items-center gap-2 mb-2"><span class="section-title"><i class="fa-solid fa-eye me-1"></i> OCR / Imagens / Deduplicação</span></div>
+            <div class="row g-2" id="group-ocr"></div>
+          </div>
+          <div id="panel-rag" class="config-panel">
+            <div class="d-flex align-items-center gap-2 mb-2"><span class="section-title"><i class="fa-solid fa-folder-open me-1"></i> Documentos / Drive</span></div>
+            <div class="row g-2" id="group-documents"></div>
+            <hr class="my-3">
+            <div class="d-flex align-items-center gap-2 mb-2"><span class="section-title"><i class="fa-solid fa-file-lines me-1"></i> Quality Gate</span></div>
+            <div class="row g-2" id="group-quality"></div>
+            <hr class="my-3">
+            <div class="d-flex align-items-center gap-2 mb-2"><span class="section-title"><i class="fa-solid fa-scissors me-1"></i> Chunking / Vector DB</span></div>
+            <div class="row g-2" id="group-chunking"></div>
+            <hr class="my-3">
+            <div class="d-flex align-items-center gap-2 mb-2"><span class="section-title"><i class="fa-solid fa-magnifying-glass me-1"></i> Retrieval / Reranker</span></div>
+            <div class="row g-2" id="group-retrieval"></div>
+            <hr class="my-3">
+            <div class="d-flex align-items-center gap-2 mb-2"><span class="section-title"><i class="fa-solid fa-brain me-1"></i> Reasoning / Analyst</span></div>
+            <div class="row g-2" id="group-reasoning"></div>
+            <hr class="my-3">
+            <div class="d-flex align-items-center gap-2 mb-2"><span class="section-title"><i class="fa-solid fa-wand-magic-sparkles me-1"></i> Query Rewriter</span><span class="badge text-bg-dark" style="font-size:.6rem">NOVO</span></div>
+            <div class="row g-2" id="group-rewriter"></div>
+          </div>
+          <div id="panel-web" class="config-panel">
+            <div class="d-flex align-items-center gap-2 mb-2"><span class="section-title"><i class="fa-solid fa-globe me-1"></i> Web Search</span><span class="badge text-bg-light border" style="font-size:.6rem">duckduckgo default</span></div>
+            <div class="row g-2" id="group-web"></div>
+            <div class="mt-2 p-2 bg-body-tertiary border rounded small" style="font-size:.72rem">
+              <b>Teste SearXNG/Google:</b> SearXNG <code>docker run -d -p 8080:8080 searxng/searxng</code> → <code>SEARXNG_URL</code>. Google opcional precisa <code>GOOGLE_API_KEY+GOOGLE_CX</code>.
+              <div class="input-group input-group-sm mt-2">
+                <input id="searxngUrl" class="form-control font-mono" placeholder="http://localhost:8080" style="font-size:.75rem">
+                <input id="searxngQ" class="form-control" placeholder="consulta teste" style="font-size:.75rem">
+                <button class="btn btn-outline-secondary" onclick="testSearxng()"><i class="fa-solid fa-vial"></i> Testar</button>
+              </div>
+              <div id="searxngResult" class="small mt-2 font-mono" style="font-size:.68rem; white-space:pre-wrap"></div>
+            </div>
+          </div>
+          <div id="panel-sistema" class="config-panel">
+            <div class="d-flex align-items-center gap-2 mb-2"><span class="section-title"><i class="fa-solid fa-server me-1"></i> API / Logging / Métricas</span></div>
+            <div class="row g-2" id="group-api"></div>
+          </div>
+          <div id="panel-todas" class="config-panel">
+            <div class="section-title mb-2"><i class="fa-solid fa-list me-1"></i> Todas as variáveis (.env)</div>
+            <div id="allVars" class="d-flex flex-column gap-1"></div>
+            <div class="mt-3 d-flex gap-2">
+              <input id="newKey" class="form-control form-control-sm font-mono" placeholder="NOVA_VAR" style="max-width:200px; font-size:.75rem">
+              <input id="newVal" class="form-control form-control-sm" placeholder="valor" style="font-size:.75rem">
+              <button class="btn btn-sm btn-outline-secondary" onclick="addVar()"><i class="fa-solid fa-plus"></i> Adicionar</button>
+            </div>
+            <div class="small text-body-secondary mt-2" style="font-size:.68rem"><i class="fa-solid fa-circle-info me-1"></i> Lista completa com 58 vars — edite qualquer uma. Veja <code>docs/getting-started/configuration.md</code></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-4">
+      <div class="card">
+        <div class="card-body p-3">
+          <div class="section-title mb-2"><i class="fa-solid fa-shield-halved me-1"></i> Como usar</div>
+          <ul class="small text-body-secondary mb-2" style="font-size:.72rem; line-height:1.6">
+            <li><b>Ollama:</b> modelo, temperature, embeddings</li>
+            <li><b>RAG:</b> chunking, retrieval, reranker, reasoning, query rewriter</li>
+            <li><b>Web Search:</b> duckduckgo default, google opcional, searxng free</li>
+            <li><b>Sistema:</b> host/port, auth token, logs</li>
+            <li>Clique <b>Salvar</b> e reinicie a API</li>
+          </ul>
+          <div class="d-flex flex-column gap-1 small" style="font-size:.72rem">
+            <a href="/api/config" target="_blank" class="text-decoration-none"><i class="fa-solid fa-code me-1"></i> Ver JSON /api/config</a>
+            <a href="/docs" target="_blank" class="text-decoration-none"><i class="fa-solid fa-book me-1"></i> Documentação API</a>
+          </div>
+          <hr>
+          <div class="small text-body-secondary" style="font-size:.68rem">
+            <i class="fa-regular fa-copyright me-1"></i> 2026 Watson · Config UI
+          </div>
+        </div>
+      </div>
+      <div class="card mt-3 border-warning border-opacity-25">
+        <div class="card-body p-3">
+          <div class="fw-semibold small text-warning"><i class="fa-solid fa-triangle-exclamation me-1"></i> Atenção</div>
+          <div class="small text-body-secondary" style="font-size:.72rem">Salvamentos sobrescrevem <code>.env</code>. Faça backup antes em produção. Use <code>X-API-Token</code> se <code>API_AUTH_TOKEN</code> estiver ativo.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s=>document.querySelector(s);
+let envValues = {};
+let envMasked = {};
+
+const FIELD_DEFS = {
+  llm: [
+    {key:'WATSON_PROFILE', label:'Perfil Watson', type:'select', opts:['flash','plus','pro'], help:'flash=rápido, plus=equilibrado (default), pro=mais inteligente (analisar default)'},
+    {key:'OLLAMA_MODEL', label:'Modelo Ollama', ph:'gemma3:4b', help:'Modelo LLM principal. Ex: gemma3:4b (leve), qwen3:8b (reasoning)'},
+    {key:'OLLAMA_BASE_URL', label:'Ollama URL', ph:'http://localhost:11434', help:'Host do Ollama'},
+    {key:'OLLAMA_TIMEOUT', label:'Timeout', ph:'300', help:'Timeout em segundos'},
+    {key:'TEMPERATURE', label:'Temperature', ph:'0.1', help:'0.0=fiel, 1.0=criativo. RAG usa 0.1'},
+    {key:'MAX_TOKENS', label:'Max Tokens', ph:'2048', help:'Tamanho máximo da resposta'},
+    {key:'AGENT_NAME', label:'Nome Agente', ph:'Watson'},
+  ],
+  embeddings: [
+    {key:'EMBEDDING_MODEL', label:'Embedding Model', ph:'intfloat/multilingual-e5-base', help:'PT-BR: e5-base é bom e leve'},
+    {key:'EMBEDDING_DEVICE', label:'Device', type:'select', opts:['cpu','cuda'], help:'cuda se tiver GPU'},
+    {key:'EMBEDDING_BATCH_SIZE', label:'Batch Size', ph:'32'},
+    {key:'EMBEDDING_NORMALIZE', label:'Normalize', type:'bool', ph:'true', help:'e5 precisa true'},
+    {key:'EMBEDDING_CACHE_PATH', label:'Cache Path', ph:'database/embedding_cache.sqlite3'},
+  ],
+  documents: [
+    {key:'DOCUMENTS_DIR', label:'Pasta Documentos', ph:'documents', help:'Onde ficam PDFs/DOCXs'},
+    {key:'GOOGLE_DRIVE_FOLDER_ID', label:'Drive Folder ID', ph:'', help:'ID pasta pública Drive (sem OAuth)'},
+    {key:'GOOGLE_DRIVE_DEST_DIR', label:'Drive Dest', ph:'documents/drive'},
+    {key:'GOOGLE_DRIVE_SYNC_TIMEOUT', label:'Drive Timeout', ph:'60'},
+    {key:'GOOGLE_DRIVE_WORKERS', label:'Drive Workers', ph:'8', help:'Downloads paralelos'},
+  ],
+  ocr: [
+    {key:'TESSERACT_CMD', label:'Tesseract CMD', ph:'(vazio=PATH)', help:'Caminho binário ou libs/tesseract no Win'},
+    {key:'OCR_LANG', label:'OCR Idioma', ph:'por+eng'},
+    {key:'OCR_DPI', label:'OCR DPI', ph:'200'},
+    {key:'OCR_MIN_TEXT_CHARS', label:'OCR Min Chars', ph:'20', help:'Mínimo para aceitar OCR'},
+    {key:'IMAGE_DIR', label:'Image Dir', ph:'database/images'},
+    {key:'VISION_MODEL', label:'Vision Model', ph:'moondream', help:'moondream 1.8B leve | qwen2.5vl 8B pesado'},
+    {key:'DEDUP_CROSS_DOC', label:'Dedup Cross-Doc', type:'bool', ph:'true', help:'Evita chunks duplicados entre docs'},
+    {key:'DEDUP_PERSIST_PATH', label:'Dedup Path', ph:'database/dedup.json'},
+  ],
+  quality: [
+    {key:'QUALITY_MIN_CHARS', label:'Min Chars', ph:'20', help:'Descarta chunks curtos'},
+    {key:'QUALITY_MIN_CHARS_TABLE', label:'Min Table', ph:'10'},
+    {key:'QUALITY_MIN_CHARS_IMAGE', label:'Min Image', ph:'30'},
+    {key:'QUALITY_TABLE_MIN_PIPES', label:'Table Pipes', ph:'4', help:'Mínimo | em tabelas'},
+    {key:'QUALITY_OCR_THRESHOLD', label:'OCR Threshold', ph:'0.6'},
+  ],
+  chunking: [
+    {key:'CHUNK_SIZE', label:'Chunk Size', ph:'1000', help:'Tamanho do recorte'},
+    {key:'CHUNK_OVERLAP', label:'Overlap', ph:'200'},
+    {key:'INDEX_BATCH_SIZE', label:'Index Batch', ph:'100'},
+    {key:'VECTOR_DB_DIR', label:'Chroma Dir', ph:'database/chroma'},
+  ],
+  retrieval: [
+    {key:'TOP_K', label:'TOP_K', ph:'5', help:'Docs retornados por busca'},
+    {key:'SIMILARITY_THRESHOLD', label:'Similarity', ph:'0.0', help:'0.0=sem filtro, 0.25 filtra lixo'},
+    {key:'USE_MMR', label:'Use MMR', type:'bool', ph:'false', help:'Diversifica resultados'},
+    {key:'MMR_FETCH_K', label:'MMR Fetch K', ph:'20'},
+    {key:'MMR_LAMBDA', label:'MMR Lambda', ph:'0.5'},
+    {key:'USE_RERANKER', label:'Use Reranker', type:'bool', ph:'false', help:'cross-encoder reordena'},
+    {key:'RERANKER_MODEL', label:'Reranker Model', ph:'cross-encoder/ms-marco-MiniLM-L-6-v2'},
+  ],
+  reasoning: [
+    {key:'ENABLE_REASONING', label:'Reasoning', type:'bool', ph:'false', help:'CoT via prompt'},
+    {key:'ANALYST_MAX_FOLLOWUPS', label:'Max Followups', ph:'3'},
+    {key:'ANALYST_MODEL', label:'Analyst Model', ph:'(vazio = OLLAMA_MODEL)', help:'Ex: qwen3:8b inteligente para analisar'},
+    {key:'ANALYST_TEMPERATURE', label:'Analyst Temp', ph:'0.2'},
+    {key:'ANALYST_MAX_TOKENS', label:'Analyst Tokens', ph:'4096'},
+    {key:'ANALYST_THINK', label:'Analyst Think', type:'bool', ph:'true', help:'Força think se modelo suportar'},
+    {key:'REASONING_TOP_K', label:'Reasoning TOP_K', ph:'12'},
+    {key:'REASONING_TEMPERATURE', label:'Reasoning Temp', ph:'0.2'},
+    {key:'REASONING_MAX_TOKENS', label:'Reasoning Tokens', ph:'3072'},
+    {key:'ENABLE_QUERY_EXPANSION', label:'Query Expansion', type:'bool', ph:'true'},
+    {key:'QUERY_EXPANSION_VARIANTS', label:'Expansion Variants', ph:'3'},
+    {key:'ENABLE_RERANKER_REASONING', label:'Reranker Reasoning', type:'bool', ph:'true'},
+  ],
+  rewriter: [
+    {key:'ENABLE_QUERY_REWRITER', label:'Enable Rewriter', type:'bool', ph:'true', help:'LLM intermediário enriquece consulta pobre'},
+    {key:'QUERY_REWRITER_MODEL', label:'Rewriter Model', ph:'(vazio = OLLAMA_MODEL)', help:'Ex: gemma3:1b leve'},
+    {key:'QUERY_REWRITER_MAX_EXPANDED', label:'Max Expanded', ph:'5', help:'Até 5 queries especializadas'},
+  ],
+  web: [
+    {key:'WEB_SEARCH_ENABLED', label:'Web Search', type:'bool', ph:'true'},
+    {key:'WEB_SEARCH_PROVIDER', label:'Provider', type:'select', opts:['duckduckgo','searxng','google','tavily','serper'], help:'duckduckgo=default free'},
+    {key:'SEARXNG_URL', label:'SearXNG URL', ph:'http://localhost:8080', help:'docker searxng'},
+    {key:'GOOGLE_API_KEY', label:'Google API Key', ph:'', help:'Custom Search'},
+    {key:'GOOGLE_CX', label:'Google CX', ph:'', help:'ID mecanismo'},
+    {key:'SERPER_API_KEY', label:'Serper Key', ph:'', help:'serper.dev'},
+    {key:'WEB_SEARCH_API_KEY', label:'Tavily Key', ph:'', help:'tavily.com'},
+    {key:'WEB_SEARCH_MAX_RESULTS', label:'Max Results', ph:'5'},
+    {key:'WEB_SEARCH_TIMEOUT', label:'Timeout', ph:'15'},
+    {key:'TAVILY_SEARCH_DEPTH', label:'Tavily Depth', type:'select', opts:['basic','advanced'], ph:'basic'},
+    {key:'WEB_SEARCH_TRUSTED_DOMAINS', label:'Trusted Domains', ph:'g1.globo.com,...', help:'Prioriza no ranking'},
+  ],
+  api: [
+    {key:'API_HOST', label:'Host', ph:'0.0.0.0'},
+    {key:'API_PORT', label:'Port', ph:'9000'},
+    {key:'API_AUTH_TOKEN', label:'Auth Token', ph:'', help:'X-API-Token, vazio=sem auth'},
+    {key:'API_RATE_ENABLED', label:'Rate Enabled', type:'bool', ph:'true'},
+    {key:'API_RATE_LIMIT', label:'Rate Limit', ph:'30', help:'reqs por janela'},
+    {key:'API_RATE_WINDOW', label:'Rate Window', ph:'60', help:'segundos'},
+    {key:'LOG_LEVEL', label:'Log Level', type:'select', opts:['DEBUG','INFO','WARNING','ERROR'], ph:'INFO'},
+    {key:'LOG_FILE', label:'Log File', ph:'logs/ai_agent.log'},
+    {key:'METRICS_DB', label:'Metrics DB', ph:'database/metrics.db'},
+  ]
+};
+
+const ESSENTIAL_KEYS = new Set(['WATSON_PROFILE','OLLAMA_MODEL','OLLAMA_BASE_URL','TEMPERATURE','MAX_TOKENS','AGENT_NAME','EMBEDDING_MODEL','EMBEDDING_DEVICE','TOP_K','CHUNK_SIZE','ENABLE_QUERY_REWRITER','WEB_SEARCH_ENABLED','WEB_SEARCH_PROVIDER','SEARXNG_URL','WEB_SEARCH_MAX_RESULTS','API_HOST','API_PORT','API_AUTH_TOKEN','LOG_LEVEL','USE_RERANKER']);
+function isEssential(k){ return ESSENTIAL_KEYS.has(k); }
+function fieldHtml(def){
+  const val = envValues[def.key] ?? '';
+  const type = def.type || 'text';
+  const essential = isEssential(def.key);
+  let input = '';
+  if(type==='select'){
+    input = `<select id="f_${def.key}" class="form-select form-select-sm env-input">${def.opts.map(o=>`<option value="${o}" ${val===o?'selected':''}>${o}</option>`).join('')}</select>`;
+  } else if(type==='bool'){
+    input = `<select id="f_${def.key}" class="form-select form-select-sm env-input"><option value="true" ${val==='true'?'selected':''}>true</option><option value="false" ${val==='false'?'selected':''}>false</option><option value="" ${!val?'selected':''}>—</option></select>`;
+  } else {
+    input = `<input id="f_${def.key}" class="form-control form-control-sm env-input" value="${escapeHtml(val)}" placeholder="${def.ph||''}">`;
+  }
+  const advClass = essential ? '' : ' field-advanced';
+  const badge = essential ? '<span class="badge text-bg-success" style="font-size:.55rem">essencial</span>' : '<span class="badge text-bg-light border" style="font-size:.55rem">avançado</span>';
+  return `<div class="col-6${advClass}">${badge} <label class="form-label small mb-1" style="font-size:.68rem">${def.label}<span class="font-mono text-body-secondary ms-1" style="font-size:.6rem">${def.key}</span></label>${input}${def.help?`<div class="small text-body-secondary" style="font-size:.6rem">${def.help}</div>`:''}</div>`;
+}
+function toggleAdvanced(show){
+  document.body.classList.toggle('show-advanced', !!show);
+  localStorage.setItem('watson-show-advanced', show ? '1' : '0');
+}
+(function(){ const s=localStorage.getItem('watson-show-advanced'); if(s==='1'){ const c=document.getElementById('showAdvancedCheck'); if(c) c.checked=true; document.body.classList.add('show-advanced'); } })();
+function escapeHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+
+async function api(path, opts={}){
+  const headers = opts.headers||{};
+  const token = localStorage.getItem('watson-token');
+  if(token) headers['X-API-Token']=token;
+  if(!(opts.body instanceof FormData)) headers['Content-Type']='application/json';
+  if(headers['Content-Type']==='application/json' && opts.body && typeof opts.body!=='string') opts.body=JSON.stringify(opts.body);
+  const res = await fetch(path, {...opts, headers});
+  const text = await res.text();
+  let data; try{ data=JSON.parse(text);}catch{ data=text;}
+  if(!res.ok) throw {status:res.status, data, text};
+  return data;
+}
+
+function switchConfigTab(id){
+  document.querySelectorAll('.config-tab').forEach(b=> b.classList.remove('active'));
+  document.querySelector(`.config-tab[data-tab="${id}"]`)?.classList.add('active');
+  document.querySelectorAll('.config-panel').forEach(p=> p.classList.remove('active'));
+  document.getElementById('panel-'+id)?.classList.add('active');
+  localStorage.setItem('watson-config-tab', id);
+}
+(function(){ const s=localStorage.getItem('watson-config-tab'); if(s) switchConfigTab(s); })();
+
+async function loadConfig(){
+  try{
+    const d = await api('/api/config');
+    envValues = d.values||{};
+    envMasked = d.masked||{};
+    $('#envPath').textContent = d.env_file || '.env';
+    renderGroups();
+    renderAll();
+    $('#searxngUrl').value = envValues['SEARXNG_URL'] || 'http://localhost:8080';
+    $('#saveStatus').textContent = `Carregado ${d.count} vars`;
+    $('#saveStatus').className='small text-success';
+  }catch(e){
+    $('#saveStatus').textContent = 'Erro ao carregar: '+(e.data?.detail||e.text||'');
+    $('#saveStatus').className='small text-danger';
+  }
+}
+function renderGroups(){
+  $('#group-llm').innerHTML = FIELD_DEFS.llm.map(fieldHtml).join('');
+  $('#group-embeddings').innerHTML = FIELD_DEFS.embeddings.map(fieldHtml).join('');
+  $('#group-documents').innerHTML = FIELD_DEFS.documents.map(fieldHtml).join('');
+  $('#group-ocr').innerHTML = FIELD_DEFS.ocr.map(fieldHtml).join('');
+  $('#group-quality').innerHTML = FIELD_DEFS.quality.map(fieldHtml).join('');
+  $('#group-chunking').innerHTML = FIELD_DEFS.chunking.map(fieldHtml).join('');
+  $('#group-retrieval').innerHTML = FIELD_DEFS.retrieval.map(fieldHtml).join('');
+  $('#group-reasoning').innerHTML = FIELD_DEFS.reasoning.map(fieldHtml).join('');
+  $('#group-rewriter').innerHTML = FIELD_DEFS.rewriter.map(fieldHtml).join('');
+  $('#group-web').innerHTML = FIELD_DEFS.web.map(fieldHtml).join('');
+  $('#group-api').innerHTML = FIELD_DEFS.api.map(fieldHtml).join('');
+}
+function renderAll(){
+  const container = $('#allVars');
+  const keys = Object.keys(envValues).sort();
+  container.innerHTML = keys.map(k=>{
+    const v = envValues[k];
+    const masked = envMasked[k];
+    const isSecret = /TOKEN|KEY|SECRET|PASSWORD/.test(k);
+    const display = isSecret && v ? masked : v;
+    return `<div class="d-flex gap-1 align-items-center"><span class="font-mono small fw-medium" style="font-size:.68rem; min-width:170px">${k}</span><input id="a_${k}" class="form-control form-control-sm font-mono" value="${escapeHtml(v)}" style="font-size:.72rem" title="${escapeHtml(display)}"><span class="badge text-bg-light border font-mono" style="font-size:.6rem">${escapeHtml(String(v).length)} chars</span></div>`;
+  }).join('') || '<div class="small text-body-secondary">vazio</div>';
+}
+function collectUpdates(){
+  const updates = {};
+  Object.values(FIELD_DEFS).flat().forEach(def=>{
+    const el = document.getElementById('f_'+def.key);
+    if(el) updates[def.key] = el.value;
+  });
+  Object.keys(envValues).forEach(k=>{
+    const el = document.getElementById('a_'+k);
+    if(el) updates[k] = el.value;
+  });
+  const nk = $('#newKey').value.trim().toUpperCase();
+  const nv = $('#newVal').value;
+  if(nk) updates[nk]=nv;
+  return updates;
+}
+async function saveConfig(){
+  const updates = collectUpdates();
+  $('#saveStatus').textContent='Salvando...';
+  $('#saveStatus').className='small text-body-secondary';
+  try{
+    const d = await api('/api/config', {method:'POST', body:{updates}});
+    $('#saveStatus').textContent=`Salvo ${d.updated.length} vars em ${d.values ? 'ok' : ''} — reinicie a API`;
+    $('#saveStatus').className='small text-success';
+    setTimeout(loadConfig, 800);
+  }catch(e){
+    $('#saveStatus').textContent='Erro: '+(e.data?.detail||e.text||'');
+    $('#saveStatus').className='small text-danger';
+  }
+}
+function addVar(){
+  const k = $('#newKey').value.trim().toUpperCase();
+  const v = $('#newVal').value;
+  if(!k){ alert('Informe a chave'); return; }
+  envValues[k]=v;
+  renderAll();
+  $('#newKey').value=''; $('#newVal').value='';
+}
+async function testSearxng(){
+  const url = $('#searxngUrl').value.trim() || 'http://localhost:8080';
+  const q = $('#searxngQ').value.trim() || 'teste';
+  $('#searxngResult').textContent='Testando...';
+  try{
+    const d = await api(`/api/config/test/searxng?q=${encodeURIComponent(q)}&url=${encodeURIComponent(url)}`);
+    $('#searxngResult').textContent = `OK ${d.count} resultados de ${d.url}:\n` + (d.results||[]).map((r,i)=>`${i+1}. ${r.title}\n   ${r.url}\n   ${r.snippet.slice(0,120)}`).join('\n');
+    $('#searxngResult').className='small mt-2 font-mono text-success';
+  }catch(e){
+    const err = e.data?.error || e.text || 'erro';
+    $('#searxngResult').textContent = `Falha: ${err} (verifique se docker searxng está em ${url})`;
+    $('#searxngResult').className='small mt-2 font-mono text-danger';
+  }
+}
+function toggleTheme(){ const cur=document.documentElement.getAttribute('data-bs-theme'); const nxt=cur==='dark'?'light':'dark'; document.documentElement.setAttribute('data-bs-theme',nxt); localStorage.setItem('watson-theme',nxt); }
+(function(){ const s=localStorage.getItem('watson-theme'); if(s) document.documentElement.setAttribute('data-bs-theme',s); })();
+loadConfig();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

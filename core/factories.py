@@ -91,15 +91,28 @@ def build_analyst(
     ollama_client: OllamaClient,
     logger: logging.Logger = None,
 ):
-    return (
-        Analyst(
-            retriever=retriever,
-            ollama_client=ollama_client,
+    if not cfg.enable_analyst:
+        return None
+    # Se ANALYST_MODEL diferente, cria cliente dedicado mais inteligente (ex: qwen3:8b) com think
+    analyst_model = (getattr(cfg, "analyst_model", "") or "").strip()
+    if analyst_model and analyst_model != cfg.ollama_model:
+        analyst_client = OllamaClient(
+            model=analyst_model,
+            base_url=cfg.ollama_base_url,
+            temperature=getattr(cfg, "analyst_temperature", 0.2),
+            max_tokens=getattr(cfg, "analyst_max_tokens", 4096),
+            request_timeout=cfg.ollama_timeout,
             logger=logger,
-            max_followups=cfg.analyst_max_followups,
+            metrics=ollama_client._metrics if hasattr(ollama_client, "_metrics") else None,
+            think=getattr(cfg, "analyst_think", True),
         )
-        if cfg.enable_analyst
-        else None
+    else:
+        analyst_client = ollama_client
+    return Analyst(
+        retriever=retriever,
+        ollama_client=analyst_client,
+        logger=logger,
+        max_followups=cfg.analyst_max_followups,
     )
 
 
@@ -112,7 +125,43 @@ def build_web_search(cfg: Config, logger: logging.Logger = None) -> WebSearchPro
         tavily_search_depth=getattr(cfg, "tavily_search_depth", "basic"),
         trusted_domains=getattr(cfg, "web_search_trusted_domains", ""),
         logger=logger,
+        google_api_key=getattr(cfg, "google_api_key", ""),
+        google_cx=getattr(cfg, "google_cx", ""),
+        serper_api_key=getattr(cfg, "serper_api_key", ""),
+        searxng_url=getattr(cfg, "searxng_url", "http://localhost:8080"),
     )
+
+
+def build_query_rewriter(cfg: Config, ollama_client: OllamaClient, logger: logging.Logger = None):
+    if not getattr(cfg, "enable_query_rewriter", True):
+        return None
+    try:
+        from rag.query_rewriter import QueryRewriter
+        rw_model = (getattr(cfg, "query_rewriter_model", "") or "").strip() or cfg.ollama_model
+        # Reusa mesmo OllamaClient mas com modelo dedicado se configurado
+        # Para evitar overhead, cria cliente leve compartilhando base_url/metrics
+        if rw_model != cfg.ollama_model:
+            rw_client = OllamaClient(
+                model=rw_model,
+                base_url=cfg.ollama_base_url,
+                temperature=0.0,
+                max_tokens=800,
+                request_timeout=cfg.ollama_timeout,
+                logger=logger,
+                metrics=ollama_client._metrics if hasattr(ollama_client, "_metrics") else None,
+            )
+        else:
+            rw_client = ollama_client
+        return QueryRewriter(
+            ollama_client=rw_client,
+            model=rw_model,
+            logger=logger,
+            max_expanded=getattr(cfg, "query_rewriter_max_expanded", 5),
+        )
+    except Exception as e:
+        if logger:
+            logger.warning(f"QueryRewriter init failed, fallback determinístico: {e}")
+        return None
 
 
 def build_chatbot(cfg: Config, logger: logging.Logger = None) -> ChatBot:
@@ -120,13 +169,30 @@ def build_chatbot(cfg: Config, logger: logging.Logger = None) -> ChatBot:
     emb_gen = build_embedding_generator(cfg, logger)
     retriever = build_retriever(cfg, emb_gen, logger)
     ollama_client = build_ollama(cfg, metrics, logger)
+    # Cliente inteligente para modo analisar (se ANALYST_MODEL diferente)
+    analyst_model = (getattr(cfg, "analyst_model", "") or "").strip()
+    if analyst_model and analyst_model != cfg.ollama_model:
+        analyst_ollama = OllamaClient(
+            model=analyst_model,
+            base_url=cfg.ollama_base_url,
+            temperature=getattr(cfg, "analyst_temperature", 0.2),
+            max_tokens=getattr(cfg, "analyst_max_tokens", 4096),
+            request_timeout=cfg.ollama_timeout,
+            logger=logger,
+            metrics=metrics,
+            think=getattr(cfg, "analyst_think", True),
+        )
+    else:
+        analyst_ollama = ollama_client
     reranker = build_reranker(cfg, logger)
     analyst = build_analyst(cfg, retriever, ollama_client, logger)
     web_search = build_web_search(cfg, logger)
+    query_rewriter = build_query_rewriter(cfg, ollama_client, logger)
     return ChatBot(
         retriever=retriever,
         prompt_builder=PromptBuilder(),
         ollama_client=ollama_client,
+        analyst_ollama_client=analyst_ollama,
         reranker=reranker,
         logger=logger,
         enable_reasoning=cfg.enable_reasoning,
@@ -140,6 +206,7 @@ def build_chatbot(cfg: Config, logger: logging.Logger = None) -> ChatBot:
         query_expansion_variants=cfg.query_expansion_variants,
         enable_reranker_reasoning=cfg.enable_reranker_reasoning,
         web_search=web_search,
+        query_rewriter=query_rewriter,
     )
 
 
