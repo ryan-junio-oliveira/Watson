@@ -9,7 +9,20 @@ from utils.logger import setup_logger
 
 
 def main() -> None:
-    cfg = config
+    import argparse, os
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--profile", choices=["flash", "pro"], help="Perfil Watson: flash (6/800/1536) vs pro (12/1600/3072 2×)")
+    args, _ = ap.parse_known_args()
+    if args.profile:
+        os.environ["WATSON_PROFILE"] = args.profile
+        # Força reload do config para aplicar perfil antes de build_chatbot
+        from importlib import reload
+        import core.config as cfg_mod
+        reload(cfg_mod)
+        from core.config import config as cfg_reloaded
+        cfg = cfg_reloaded
+    else:
+        cfg = config
     ensure_directories(cfg)
 
     logger = setup_logger(

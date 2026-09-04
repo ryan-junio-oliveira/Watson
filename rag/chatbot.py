@@ -410,24 +410,31 @@ class ChatBot:
                 if self.logger:
                     self.logger.warning(f"Multi-query retrieval failed, fallback single: {e}")
 
-        # Fallback single-query (compatível com comportamento antigo)
+        # Fallback single-query (compatível com comportamento antigo) — com over-fetch para rerank (Pro 2×)
         if plan:
             top_k = plan.top_k
         elif self._is_analytical(question):
             top_k = self.retriever.top_k * 2
         else:
             top_k = None
-        docs: List[Document] = self.retriever.retrieve(question, k=top_k)
-        # Rerank adaptativo: só se habilitado para reasoning
+        # Over-fetch para Pro/reranker: busca 25-30 candidatos e reranka para top_k (melhor recall)
+        fetch_k = top_k
         should_rerank = False
-        if self._rag_reranker and docs and self._enable_reranker_reasoning:
+        if self._rag_reranker and self._enable_reranker_reasoning:
             if plan and plan.use_reranker:
                 should_rerank = True
             elif self._is_analytical(question):
                 should_rerank = True
-        if should_rerank:
+        if should_rerank and top_k is not None:
+            fetch_k = max(top_k * 3, 24)  # Pro: 12 → 36, Flash nunca entra aqui (use_reranker False)
+            fetch_k = min(fetch_k, 50)
+        docs: List[Document] = self.retriever.retrieve(question, k=fetch_k)
+        if should_rerank and docs:
             from rag.reranker import Reranker as RagReranker
-            docs = RagReranker.rerank(self._rag_reranker, question, docs, top_k=len(docs))
+            docs = RagReranker.rerank(self._rag_reranker, question, docs, top_k=top_k or len(docs))
+            # Compressão extrativa leve: mantém top_k já filtrado (30-80% tokens a menos vs over-fetch)
+            if len(docs) > (top_k or 0) and top_k:
+                docs = docs[:top_k]
         evidence = [EvidenceNormalizer.from_chroma_document(d) for d in docs]
         if plan:
             for ev in evidence:
@@ -436,6 +443,39 @@ class ChatBot:
                     ev.score = min(1.0, ev.score + boost)
                     ev.metadata["relevance_score"] = ev.score
         return evidence
+
+    def _expand_parent_context(self, evidence: List[Evidence], max_extra: int = 6) -> List[Evidence]:
+        """Parent-child: para Pro, busca chunks vizinhos do mesmo documento para dar contexto completo (late chunking query-time).
+        Search em child (400) mas devolve parent (800/1600) — sem reindex."""
+        if not evidence or not self._rag_reranker:
+            return evidence
+        # Só para Pro (reranker ativo) — Pro já paga over-fetch, expandir mais 6 não pesa
+        ranked = sorted(evidence, key=lambda e: e.score, reverse=True)
+        sources: list = []
+        seen: set = set()
+        for ev in ranked:
+            source = ev.metadata.get("source", "") or ev.source or ""
+            if source and source not in seen:
+                seen.add(source)
+                sources.append(source)
+            if len(sources) >= 1:
+                break
+        if not sources:
+            return evidence
+        exclude = {ev.metadata.get("chunk_id", "") for ev in evidence}
+        extra_docs = []
+        for source in sources:
+            try:
+                related = self.retriever.retrieve_all_from_source(source, exclude_ids=exclude)
+                extra_docs.extend(related[: max_extra])
+            except Exception:
+                pass
+        if not extra_docs:
+            return evidence
+        extra = [EvidenceNormalizer.from_chroma_document(d) for d in extra_docs]
+        if self.logger:
+            self.logger.info(f"Parent-child expand (Pro): +{len(extra)} chunks de {sources[0].split('/')[-1]}")
+        return evidence + extra
 
     def _expand_document_context(self, evidence: List[Evidence]) -> List[Evidence]:
         """Para perguntas de listagem, junta TODOS os chunks do mesmo
@@ -566,6 +606,9 @@ class ChatBot:
         text = re.sub(r'(?m)^\s*fonte\s*:?.*https.*$', '', text)
         # Remove "A fonte https..." inline residual
         text = re.sub(r'\b[Aa]\s+fonte\s+https?://\S+', '', text)
+        # Remove linha Fontes: ... gerada para RAG (agora chips bonitos abaixo fazem isso, igual web)
+        text = re.sub(r'(?m)^\s*Fontes\s*:\s*.*$', '', text)
+        text = re.sub(r'(?m)^\s*###\s*Fontes.*$', '', text)
         # Limpa parênteses vazios ou com só espaços que sobraram: "texto ()"
         text = re.sub(r'\(\s*\)', '', text)
         # Remove linhas que viraram só "Fonte:" ou "Fontes:"
@@ -753,6 +796,12 @@ class ChatBot:
         evidence = self.aggregator.collect(rag_evidence=evidence)
         evidence = self.aggregator.rank(evidence)
         evidence = self._apply_relevance_filter(question, evidence)
+        # Parent-child query-time para Pro: expande com vizinhos do mesmo doc (sem reindex, late chunking)
+        if profile == "pro" and evidence and getattr(self, "_rag_reranker", None):
+            try:
+                evidence = self._expand_parent_context(evidence, max_extra=6)
+            except Exception:
+                pass
         evidence = self._inject_computed_facts(question, evidence)
         return evidence
 
@@ -908,9 +957,11 @@ class ChatBot:
                 )
                 if style == "concise":
                     import re as _re2
-                    _sents2 = _re2.split(r'(?<=[.!?])\s+', answer.strip())
-                    if len(_sents2) > 6:
-                        answer = ' '.join(_sents2[:6]).strip()
+                    has_list2 = bool(_re2.search(r'^\s*\d+[\.\)]\s', answer, flags=_re2.MULTILINE))
+                    if not has_list2:
+                        _sents2 = _re2.split(r'(?<=[.!?])\s+', answer.strip())
+                        if len(_sents2) > 12:
+                            answer = ' '.join(_sents2[:12]).strip()
                 resp = self._build_response(answer, [], start, provider=provider)
                 resp.metadata["fallback"] = "no_documents"
                 if plan:
@@ -965,12 +1016,18 @@ class ChatBot:
             )
             # Sanitiza: remove URLs inline que o LLM insiste em gerar (chips já exibem fontes)
             answer_clean = self._strip_inline_sources(answer_clean)
-            # Enforce conciso: Flash (concise) no máximo 6 frases — corte rígido se LLM desobedecer
+            # Enforce conciso humano Flash: até 12 frases ou 10 passos (1.5× mais inteligente)
             if style == "concise":
                 import re as _re
-                _sents = _re.split(r'(?<=[.!?])\s+', answer_clean.strip())
-                if len(_sents) > 6:
-                    answer_clean = ' '.join(_sents[:6]).strip()
+                has_list = bool(_re.search(r'^\s*\d+[\.\)]\s', answer_clean, flags=_re.MULTILINE))
+                if has_list:
+                    lines = answer_clean.strip().split('\n')
+                    if len([l for l in lines if _re.match(r'^\s*\d+[\.\)]\s', l)]) > 10:
+                        pass
+                else:
+                    _sents = _re.split(r'(?<=[.!?])\s+', answer_clean.strip())
+                    if len(_sents) > 12:
+                        answer_clean = ' '.join(_sents[:12]).strip()
             result = self._build_response(answer_clean, evidence, start, provider=provider)
             # Guardrail de confiança — Sprint 1: marca baixa confiança para UI exibir aviso
             # Se evidência fraca ou pouca, não inventa: verdict low_confidence + guardrail flag
@@ -1347,6 +1404,17 @@ class ChatBot:
         last_result: Optional[AgentResponse] = None
         analyze_mode = False  # espelha API analyze=true — quando ligado, toda pergunta já vem com análise proativa
         history: List[dict] = []  # memória de conversa (como ChatGPT/Gemini/Claude)
+        # Perfil Watson (igual API e DokViewerManager): flash rápido vs pro 2×
+        try:
+            from core.config import config as _cfg_prof
+            current_profile = (_cfg_prof.watson_profile or "flash").lower()
+        except Exception:
+            current_profile = "flash"
+        if current_profile not in ("flash", "pro"):
+            current_profile = "flash"
+        def _profile_info(p: str) -> str:
+            return "Flash 6/800/1536" if p == "flash" else "Pro 12/1600/3072 2× (qwen3:8b think)"
+        print(f"{ANSI_WHITE}{ANSI_BOLD}Perfil atual:{ANSI_RESET} {ANSI_YELLOW}{current_profile}{ANSI_RESET} ({_profile_info(current_profile)}) — troque com {ANSI_YELLOW}flash{ANSI_RESET}/{ANSI_YELLOW}pro{ANSI_RESET} ou {ANSI_YELLOW}perfil: flash{ANSI_RESET}")
 
         # Dicas padronizadas — cores legíveis (sem DIM apagado), exemplos de impressora/suprimento
         print(f"{ANSI_WHITE}{ANSI_BOLD}Como perguntar (tipo: pergunta):{ANSI_RESET}")
@@ -1358,6 +1426,8 @@ class ChatBot:
         print(f"{ANSI_WHITE}  • {ANSI_YELLOW}passos:{ANSI_RESET}{ANSI_WHITE}    como trocar o toner da Kyocera M2040 passo a passo?{ANSI_RESET}")
         print()
         print(f"{ANSI_WHITE}{ANSI_BOLD}Comandos (comando: valor) -> o que faz:{ANSI_RESET}")
+        print(f"{ANSI_WHITE}  • {ANSI_YELLOW}flash / pro{ANSI_RESET}{ANSI_WHITE}          -> troca perfil ({_profile_info('flash')} vs {_profile_info('pro')}){ANSI_RESET}")
+        print(f"{ANSI_WHITE}  • {ANSI_YELLOW}perfil: flash/pro{ANSI_RESET}{ANSI_WHITE}    -> idem (ex: {ANSI_YELLOW}perfil: pro{ANSI_RESET}){ANSI_RESET}")
         print(f"{ANSI_WHITE}  • {ANSI_YELLOW}analisar: on{ANSI_RESET}{ANSI_WHITE}       -> liga a análise automática em toda pergunta{ANSI_RESET}")
         print(f"{ANSI_WHITE}  • {ANSI_YELLOW}analisar: off{ANSI_RESET}{ANSI_WHITE}       -> desliga a análise automática{ANSI_RESET}")
         print(f"{ANSI_WHITE}  • {ANSI_YELLOW}analisar: <pergunta>{ANSI_RESET}{ANSI_WHITE} -> análise só nessa pergunta{ANSI_RESET}")
@@ -1408,6 +1478,31 @@ class ChatBot:
                 question = question[: -len("/analisar")].strip()
                 qlow = question.lower().strip()
 
+            # --- Troca de perfil Flash/Pro (igual API e DokViewerManager) ---
+            if qlow in ("flash", "perfil: flash", "perfil flash", "profile: flash", "profile flash", "modo flash"):
+                current_profile = "flash"
+                try:
+                    from core.config import config as _cfg_upd
+                    _cfg_upd.watson_profile = "flash"
+                    # Reaplica perfil sem reiniciar (mesma lógica de __post_init__)
+                    _cfg_upd.__post_init__()
+                except Exception:
+                    pass
+                print(f"{ANSI_GREEN}Perfil Flash ativado — {_profile_info('flash')} (rápido, TOP_K 6){ANSI_RESET}")
+                continue
+            if qlow in ("pro", "perfil: pro", "perfil pro", "profile: pro", "profile pro", "modo pro"):
+                current_profile = "pro"
+                try:
+                    from core.config import config as _cfg_upd
+                    _cfg_upd.watson_profile = "pro"
+                    _cfg_upd.__post_init__()
+                except Exception:
+                    pass
+                print(f"{ANSI_GREEN}Perfil Pro ativado — {_profile_info('pro')} (2× Flash, TOP_K 12){ANSI_RESET}")
+                continue
+            if qlow in ("perfil", "profile", "modo"):
+                print(f"{ANSI_YELLOW}Perfil atual: {current_profile} ({_profile_info(current_profile)}). Use 'flash' ou 'pro'.{ANSI_RESET}")
+                continue
             # Toggle persistente: "analisar on/off"
             if qlow in ("analisar on", "analisar ligado", "modo analisar on", "analisar: on"):
                 analyze_mode = True
@@ -1476,10 +1571,13 @@ class ChatBot:
                 history_context = "\n".join(
                     f"{m['role']}: {m['content']}" for m in history[-8:]
                 )
+                # Perfil por pergunta (igual API: CLI flash/pro muda config em tempo real)
+                from core.config import config as _cfg_q
+                profile_for_q = _cfg_q.watson_profile  # já atualizado por flash/pro
                 # Não passa analyze para o stream aqui — análise roda depois com status próprio
                 gen = self.ask_stream_with_history(
-                    question, history_context
-                ) if history_context else self.ask_stream(question)
+                    question, history_context, profile=profile_for_q
+                ) if history_context else self.ask_stream(question, profile=profile_for_q)
                 tokens: List[str] = []
                 started = False
                 try:

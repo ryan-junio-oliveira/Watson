@@ -68,7 +68,7 @@
         </div>
         <button id="runBtn" class="btn btn-dark px-4 fw-semibold" onclick="runCompare()" style="height:42px"><i class="fa-solid fa-flask me-1"></i> Comparar Flash vs Pro</button>
       </div>
-      <div class="small text-body-secondary mt-2" style="font-size:.68rem"><i class="fa-solid fa-circle-info me-1"></i> Envia a mesma pergunta em <b>sequência</b> para <b>flash</b> (rápido, <code>2048</code> tokens, <code>800</code> chunk) e <b>pro</b> (inteligente, <code>4096</code> tokens, <code>1200</code> chunk + <code>qwen3:8b</code> think).</div>
+      <div class="small text-body-secondary mt-2" style="font-size:.68rem"><i class="fa-solid fa-circle-info me-1"></i> Envia a mesma pergunta em <b>sequência</b> para <b>flash</b> (rápido, <code>2048</code> tokens, <code>1000</code> chunk, <code>TOP_K 8</code> + reranker) e <b>pro</b> (inteligente, <code>3072</code> tokens, <code>1500</code> chunk, <code>TOP_K 12</code> + <code>qwen3:8b</code> think) — <b>Pro 1.5× Flash</b>.</div>
     </div>
   </div>
 
@@ -77,7 +77,7 @@
       <div class="card model-card" id="card-flash">
         <div class="model-header">
           <span class="d-flex align-items-center justify-content-center rounded-2 text-white" style="width:28px;height:28px;background:#F59E0B"><i class="fa-solid fa-bolt" style="font-size:.7rem"></i></span>
-          <div><div class="fw-bold" style="font-size:.82rem">Flash</div><div class="text-body-secondary" style="font-size:.65rem">Rápido · 2048 tokens · 800 chunk · TOP_K=5</div></div>
+          <div><div class="fw-bold" style="font-size:.82rem">Flash</div><div class="text-body-secondary" style="font-size:.65rem">Rápido · 2048 tokens · 1000 chunk · TOP_K 8 + reranker</div></div>
           <span class="ms-auto badge bg-warning text-dark badge-profile">RÁPIDO</span>
           <span id="time-flash" class="font-mono badge text-bg-light border" style="font-size:.65rem">—</span>
         </div>
@@ -89,7 +89,7 @@
       <div class="card model-card" id="card-pro">
         <div class="model-header">
           <span class="d-flex align-items-center justify-content-center rounded-2 text-white" style="width:28px;height:28px;background:#065F46"><i class="fa-solid fa-brain" style="font-size:.7rem"></i></span>
-          <div><div class="fw-bold" style="font-size:.82rem">Pro</div><div class="text-body-secondary" style="font-size:.65rem">Inteligente · 4096 tokens · 1200 chunk · TOP_K=12 + qwen</div></div>
+          <div><div class="fw-bold" style="font-size:.82rem">Pro</div><div class="text-body-secondary" style="font-size:.65rem">Inteligente · 3072 tokens · 1500 chunk · TOP_K 12 + qwen — 1.5× Flash</div></div>
           <span class="ms-auto badge text-bg-success badge-profile">ANALISAR</span>
           <span id="time-pro" class="font-mono badge text-bg-light border" style="font-size:.65rem">—</span>
         </div>

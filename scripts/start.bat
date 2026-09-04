@@ -73,8 +73,9 @@ goto menu
 :prompt
 echo.
 echo ============================================
-echo Iniciando chat interativo...
-echo Digite 'exit' ou 'quit' para sair.
+echo Iniciando chat interativo (Prompt) - Flash 6/800/1536 vs Pro 12/1600/3072 2x
+echo Perfil atual: %WATSON_PROFILE% (default flash) - troque no chat com 'flash'/'pro'
+echo Digite 'flash' ou 'pro' para trocar perfil, 'exit' para sair.
 echo ============================================
 echo.
 "%PYTHON_EXE%" cli\app.py

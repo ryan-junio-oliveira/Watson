@@ -582,9 +582,10 @@ function addMessage(role, content, meta){
   let body='';
   if(isUser){ body=`<div class="msg-row"><div class="${bubbleClass}">${esc(content)}</div></div>`; }
   else {
-    // Remove seção ### Fontes gerada pelo LLM (já exibimos chips clicáveis abaixo) para evitar duplicação
+    // Remove seções Fontes geradas pelo LLM (chips bonitos abaixo já exibem fontes igual ao web) — evita duplicação e texto corrido feio
     let cleanContent = content||'';
     cleanContent = cleanContent.replace(/###\s*Fontes[\s\S]*$/i, '').trim();
+    cleanContent = cleanContent.replace(/(?:\n|^)\s*Fontes\s*:\s*[^\n]+(?:\n\s*[^\n]+)*/i, '').trim();
     const html=marked.parse(cleanContent);
     // Deduplica por url|title e renderiza apenas chips estilizados clicáveis
     const seen=new Set();
@@ -594,25 +595,37 @@ function addMessage(role, content, meta){
       seen.add(key); return true;
     });
     const sources=uniq.map((s,i)=>{
-      const label=esc(s.title||s.url||'fonte');
+      const title=esc(s.title||'Documento');
       const icon='<i class="fa-solid fa-file-lines me-1"></i>';
       const bbox = esc(s.bbox||'');
-      const pageInfo = s.page?` · p.${s.page}`:'';
-      const sectInfo = s.section?` · ${esc(s.section)}`:'';
-      const bboxInfo = bbox?` · ${bbox}`:'';
-      const chipTitle = bbox ? `BBOX ${bbox} — clique para destacar` : (s.page?`Página ${s.page}`:'');
+      const manuf = esc(s.manufacturer||'');
+      const model = esc(s.model||'');
+      const section = esc(s.section||'');
+      const page = s.page!=null?`pág. ${s.page}`:'';
+      const codes = Array.isArray(s.error_codes)?s.error_codes:[];
+      const labelParts = [];
+      if(manuf || model) labelParts.push([manuf, model].filter(Boolean).join(' '));
+      if(section) labelParts.push(section);
+      if(page) labelParts.push(page);
+      const label = labelParts.join(' · ');
+      const chipTitle = bbox ? `BBOX ${bbox} — clique para destacar` : (page||section||title);
+      const base = `<span class="source-chip grounding-chip inline-flex align-items-center gap-1.5 px-2 py-1 rounded-md border text-decoration-none" style="font-size:.62rem; background:var(--bs-tertiary-bg); border-color:var(--bs-border-color-translucent); color:var(--bs-body-color)" data-bbox="${bbox}" data-idx="${i}" title="${chipTitle}" onclick="highlightGrounding(this)">`+
+        `${icon}<span class="fw-semibold" style="max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${title}</span>`+
+        (label?`<span class="text-body-secondary" style="max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${esc(label)}</span>`:'')+
+        (codes.length?`<span class="d-inline-flex gap-1 ms-1">${codes.map(c=>`<span class="px-1 py-0 rounded border" style="font-size:.58rem; background:#FEF3C7; border-color:#FDE68A; color:#92400E; font-weight:600">${esc(c)}</span>`).join('')}</span>`:'')+`</span>`;
       if(s.url){
         const href=esc(s.url);
-        return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="badge source-chip grounding-chip text-decoration-none" data-bbox="${bbox}" data-idx="${i}" title="${chipTitle||href}" onclick="highlightGrounding(this)">${icon}${label}${pageInfo}${bboxInfo} <i class="fa-solid fa-arrow-up-right-from-square ms-1" style="font-size:.62rem;opacity:.7"></i></a>`;
+        return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="source-chip grounding-chip inline-flex align-items-center gap-1.5 px-2 py-1 rounded-md border text-decoration-none" style="font-size:.62rem; background:var(--bs-tertiary-bg); border-color:var(--bs-border-color-translucent)" data-bbox="${bbox}" data-idx="${i}" title="${chipTitle||href}" onclick="highlightGrounding(this)">${icon}<span class="fw-semibold" style="max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${title}</span>${label?`<span class="text-body-secondary">${esc(label)}</span>`:''} <i class="fa-solid fa-arrow-up-right-from-square ms-1" style="font-size:.58rem;opacity:.7"></i></a>`;
       }
-      return `<span class="badge source-chip grounding-chip" data-bbox="${bbox}" data-idx="${i}" title="${chipTitle}" onclick="highlightGrounding(this)" style="cursor:pointer">${icon}${label}${pageInfo}${sectInfo}${bboxInfo}</span>`;
+      return base;
     }).join(' ');
     const metaLine=meta?`<div class="d-flex flex-wrap gap-2 text-body-secondary border-top pt-2 mt-2" style="font-size:.68rem"><span><i class="fa-solid fa-bullseye me-1"></i>conf ${(meta.confidence??0).toFixed(2)}</span><span>·</span><span><i class="fa-solid fa-layer-group me-1"></i>${meta.metadata?.evidence_count??0} evidências</span><span>·</span><span><i class="fa-solid fa-stopwatch me-1"></i>${((meta.metadata?.execution_time_ms??0)/1000).toFixed(2)}s</span><span class="badge ${meta.metadata?.verdict==='ok'?'text-bg-success':'text-bg-warning'}" style="font-size:.62rem">${esc(meta.metadata?.verdict||'')}</span>${meta.metadata?.cached ? '<span class="badge text-bg-info" style="font-size:.6rem"><i class="fa-solid fa-bolt me-1"></i>cache</span>' : ''}</div>`:'';
     const guardrail = meta?.metadata?.guardrail ? `<div class="alert alert-warning d-flex align-items-center gap-2 py-1 px-2 mt-2 mb-0" style="font-size:.68rem; border-radius:.5rem"><i class="fa-solid fa-triangle-exclamation"></i><span>Resposta com pouca evidência — verifique as fontes antes de agir</span><span class="font-mono ms-auto" style="font-size:.6rem">${esc(meta.metadata.guardrail_detail||'')}</span></div>` : '';
     const conclusions=(meta?.conclusions||[]).length?`<div class="mt-2" style="font-size:.76rem"><div class="fw-semibold small"><i class="fa-solid fa-check me-1"></i>Conclusões</div><ul class="mb-0 ps-3">${meta.conclusions.map(c=>`<li>${esc(c)}</li>`).join('')}</ul></div>`:'';
     const addInfo=(meta?.additional_info||[]).length?`<div class="mt-2" style="font-size:.76rem"><div class="fw-semibold small"><i class="fa-solid fa-circle-info text-info me-1"></i>Info adicional</div><ul class="mb-0 ps-3">${meta.additional_info.map(a=>`<li>${esc(a)}</li>`).join('')}</ul></div>`:'';
     const feedback = !isUser && content ? `<div class="d-flex gap-1 mt-2 pt-2 border-top justify-end"><span class="small text-body-secondary me-1" style="font-size:.65rem">Útil?</span><button class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:.65rem" onclick="sendFeedback(this,'up',\`${esc(content).replace(/`/g,'\'').slice(0,300)}\`)"><i class="fa-regular fa-thumbs-up me-1"></i>Sim</button><button class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:.65rem" onclick="sendFeedback(this,'down',\`${esc(content).replace(/`/g,'\'').slice(0,300)}\`)"><i class="fa-regular fa-thumbs-down me-1"></i>Não</button></div>` : '';
-    body=`<div class="msg-row"><div class="${bubbleClass}"><div class="markdown">${html}</div>${sources?`<div class="d-flex flex-wrap gap-1 mt-2">${sources}</div>`:''}${guardrail}${metaLine}${conclusions}${addInfo}${feedback}</div></div>`;
+     const sourcesBlock = sources ? `<div class="sources-block mt-3 pt-2 border-top d-flex flex-column gap-1.5" style="border-color:var(--bs-border-color-translucent)"><div class="d-flex align-items-center gap-1.5"><i class="fa-solid fa-book-open" style="font-size:.6rem; color:var(--bs-secondary-color)"></i><span style="font-size:.58rem; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--bs-secondary-color)">Fontes</span></div><div class="d-flex flex-wrap gap-1.5">${sources}</div></div>` : '';
+     body=`<div class="msg-row"><div class="${bubbleClass}"><div class="markdown">${html}</div>${sourcesBlock}${guardrail}${metaLine}${conclusions}${addInfo}${feedback}</div></div>`;
   }
   wrap.innerHTML=header+body;
   thread.appendChild(wrap);

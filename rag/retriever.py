@@ -135,12 +135,18 @@ class Retriever:
                                 # bonus para códigos exatos
                                 score += sum(2 for t in query_tokens if re.match(r"^[a-z]+\d+$", t) and t in doc_tokens)
                                 bm25_scores.append(float(score))
-                        # Normaliza BM25 0-1
-                        max_bm = max(bm25_scores) if bm25_scores else 1
+                        # Normaliza BM25 0-1 (bm25_scores pode ser np.ndarray)
+                        try:
+                            import numpy as _np
+                            is_array = isinstance(bm25_scores, _np.ndarray)
+                        except Exception:
+                            is_array = False
+                        has_scores = (len(bm25_scores) > 0) if is_array or isinstance(bm25_scores, list) else bool(bm25_scores)
+                        max_bm = float(max(bm25_scores)) if has_scores else 1
                         if max_bm > 0:
-                            bm25_norm = [s / max_bm for s in bm25_scores]
+                            bm25_norm = [float(s) / max_bm for s in bm25_scores]
                         else:
-                            bm25_norm = bm25_scores
+                            bm25_norm = [float(s) for s in bm25_scores]
                         # Combina com vetor score (relevance_score)
                         combined = []
                         for idx, doc in enumerate(results):

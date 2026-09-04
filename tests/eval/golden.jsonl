@@ -1,0 +1,8 @@
+{"question": "Como resolver atolamento de papel na Xerox Phaser 6510?", "mode": "rag", "profile": "flash", "expected_sources": ["Xerox_Phaser_6510_Guia_Usuario_pt-BR.pdf"], "keywords": ["parte traseira", "fusor", "porta traseira"], "type": "procedural"}
+{"question": "Como resolver atolamento de papel na Xerox Phaser 6510? Liste os passos numerados.", "mode": "rag", "profile": "pro", "expected_sources": ["Xerox_Phaser_6510_Guia_Usuario_pt-BR.pdf"], "keywords": ["1.", "fusor", "porta traseira"], "type": "procedural"}
+{"question": "Quais são os toners compatíveis com Brother DCP-L2540?", "mode": "rag", "profile": "flash", "expected_sources": ["Brother"], "keywords": ["toner", "Brother"], "type": "lista"}
+{"question": "Compare Xerox Phaser 6510 vs HP LaserJet Pro 4001", "mode": "rag", "profile": "pro", "expected_sources": ["Xerox_Phaser_6510", "HP_LaserJet_Pro"], "keywords": ["compar", "diferença"], "type": "comparacao"}
+{"question": "O que é impressora multifuncional?", "mode": "rag", "profile": "flash", "expected_sources": [], "keywords": ["impressora", "multifuncional", "imprime", "digitaliza"], "type": "conceito"}
+{"question": "Erro E123 na impressora Modelo-X o que significa?", "mode": "rag", "profile": "flash", "expected_sources": [], "keywords": ["E123"], "type": "diagnostico"}
+{"question": "O impeachment da Dilma foi golpe ou processo legítimo?", "mode": "web", "profile": "pro", "expected_sources": [], "keywords": ["impeachment", "golpe", "legítimo"], "type": "controverso"}
+{"question": "Resuma os documentos indexados", "mode": "rag", "profile": "pro", "expected_sources": ["Brother_ADS", "Xerox_Phaser", "Kyocera"], "keywords": ["Brother", "Xerox", "Kyocera"], "type": "relatorio"}
