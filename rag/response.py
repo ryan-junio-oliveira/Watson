@@ -21,6 +21,7 @@ class Source:
     manufacturer: str = ""
     model: str = ""
     error_codes: List[str] = field(default_factory=list)
+    bbox: str = ""
 
     def to_dict(self) -> Dict[str, str]:
         d: Dict[str, str] = {"title": self.title, "url": self.url}
@@ -36,6 +37,8 @@ class Source:
             d["model"] = self.model
         if self.error_codes:
             d["error_codes"] = self.error_codes
+        if self.bbox:
+            d["bbox"] = self.bbox
         return d
 
     @staticmethod
@@ -49,6 +52,7 @@ class Source:
             manufacturer=ev.manufacturer,
             model=ev.model,
             error_codes=ev.error_codes,
+            bbox=getattr(ev, "bbox", "") or ev.metadata.get("bbox", ""),
         )
 
     @staticmethod

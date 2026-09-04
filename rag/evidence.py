@@ -84,6 +84,7 @@ class EvidenceNormalizer:
             version=meta.get("version", ""),
             chunk_id=meta.get("chunk_id", ""),
             document_id=meta.get("document_id", ""),
+            bbox=meta.get("bbox", ""),
         )
 
 

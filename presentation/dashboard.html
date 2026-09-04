@@ -159,6 +159,7 @@
             <div><div class="fw-bold" style="font-size:.85rem">Por Perfil</div><div class="small text-body-secondary" style="font-size:.7rem">Flash vs Pro 24h</div></div>
           </div>
           <div id="byProfileBox" class="small" style="font-size:.78rem">—</div>
+          <div class="chart-box mt-2" style="height:120px"><canvas id="profileChart"></canvas></div>
         </div>
       </div>
     </div>
@@ -332,7 +333,7 @@ function getChartDefaults(extra={}){
     ...extra
   };
 }
-let range=6, range2=24; let tokensChart, requestsChart, modelsChart, docsChart; let autoRefresh=true, countdown=15, countdownTimer=null;
+let range=6, range2=24; let tokensChart, requestsChart, modelsChart, docsChart, profileChart; let autoRefresh=true, countdown=15, countdownTimer=null;
 function tickClock(){ const n=new Date(); const el=document.getElementById('clock'); const el2=document.getElementById('clock-date'); if(el) el.textContent=n.toLocaleTimeString('pt-BR'); if(el2) el2.textContent=n.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'short'}); }
 setInterval(tickClock,1000); tickClock();
 function startCountdown(){ countdown=15; if(countdownTimer) clearInterval(countdownTimer); const txt=document.getElementById('countdownText'); countdownTimer=setInterval(()=>{ countdown--; if(txt) txt.textContent=countdown+'s'; if(countdown<=0){ countdown=15; if(txt) txt.textContent='15s'; if(autoRefresh) refresh(); } },1000); }
@@ -447,6 +448,14 @@ async function loadByProfile(){
     const rows=d.by_profile||[];
     if(!rows.length){ el.innerHTML='<div class="text-body-secondary small">Sem dados por perfil</div>'; return; }
     el.innerHTML=rows.map(p=>`<div class="d-flex align-items-center justify-content-between py-1 border-bottom" style="font-size:.75rem"><span class="d-flex align-items-center gap-1.5"><i class="fa-solid ${p.profile==='pro'?'fa-brain text-success':p.profile==='flash'?'fa-bolt text-warning':'fa-layer-group text-primary'}" style="font-size:.7rem"></i><span class="fw-semibold">${esc(p.profile)}</span><span class="badge text-bg-light border font-mono" style="font-size:.6rem">${p.requests} req</span></span><span class="font-mono text-body-secondary">${(p.avg_ms/1000).toFixed(2)}s · ${p.cache_hits||0} cache</span></div>`).join('');
+    const cvs=document.getElementById('profileChart'); if(cvs){
+      if(profileChart) try{profileChart.destroy()}catch(_){}
+      const ctx=cvs.getContext('2d');
+      const labels=rows.map(p=>p.profile);
+      const dataReq=rows.map(p=>p.requests);
+      const dataAvg=rows.map(p=> (p.avg_ms||0)/1000 );
+      profileChart=new Chart(cvs,{type:'bar',data:{labels,datasets:[{label:'Req',data:dataReq,backgroundColor:'rgba(13,110,253,.7)',borderColor:'#0d6efd',borderWidth:1,borderRadius:4},{label:'Lat s',data:dataAvg,backgroundColor:'rgba(25,135,84,.5)',borderColor:'#198754',borderWidth:1,borderRadius:4}]},options:getChartDefaults({indexAxis:'y'})});
+    }
   }catch(e){ console.warn(e); }
 }
 function emptyState(icon,title,subtitle){ return `<div class="text-center py-5 text-body-secondary"><i class="${icon} fs-2 opacity-50"></i><div class="fw-semibold mt-3" style="font-size:.92rem">${esc(title)}</div><div class="small">${esc(subtitle)}</div></div>`; }

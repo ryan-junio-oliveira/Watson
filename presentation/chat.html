@@ -98,6 +98,10 @@
   .typing-cursor{ display:inline-block; margin-left:1px; animation:cursorBlink 1s step-end infinite; color:#111; font-weight:300; }
   [data-bs-theme="dark"] .typing-cursor{ color:#e5e7eb; }
   @keyframes cursorBlink{ 0%,50%{ opacity:1 } 51%,100%{ opacity:0 } }
+  .grounding-chip{ transition:all .15s; cursor:pointer; }
+  .grounding-chip:hover{ background:var(--bs-tertiary-bg) !important; transform:translateY(-1px); box-shadow:0 2px 6px rgba(0,0,0,.08); }
+  .grounding-highlight{ outline:2px solid #0d6efd; outline-offset:2px; border-radius:.5rem; animation:groundPulse 1.2s ease 2; }
+  @keyframes groundPulse{ 0%{ box-shadow:0 0 0 0 rgba(13,110,253,.3) } 100%{ box-shadow:0 0 0 8px rgba(13,110,253,0) } }
 </style>
 </head>
 <body>
@@ -377,12 +381,20 @@ async function sendFeedback(btn, rating, answer){
   try{
     const lastQ = [...historyMsgs].reverse().find(m=>m.role==='user')?.content || '';
     const profile = $('#watsonProfile')?.value || localStorage.getItem('watson-profile') || 'flash';
-    const mode = document.querySelector('input[name=\"mode\"]:checked')?.value || 'auto';
+    const mode = document.querySelector('input[name="mode"]:checked')?.value || 'auto';
     btn.disabled = true;
-    btn.innerHTML = rating==='up' ? '<i class=\"fa-solid fa-check\"></i> Obrigado' : '<i class=\"fa-solid fa-check\"></i> Registrado';
+    btn.innerHTML = rating==='up' ? '<i class="fa-solid fa-check"></i> Obrigado' : '<i class="fa-solid fa-check"></i> Registrado';
     await fetch('/api/feedback', {method:'POST', headers:{'Content-Type':'application/json', ...(localStorage.getItem('watson-token')?{'X-API-Token':localStorage.getItem('watson-token')}:{})}, body: JSON.stringify({question: lastQ, answer, rating, profile, mode})});
     btn.classList.remove('btn-outline-secondary'); btn.classList.add(rating==='up'?'btn-success':'btn-warning');
   }catch(e){ btn.disabled=false; }
+}
+function highlightGrounding(el){
+  const bbox = el.getAttribute('data-bbox')||'';
+  const bubble = el.closest('.bubble');
+  if(!bubble) return;
+  bubble.classList.add('grounding-highlight');
+  setTimeout(()=> bubble.classList.remove('grounding-highlight'), 1600);
+  if(bbox) el.title = 'BBOX '+bbox+' — destacado';
 }
 $('#prompt').addEventListener('keydown', e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } });
 $('#prompt').addEventListener('input', function(){ this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,160)+'px'; });
@@ -581,14 +593,19 @@ function addMessage(role, content, meta){
       if(!key || seen.has(key)) return false;
       seen.add(key); return true;
     });
-    const sources=uniq.map(s=>{
+    const sources=uniq.map((s,i)=>{
       const label=esc(s.title||s.url||'fonte');
       const icon='<i class="fa-solid fa-file-lines me-1"></i>';
+      const bbox = esc(s.bbox||'');
+      const pageInfo = s.page?` · p.${s.page}`:'';
+      const sectInfo = s.section?` · ${esc(s.section)}`:'';
+      const bboxInfo = bbox?` · ${bbox}`:'';
+      const chipTitle = bbox ? `BBOX ${bbox} — clique para destacar` : (s.page?`Página ${s.page}`:'');
       if(s.url){
         const href=esc(s.url);
-        return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="badge source-chip text-decoration-none" title="${href}">${icon}${label} <i class="fa-solid fa-arrow-up-right-from-square ms-1" style="font-size:.62rem;opacity:.7"></i></a>`;
+        return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="badge source-chip grounding-chip text-decoration-none" data-bbox="${bbox}" data-idx="${i}" title="${chipTitle||href}" onclick="highlightGrounding(this)">${icon}${label}${pageInfo}${bboxInfo} <i class="fa-solid fa-arrow-up-right-from-square ms-1" style="font-size:.62rem;opacity:.7"></i></a>`;
       }
-      return `<span class="badge source-chip">${icon}${label}${s.page?` · p.${s.page}`:''}${s.section?` · ${esc(s.section)}`:''}</span>`;
+      return `<span class="badge source-chip grounding-chip" data-bbox="${bbox}" data-idx="${i}" title="${chipTitle}" onclick="highlightGrounding(this)" style="cursor:pointer">${icon}${label}${pageInfo}${sectInfo}${bboxInfo}</span>`;
     }).join(' ');
     const metaLine=meta?`<div class="d-flex flex-wrap gap-2 text-body-secondary border-top pt-2 mt-2" style="font-size:.68rem"><span><i class="fa-solid fa-bullseye me-1"></i>conf ${(meta.confidence??0).toFixed(2)}</span><span>·</span><span><i class="fa-solid fa-layer-group me-1"></i>${meta.metadata?.evidence_count??0} evidências</span><span>·</span><span><i class="fa-solid fa-stopwatch me-1"></i>${((meta.metadata?.execution_time_ms??0)/1000).toFixed(2)}s</span><span class="badge ${meta.metadata?.verdict==='ok'?'text-bg-success':'text-bg-warning'}" style="font-size:.62rem">${esc(meta.metadata?.verdict||'')}</span>${meta.metadata?.cached ? '<span class="badge text-bg-info" style="font-size:.6rem"><i class="fa-solid fa-bolt me-1"></i>cache</span>' : ''}</div>`:'';
     const guardrail = meta?.metadata?.guardrail ? `<div class="alert alert-warning d-flex align-items-center gap-2 py-1 px-2 mt-2 mb-0" style="font-size:.68rem; border-radius:.5rem"><i class="fa-solid fa-triangle-exclamation"></i><span>Resposta com pouca evidência — verifique as fontes antes de agir</span><span class="font-mono ms-auto" style="font-size:.6rem">${esc(meta.metadata.guardrail_detail||'')}</span></div>` : '';
