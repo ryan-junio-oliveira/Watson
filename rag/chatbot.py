@@ -45,6 +45,7 @@ from rag.query_expander import QueryExpander, reciprocal_rank_fusion
 from rag.reasoning import ReasoningEngine
 from rag.response import AgentResponse, Mode
 from rag.retriever import Retriever
+from rag.semantic_cache import SemanticCache
 
 
 class ChatBot:
@@ -68,6 +69,7 @@ class ChatBot:
         web_search: Optional[object] = None,
         query_rewriter: Optional[object] = None,
         analyst_ollama_client: Optional[OllamaClient] = None,
+        semantic_cache: Optional[SemanticCache] = None,
     ):
         self.retriever = retriever
         self.prompt_builder = prompt_builder
@@ -112,6 +114,18 @@ class ChatBot:
             "flash": {"top_k": 5, "enable_query_rewriter": False, "use_reranker": False, "enable_analyst": False, "enable_reasoning": False},
             "pro": {"top_k": 12, "enable_query_rewriter": True, "use_reranker": True, "enable_analyst": True, "enable_reasoning": True},
         }
+        # Semantic cache — tenta ler do config global se não passado
+        if semantic_cache is not None:
+            self.semantic_cache = semantic_cache
+        else:
+            try:
+                from core.config import config as _cfg_cache
+                if getattr(_cfg_cache, "cache_enabled", True):
+                    self.semantic_cache = SemanticCache(max_size=getattr(_cfg_cache, "cache_max_size", 100), ttl_seconds=getattr(_cfg_cache, "cache_ttl_seconds", 3600))
+                else:
+                    self.semantic_cache = None
+            except Exception:
+                self.semantic_cache = SemanticCache(max_size=100, ttl_seconds=3600)
 
     def _is_analytical(self, question: str) -> bool:
         q = question.lower()
@@ -797,7 +811,7 @@ class ChatBot:
         profile: str = "",
     ) -> AgentResponse:
         start = time.time()
-        # provider reflete o modo real (auto/rag → rag, web → web)
+        # provider reflete o modo real (auto/rag → rag, web → web) — auto faz fallback inteligente
         provider = "web" if mode == Mode.web else "rag"
 
         if self.logger:
@@ -809,8 +823,38 @@ class ChatBot:
                 if self.logger:
                     self.logger.info(f"Greeting detected: {question!r} -> no retrieval")
                 resp = self._greeting_response(start)
-                self._record_request(question, mode, provider, resp, start, analyze)
+                self._record_request(question, mode, provider, resp, start, analyze, profile=profile)
                 return resp
+
+            # Cache semântico — hit <50ms (Sprint 1)
+            if getattr(self, "semantic_cache", None):
+                from rag.semantic_cache import _cache_key as _ck
+                _key_dbg = _ck(question, str(mode), profile, analyze)
+                if self.logger:
+                    self.logger.info(f"Cache GET key={_key_dbg[:8]} q='{question[:30]}' mode={mode} profile={profile} analyze={analyze} size={len(self.semantic_cache._store)}")
+                cached = self.semantic_cache.get(question, str(mode), profile, analyze)
+                if cached:
+                    ans, meta, srcs, conf = cached
+                    # Reconstrói evidências mínimas a partir de sources cacheadas (se houver)
+                    from rag.evidence import Evidence as _Ev
+                    cached_evs = []
+                    for s in srcs:
+                        try:
+                            cached_evs.append(_Ev(provider=s.get("provider","rag"), source=s.get("title",""), title=s.get("title",""), url=s.get("url",""), content="", metadata=s))
+                        except Exception:
+                            pass
+                    resp = AgentResponse(answer=ans, evidences=cached_evs, confidence=conf, verdict=meta.get("verdict","ok"), metadata={**meta, "cached": True, "cache_hit": True, "profile": profile or meta.get("profile","flash")}, execution_time=time.time() - start)
+                    # Restaura sources completas se cache tinha
+                    try:
+                        resp.metadata["evidence_count"] = len(srcs)
+                    except Exception:
+                        pass
+                    if self.logger:
+                        self.logger.info(f"Cache HIT para '{question[:60]}' profile={profile} mode={mode} — {time.time()-start:.3f}s key={_key_dbg[:8]}")
+                    self._record_request(question, mode, provider, resp, start, analyze, profile=profile)
+                    return resp
+                elif self.logger:
+                    self.logger.info(f"Cache MISS key={_key_dbg[:8]} q='{question[:30]}' mode={mode} profile={profile}")
 
             plan, hint, reasoning_needed = self._make_plan(question)
             self._last_rewritten = None
@@ -819,7 +863,23 @@ class ChatBot:
                     style = "concise"
                 elif profile == "pro":
                     style = "analyst"
-            if mode == Mode.web:
+            # Auto-routing: tenta RAG primeiro, se vazio e web habilitado faz fallback para web
+            if mode == Mode.auto:
+                evidence = self._prepare_evidence(question, profile=profile)
+                if not evidence and self.web_search:
+                    try:
+                        from core.config import config as _cfg_auto
+                        if getattr(_cfg_auto, "web_search_enabled", True):
+                            if self.logger:
+                                self.logger.info(f"Auto-routing: RAG vazio para '{question[:60]}', fallback para web")
+                            web_ev = self._prepare_web_evidence(question)
+                            if web_ev:
+                                evidence = web_ev
+                                mode = Mode.web
+                                provider = "web"
+                    except Exception:
+                        pass
+            elif mode == Mode.web:
                 evidence = self._prepare_web_evidence(question)
             else:
                 evidence = self._prepare_evidence(question, profile=profile)
@@ -846,6 +906,11 @@ class ChatBot:
                     max_tokens=plan.max_tokens if plan else None,
                     analyze=analyze,
                 )
+                if style == "concise":
+                    import re as _re2
+                    _sents2 = _re2.split(r'(?<=[.!?])\s+', answer.strip())
+                    if len(_sents2) > 6:
+                        answer = ' '.join(_sents2[:6]).strip()
                 resp = self._build_response(answer, [], start, provider=provider)
                 resp.metadata["fallback"] = "no_documents"
                 if plan:
@@ -862,7 +927,14 @@ class ChatBot:
                     resp.metadata["rewriter_intent"] = self._last_rewritten.intent
                 if analyze:
                     resp = self._run_analyst(question, resp)
-                self._record_request(question, mode, provider, resp, start, analyze)
+                # Cache semântico — guarda (se não for greeting/fallback vazio)
+                if getattr(self, "semantic_cache", None):
+                    try:
+                        cache_mode = original_mode if "original_mode" in locals() else mode
+                        self.semantic_cache.set(question, str(cache_mode), profile, analyze, resp.answer, resp.metadata, [s.to_dict() for s in resp.sources], resp.confidence)
+                    except Exception:
+                        pass
+                self._record_request(question, mode, provider, resp, start, analyze, profile=profile)
                 return resp
 
             web_hint = ""
@@ -893,7 +965,29 @@ class ChatBot:
             )
             # Sanitiza: remove URLs inline que o LLM insiste em gerar (chips já exibem fontes)
             answer_clean = self._strip_inline_sources(answer_clean)
+            # Enforce conciso: Flash (concise) no máximo 6 frases — corte rígido se LLM desobedecer
+            if style == "concise":
+                import re as _re
+                _sents = _re.split(r'(?<=[.!?])\s+', answer_clean.strip())
+                if len(_sents) > 6:
+                    answer_clean = ' '.join(_sents[:6]).strip()
             result = self._build_response(answer_clean, evidence, start, provider=provider)
+            # Guardrail de confiança — Sprint 1: marca baixa confiança para UI exibir aviso
+            # Se evidência fraca ou pouca, não inventa: verdict low_confidence + guardrail flag
+            try:
+                max_score = max((getattr(e, "score", 0) or 0) for e in evidence) if evidence else 0
+                if len(evidence) == 0 or max_score < 0.3 or result.confidence < 0.6:
+                    # Só marca se não for saudação e não for fallback já tratado
+                    if not result.metadata.get("greeting"):
+                        result.metadata["guardrail"] = "low_confidence"
+                        if result.verdict == "ok":
+                            result.verdict = "low_confidence"
+                        result.metadata["guardrail_detail"] = f"evidência fraca (max_score={max_score:.2f}, evidences={len(evidence)})"
+                        # Adiciona grounding visual hint: páginas/fontes já estão em sources, frontend pode destacar
+                        if evidence:
+                            result.metadata["grounding_pages"] = list({getattr(e, "page_start", None) or e.metadata.get("page") for e in evidence if getattr(e, "page_start", None) or e.metadata.get("page")})[:3]
+            except Exception:
+                pass
             if plan:
                 result.metadata["reasoning_intent"] = plan.intent
                 result.metadata["reasoning_cot"] = reasoning_needed
@@ -917,7 +1011,16 @@ class ChatBot:
             if analyze:
                 result = self._run_analyst(question, result)
 
-            self._record_request(question, mode, provider, result, start, analyze)
+            if getattr(self, "semantic_cache", None):
+                try:
+                    cache_mode = original_mode if "original_mode" in locals() else mode
+                    # Guarda sob modo original e final (para hit em auto e web)
+                    self.semantic_cache.set(question, str(cache_mode), profile, analyze, result.answer, result.metadata, [s.to_dict() for s in result.sources], result.confidence)
+                    if str(cache_mode) != str(mode):
+                        self.semantic_cache.set(question, str(mode), profile, analyze, result.answer, result.metadata, [s.to_dict() for s in result.sources], result.confidence)
+                except Exception:
+                    pass
+            self._record_request(question, mode, provider, result, start, analyze, profile=profile)
             return result
         except Exception as e:
             self.metrics.record_request(
@@ -930,13 +1033,32 @@ class ChatBot:
     def _record_request(
         self, question: str, mode: Mode, provider: str,
         resp: AgentResponse, start: float, analyze: bool,
+        profile: str = "",
     ) -> None:
         try:
+            # profile e cache_hit para observabilidade por perfil (Sprint 1)
+            prof = profile or resp.metadata.get("profile") or getattr(self, "watson_profile", "") or "flash"
+            # tenta pegar profile do cache/metadata
+            if not prof or prof == "flash":
+                # fallback para config global se vazio
+                try:
+                    from core.config import config as _cfg_prof
+                    prof = getattr(_cfg_prof, "watson_profile", "flash") or "flash"
+                    # se request tinha profile explícito, usa ele
+                    if profile and profile.strip():
+                        prof = profile.strip().lower()
+                except Exception:
+                    pass
+            # alias plus -> flash
+            if prof in ("plus", "core", "balanced"):
+                prof = "flash"
+            cache_hit = bool(resp.metadata.get("cached") or resp.metadata.get("cache_hit"))
             self.metrics.record_request(
                 question=question, mode=str(mode), provider=provider,
                 evidence_count=len(resp.evidences),
                 execution_ms=resp.execution_time * 1000,
                 analyze=analyze, success=True,
+                profile=prof, cache_hit=cache_hit,
             )
         except Exception as e:
             if self.logger:
@@ -966,7 +1088,7 @@ class ChatBot:
         return self._process(question, history_context, mode, analyze=analyze, style=style, custom_instructions=custom_instructions, profile=profile)
 
     def _stream_evidence(
-        self, prompt: str, evidence: List[Evidence], provider: str = "rag", analyze: bool = False
+        self, prompt: str, evidence: List[Evidence], provider: str = "rag", analyze: bool = False, style: str = ""
     ) -> Generator[str, None, AgentResponse]:
         start = time.time()
         full_answer: List[str] = []
@@ -993,6 +1115,11 @@ class ChatBot:
                 self.logger.warning(f"Stream interrupted: {e}")
 
         answer_clean = self._strip_inline_sources("".join(full_answer))
+        if style == "concise":
+            import re as _re3
+            _sents3 = _re3.split(r'(?<=[.!?])\s+', answer_clean.strip())
+            if len(_sents3) > 6:
+                answer_clean = ' '.join(_sents3[:6]).strip()
         result = self._build_response(answer_clean, evidence, start, provider=provider)
 
         if self.logger:
@@ -1076,7 +1203,7 @@ class ChatBot:
                 if self.logger:
                     self.logger.info(f"Greeting detected (stream): {question!r}")
                 resp = yield from self._greeting_stream(start)
-                self._record_request(question, mode, "greeting", resp, start, analyze)
+                self._record_request(question, mode, "greeting", resp, start, analyze, profile=profile)
                 return resp
 
             plan, hint, reasoning_needed = self._make_plan(question)
@@ -1086,7 +1213,20 @@ class ChatBot:
                     style = "concise"
                 elif profile == "pro":
                     style = "analyst"
-            if mode == Mode.web:
+            # Auto-routing para stream também
+            if mode == Mode.auto:
+                evidence = self._prepare_evidence(question, profile=profile)
+                if not evidence and self.web_search:
+                    try:
+                        from core.config import config as _cfg_auto
+                        if getattr(_cfg_auto, "web_search_enabled", True):
+                            web_ev = self._prepare_web_evidence(question)
+                            if web_ev:
+                                evidence = web_ev
+                                mode = Mode.web
+                    except Exception:
+                        pass
+            elif mode == Mode.web:
                 evidence = self._prepare_web_evidence(question)
             else:
                 evidence = self._prepare_evidence(question, profile=profile)
@@ -1101,7 +1241,7 @@ class ChatBot:
                     resp.metadata["expanded_queries"] = self._last_rewritten.expanded_queries
                 if analyze:
                     resp = self._run_analyst(question, resp)
-                self._record_request(question, mode, provider, resp, start, analyze)
+                self._record_request(question, mode, provider, resp, start, analyze, profile=profile)
                 return resp
 
             if mode == Mode.web:
@@ -1120,7 +1260,7 @@ class ChatBot:
                 else self.prompt_builder.build(question, evidence, mode=mode, reasoning=reasoning_needed or analyze, reasoning_hint=hint, style=style, custom_instructions=custom_instructions)
             )
             provider = "web" if mode == Mode.web else "rag"
-            result = yield from self._stream_evidence(prompt, evidence, provider=provider, analyze=analyze)
+            result = yield from self._stream_evidence(prompt, evidence, provider=provider, analyze=analyze, style=style)
             if plan:
                 result.metadata["reasoning_intent"] = plan.intent
                 result.metadata["reasoning_cot"] = reasoning_needed or analyze
@@ -1135,7 +1275,7 @@ class ChatBot:
                 result.metadata["rewriter_entities"] = self._last_rewritten.entities
             if analyze:
                 result = self._run_analyst(question, result)
-            self._record_request(question, mode, provider, result, start, analyze)
+            self._record_request(question, mode, provider, result, start, analyze, profile=profile)
             return result
         except Exception as e:
             provider = "web" if mode == Mode.web else "rag"
@@ -1210,10 +1350,10 @@ class ChatBot:
 
         # Dicas padronizadas — cores legíveis (sem DIM apagado), exemplos de impressora/suprimento
         print(f"{ANSI_WHITE}{ANSI_BOLD}Como perguntar (tipo: pergunta):{ANSI_RESET}")
-        print(f"{ANSI_WHITE}  • {ANSI_YELLOW}fato:{ANSI_RESET}{ANSI_WHITE}      qual o erro E123 da impressora HP E52645?{ANSI_RESET}")
+        print(f"{ANSI_WHITE}  • {ANSI_YELLOW}fato:{ANSI_RESET}{ANSI_WHITE}      qual o erro E123 da impressora HP Modelo-X?{ANSI_RESET}")
         print(f"{ANSI_WHITE}  • {ANSI_YELLOW}lista:{ANSI_RESET}{ANSI_WHITE}     quais são os toners compatíveis com Brother DCP-L2540?{ANSI_RESET}")
         print(f"{ANSI_WHITE}  • {ANSI_YELLOW}conta:{ANSI_RESET}{ANSI_WHITE}     quantos % a mais em fevereiro vs janeiro?{ANSI_RESET}")
-        print(f"{ANSI_WHITE}  • {ANSI_YELLOW}comparar:{ANSI_RESET}{ANSI_WHITE}  compare Brother DCP-L2540 vs HP LaserJet M404{ANSI_RESET}")
+        print(f"{ANSI_WHITE}  • {ANSI_YELLOW}comparar:{ANSI_RESET}{ANSI_WHITE}  compare Brother DCP-L2540 vs Impressora M404{ANSI_RESET}")
         print(f"{ANSI_WHITE}  • {ANSI_YELLOW}imagem:{ANSI_RESET}{ANSI_WHITE}    o que tem nessa imagem de erro da impressora?{ANSI_RESET}")
         print(f"{ANSI_WHITE}  • {ANSI_YELLOW}passos:{ANSI_RESET}{ANSI_WHITE}    como trocar o toner da Kyocera M2040 passo a passo?{ANSI_RESET}")
         print()

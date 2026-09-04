@@ -1,13 +1,49 @@
+import os
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from rag.evidence import Evidence
 from rag.response import Mode
 
+# Prompt Registry — versionado em prompts/v1/*.md com hot-reload e fallback hardcoded
+_PROMPT_DIR = Path(__file__).resolve().parent.parent / "prompts" / "v1"
+_PROMPT_CACHE: Dict[str, tuple[float, str]] = {}
+
+def _load_prompt(name: str, fallback: str) -> str:
+    """Tenta carregar prompts/v1/{name}.md (hot-reload por mtime), fallback para hardcoded."""
+    # Permite override por env PROMPT_VERSION (ex: v2)
+    version = os.getenv("PROMPT_VERSION", "v1").strip() or "v1"
+    base_dir = Path(__file__).resolve().parent.parent / "prompts" / version
+    path = base_dir / f"{name}.md"
+    try:
+        if path.exists():
+            mtime = path.stat().st_mtime
+            cached = _PROMPT_CACHE.get(str(path))
+            if cached and cached[0] == mtime:
+                return cached[1]
+            text = path.read_text(encoding="utf-8").strip()
+            # Remove primeira linha se for título markdown "# System: ..."
+            if text.startswith("# System:"):
+                # Pula até linha vazia após título
+                parts = text.split("\n", 1)
+                if len(parts) == 2:
+                    text = parts[1].strip()
+            _PROMPT_CACHE[str(path)] = (mtime, text)
+            return text
+    except Exception:
+        pass
+    return fallback
+
 # Estilos preset — como Claude/ChatGPT/Gemini permitem system instruction por request.
 # Cada estilo é um modifier anexado ao SYSTEM_PROMPT base sem quebrar regras de fidelidade.
 STYLE_PRESETS: Dict[str, str] = {
     "default": "",
-    "concise": "ESTILO CONCISO: responda em 3–6 frases no máximo, direto ao ponto, sem seções extras. Priorize a resposta direta. NÃO use tabelas.",
+    "concise": (
+        "ESTILO CONCISO — LIMITE RÍGIDO: responda em NO MÁXIMO 6 frases e 1 parágrafo curto. "
+        "PROIBIDO usar seções (###), listas, tabelas ou quebras múltiplas. "
+        "Se passar de 6 frases, a resposta será cortada. Seja direto, factual e cite apenas o essencial. "
+        "NÃO use tabelas."
+    ),
     "detailed": "ESTILO DETALHADO: use seções com ###, parágrafos explicativos, listas e exemplos. Aprofunde cada ponto com contexto.",
     "technical": "ESTILO TÉCNICO: linguagem precisa, jargão da área, foco em especificações, passos numerados e detalhes de implementação. Evite simplificações.",
     "friendly": "ESTILO ACOLHEDOR: tom caloroso e próximo, como colega experiente, frases naturais e encorajadoras, sem perder precisão.",
@@ -108,21 +144,38 @@ class PromptBuilder:
         style: str = "",
         custom_instructions: str = "",
     ) -> str:
+        # Prompt Registry — tenta carregar de prompts/v1/{flash,pro,web}.md (hot-reload)
+        # Fallback para hardcoded se arquivo não existir (compatibilidade)
+        style_key = (style or "").strip().lower()
         if mode == Mode.web:
-            base = self.WEB_SYSTEM_PROMPT
+            base = _load_prompt("web", self.WEB_SYSTEM_PROMPT)
+        elif style_key == "concise":
+            base = _load_prompt("flash", self.SYSTEM_PROMPT)
+        elif style_key == "analyst":
+            base = _load_prompt("pro", self.REASONING_SYSTEM_PROMPT if reasoning else self.SYSTEM_PROMPT)
+        elif reasoning:
+            base = _load_prompt("pro", self.REASONING_SYSTEM_PROMPT)
         else:
-            base = self.REASONING_SYSTEM_PROMPT if reasoning else self.SYSTEM_PROMPT
+            base = _load_prompt("flash", self.SYSTEM_PROMPT) if style_key == "concise" else (self.REASONING_SYSTEM_PROMPT if reasoning else self.SYSTEM_PROMPT)
+            # Tenta registry genérico para system
+            alt = _load_prompt("system", "")
+            if alt:
+                base = alt
 
         extras: List[str] = []
 
-        # 1) Preset de estilo (Claude/ChatGPT style param)
+        # 1) Preset de estilo — só adiciona se base não veio do registry já com estilo
         if style:
             key = style.strip().lower()
-            preset = STYLE_PRESETS.get(key, "")
-            if preset:
-                extras.append(preset)
-            elif key != "default":
-                extras.append(f"ESTILO SOLICITADO: {style}")
+            # Se base já é flash/pro do registry, não duplica estilo
+            is_registry_flash = "ESTILO CONCISO — LIMITE RÍGIDO" in base
+            is_registry_pro = "ESTILO ANALISTA" in base
+            if not ((key == "concise" and is_registry_flash) or (key == "analyst" and is_registry_pro)):
+                preset = STYLE_PRESETS.get(key, "")
+                if preset:
+                    extras.append(preset)
+                elif key != "default":
+                    extras.append(f"ESTILO SOLICITADO: {style}")
 
         # 2) Instrução livre do chamante (Claude system / ChatGPT system message / Gemini systemInstruction)
         if custom_instructions and custom_instructions.strip():

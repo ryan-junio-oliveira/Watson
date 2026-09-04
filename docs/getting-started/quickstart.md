@@ -71,7 +71,7 @@ O processo é **incremental**: apenas arquivos novos ou alterados são reprocess
 [3/4] Instalando dependencias (requirements.txt)...
 [4/4] .env ja existe.
 Indexing documents/ ...
-  ✓ manual-hp-e52645.pdf (12 chunks)
+  ✓ manual-impressora.pdf (12 chunks)
   ✓ contrato-locacao.docx (8 chunks)
 Indexacao concluida! Total: 20 chunks
 ```
@@ -87,14 +87,14 @@ python app.py
 ```
 
 ```
-> Qual o erro E123 da impressora E52645?
+> Qual o erro E123 da impressora?
 
 Watson está analisando sua resposta...
 [resposta é exibida em tempo real]
 
 Sources
 -------
-  • HP LASER JET E52645.pdf
+  • Manual_Impressora.pdf
 ```
 
 ### Pela API (menu → opção 1)
@@ -102,7 +102,7 @@ Sources
 ```bash
 curl -s http://localhost:9000/api/chat \
   -H "Content-Type: application/json" \
-  -d '{"question": "Qual o erro E123 da impressora E52645?"}' | jq .
+  -d '{"question": "Qual o erro E123 da impressora?"}' | jq .
 ```
 
 Documentação interativa: <http://localhost:9000/docs>

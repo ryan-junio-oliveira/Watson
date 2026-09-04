@@ -90,6 +90,12 @@ class Config:
     mmr_lambda: float = field(
         default_factory=lambda: _get_float("MMR_LAMBDA", 0.5)
     )
+    use_hybrid: bool = field(
+        default_factory=lambda: _get_bool("USE_HYBRID", True)
+    )
+    hybrid_alpha: float = field(
+        default_factory=lambda: _get_float("HYBRID_ALPHA", 0.5)
+    )
     use_reranker: bool = field(
         default_factory=lambda: _get_bool("USE_RERANKER", False)
     )
@@ -286,6 +292,11 @@ class Config:
         )
     )
 
+    # Cache semântico — hit <50ms vs 30-110s de LLM em CPU
+    cache_enabled: bool = field(default_factory=lambda: _get_bool("CACHE_ENABLED", True))
+    cache_max_size: int = field(default_factory=lambda: _get_int("CACHE_MAX_SIZE", 100))
+    cache_ttl_seconds: int = field(default_factory=lambda: _get_int("CACHE_TTL_SECONDS", 3600))
+
     watson_profile: str = field(
         default_factory=lambda: (os.getenv("WATSON_PROFILE", "flash") or "flash").strip().lower()
     )
@@ -306,10 +317,10 @@ class Config:
                 "enable_analyst": False,
                 "enable_query_expansion": False,
                 "temperature": 0.1,
-                "max_tokens": 2048,
-                "reasoning_top_k": 8,
-                "reasoning_max_tokens": 2048,
-                "analyst_max_tokens": 2048,
+                "max_tokens": 1024,
+                "reasoning_top_k": 5,
+                "reasoning_max_tokens": 1024,
+                "analyst_max_tokens": 1024,
                 "index_batch_size": 100,
             },
             "pro": {

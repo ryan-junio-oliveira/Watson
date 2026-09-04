@@ -1,10 +1,17 @@
 import logging
+import re
 from typing import List, Optional
 
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 
 from ingestion.embeddings import EmbeddingGenerator
+
+try:
+    from rank_bm25 import BM25Okapi
+    _HAS_BM25 = True
+except Exception:
+    _HAS_BM25 = False
 
 
 class Retriever:
@@ -18,6 +25,8 @@ class Retriever:
         mmr_fetch_k: int = 20,
         mmr_lambda: float = 0.5,
         logger: Optional[logging.Logger] = None,
+        use_hybrid: bool = True,
+        hybrid_alpha: float = 0.5,
     ):
         self.embedding_generator = embedding_generator
         self.chroma_persist_dir = chroma_persist_dir
@@ -27,6 +36,8 @@ class Retriever:
         self.mmr_fetch_k = mmr_fetch_k
         self.mmr_lambda = mmr_lambda
         self.logger = logger
+        self.use_hybrid = use_hybrid
+        self.hybrid_alpha = max(0.0, min(1.0, float(hybrid_alpha)))
         self._vector_store: Optional[Chroma] = None
 
     def _get_vector_store(self) -> Chroma:
@@ -101,6 +112,52 @@ class Retriever:
                         results.append(doc)
                 else:
                     results.append(doc)
+
+        # Hybrid BM25 re-ranking — Sprint 2: combina vetor + keyword para códigos técnicos (E123, Modelo-X)
+        # Só ativa se houver resultados e query tem termos técnicos ou hybrid sempre (para recall)
+        if self.use_hybrid and results and len(results) > 1:
+            try:
+                # Detecta termos técnicos: códigos alfanuméricos, modelos
+                has_tech = bool(re.search(r"[A-Za-z]+\d{2,5}|\bE\d{3,5}\b", query))
+                # Aplica hybrid sempre para top_k pequeno, ou se tem termo técnico
+                if has_tech or top_k <= 8:
+                    corpus = [re.findall(r"\w+", (d.page_content or "").lower()) for d in results]
+                    query_tokens = re.findall(r"\w+", query.lower())
+                    if query_tokens and corpus:
+                        if _HAS_BM25:
+                            bm25 = BM25Okapi(corpus)
+                            bm25_scores = bm25.get_scores(query_tokens)
+                        else:
+                            # Fallback TF simples sem dependência
+                            bm25_scores = []
+                            for doc_tokens in corpus:
+                                score = sum(1 for t in query_tokens if t in doc_tokens)
+                                # bonus para códigos exatos
+                                score += sum(2 for t in query_tokens if re.match(r"^[a-z]+\d+$", t) and t in doc_tokens)
+                                bm25_scores.append(float(score))
+                        # Normaliza BM25 0-1
+                        max_bm = max(bm25_scores) if bm25_scores else 1
+                        if max_bm > 0:
+                            bm25_norm = [s / max_bm for s in bm25_scores]
+                        else:
+                            bm25_norm = bm25_scores
+                        # Combina com vetor score (relevance_score)
+                        combined = []
+                        for idx, doc in enumerate(results):
+                            vec_score = float(doc.metadata.get("relevance_score", 0.5))
+                            bm_score = bm25_norm[idx] if idx < len(bm25_norm) else 0
+                            hybrid = self.hybrid_alpha * vec_score + (1 - self.hybrid_alpha) * bm_score
+                            doc.metadata["bm25_score"] = round(bm_score, 4)
+                            doc.metadata["hybrid_score"] = round(hybrid, 4)
+                            combined.append((hybrid, doc))
+                        # Re-ordena por hybrid
+                        combined.sort(key=lambda x: x[0], reverse=True)
+                        results = [d for _, d in combined]
+                        if self.logger:
+                            self.logger.info(f"Hybrid re-rank aplicado: alpha={self.hybrid_alpha} has_tech={has_tech}")
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"Hybrid re-rank falhou, mantendo ordem vetorial: {e}")
 
         if self.logger:
             self.logger.info(

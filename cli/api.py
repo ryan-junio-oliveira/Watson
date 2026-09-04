@@ -37,7 +37,7 @@ from utils.logger import setup_logger
 
 class ChatRequest(BaseModel):
     question: str = Field(
-        ..., description="Pergunta do usuário", examples=["Como corrigir o erro E123 na impressora E52645?"]
+        ..., description="Pergunta do usuário", examples=["Como corrigir o erro E123 na impressora?"]
     )
     history: Optional[List[dict]] = Field(
         None, description="Histórico da conversa para contexto",
@@ -130,13 +130,13 @@ class ChatRequest(BaseModel):
 
 
 class SourceItem(BaseModel):
-    title: str = Field(..., description="Título da fonte", examples=["HP LASER JET E52645.pdf"])
+    title: str = Field(..., description="Título da fonte", examples=["Manual_Impressora.pdf"])
     url: str = Field("", description="URL da fonte (vazio para documentos internos)")
     provider: Optional[str] = Field(None, description="Provedor da fonte", examples=["rag"])
     page: Optional[int] = Field(None, description="Número da página onde o trecho foi encontrado", examples=[142])
     section: Optional[str] = Field(None, description="Seção do documento (headings)", examples=["Troubleshooting"])
     manufacturer: Optional[str] = Field(None, description="Fabricante inferido do documento", examples=["HP"])
-    model: Optional[str] = Field(None, description="Modelo do equipamento", examples=["E52645"])
+    model: Optional[str] = Field(None, description="Modelo do equipamento", examples=["Modelo-X"])
     error_codes: Optional[List[str]] = Field(None, description="Códigos de erro detectados no trecho", examples=[["E123"]])
 
 
@@ -677,12 +677,12 @@ app = FastAPI(
       "confidence": 0.94,
       "sources": [
         {
-          "title": "HP LASER JET E52645.pdf",
+          "title": "Manual_Impressora.pdf",
           "provider": "rag",
           "page": 142,
           "section": "Troubleshooting",
           "manufacturer": "HP",
-          "model": "E52645",
+          "model": "Modelo-X",
           "error_codes": ["E123"]
         }
       ],
@@ -2157,6 +2157,52 @@ async def compare_page():
     if p.exists():
         return FileResponse(str(p), media_type="text/html", headers={"Cache-Control": "no-store"})
     raise HTTPException(status_code=404, detail="Compare page not found. Verifique presentation/compare.html")
+
+
+# --- Feedback & Observabilidade por perfil (Sprint 2) ---
+class FeedbackRequest(BaseModel):
+    question: str = Field(..., description="Pergunta original", max_length=2000)
+    answer: str = Field(..., description="Resposta avaliada", max_length=8000)
+    rating: str = Field(..., description="up (útil) ou down (não útil)", examples=["up"])
+    reason: Optional[str] = Field(None, description="Motivo opcional", max_length=500)
+    profile: Optional[str] = Field(None, description="flash/pro", examples=["flash"])
+    mode: Optional[str] = Field(None, description="auto/rag/web", examples=["auto"])
+
+
+@app.post("/api/feedback", tags=["Feedback"], summary="Enviar feedback do usuário")
+async def post_feedback(req: FeedbackRequest, request: Request):
+    try:
+        store = _get_metrics_store()
+        store.record_feedback(question=req.question, answer=req.answer, profile=req.profile or "flash", mode=req.mode or "auto", rating=req.rating, reason=req.reason)
+        logger.info(f"[{getattr(request.state,'request_id','?')}] Feedback {req.rating} profile={req.profile} q='{req.question[:40]}'")
+        return {"success": True, "message": "Feedback registrado"}
+    except Exception as e:
+        logger.warning(f"Feedback failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/feedback/stats", tags=["Feedback"], summary="Estatísticas de feedback")
+async def feedback_stats(hours: float = 24.0):
+    store = _get_metrics_store()
+    return store.feedback_stats(hours=hours)
+
+
+@app.get("/api/metrics/by-profile", tags=["Métricas"], summary="Métricas por perfil Flash/Pro")
+async def metrics_by_profile(hours: float = 24.0):
+    store = _get_metrics_store()
+    return {"hours": hours, "by_profile": store.by_profile(hours=hours)}
+
+
+@app.get("/api/cache/stats", tags=["Métricas"], summary="Estatísticas do cache semântico")
+async def cache_stats():
+    try:
+        # Acessa chatbot global para pegar cache stats
+        global chatbot
+        if chatbot and getattr(chatbot, "semantic_cache", None):
+            return chatbot.semantic_cache.stats()
+        return {"hits": 0, "misses": 0, "hit_rate": 0, "size": 0, "enabled": False}
+    except Exception as e:
+        return {"hits": 0, "misses": 0, "hit_rate": 0, "size": 0, "error": str(e)}
 
 
 if __name__ == "__main__":

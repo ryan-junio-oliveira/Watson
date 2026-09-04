@@ -27,22 +27,23 @@
 </style>
 </head>
 <body>
-<nav class="navbar sticky-top py-2" style="background:rgba(255,255,255,.82); backdrop-filter:saturate(180%) blur(16px); border-bottom:1px solid rgba(0,0,0,.06); box-shadow:0 1px 3px rgba(0,0,0,.04)">
+<nav class="navbar bg-body border-bottom sticky-top">
   <div class="container-fluid px-3" style="max-width:1600px">
-    <div class="d-flex align-items-center gap-3">
+    <div class="d-flex align-items-center gap-2">
       <a href="/" class="d-flex align-items-center gap-2 text-decoration-none">
-        <span class="d-flex align-items-center justify-content-center text-white" style="width:32px;height:32px;background:#111;border-radius:9px"><i class="fa-solid fa-bolt" style="font-size:.8rem"></i></span>
-        <span class="fw-bold text-body" style="font-size:.95rem">Watson</span>
-        <span class="badge rounded-pill" style="font-size:.5rem;background:#111;color:#fff">COMPARE</span>
+        <span class="rounded-2 d-flex align-items-center justify-content-center text-white" style="width:28px;height:28px;background:#111"><i class="fa-solid fa-bolt" style="font-size:.75rem"></i></span>
+        <span class="fw-semibold text-body" style="font-size:.92rem">Watson</span>
+        <span class="badge text-bg-dark" style="font-size:.48rem">COMPARE</span>
       </a>
-      <span class="vr d-none d-md-block" style="opacity:.12"></span>
-      <span class="small text-body-secondary d-none d-md-inline">Teste lado a lado — Flash vs Pro</span>
+      <span class="vr d-none d-md-block mx-1"></span>
+      <span class="text-body-secondary small d-none d-md-inline">Flash vs Pro · lado a lado</span>
+      <span id="healthBadge" class="ms-2 d-none d-md-inline-flex align-items-center gap-1.5" style="font-size:.7rem;color:#16A34A;font-weight:600"><span style="width:6px;height:6px;background:#16A34A;border-radius:50%;display:inline-block"></span> Online</span>
     </div>
     <div class="d-flex align-items-center gap-1">
-      <a href="/" class="btn btn-sm btn-outline-secondary">Chat</a>
-      <a href="/dashboard" class="btn btn-sm btn-outline-secondary">Dashboard</a>
-      <a href="/config" class="btn btn-sm btn-outline-secondary">Config</a>
-      <button class="btn btn-sm btn-outline-secondary" onclick="toggleTheme()"><i class="fa-solid fa-circle-half-stroke"></i></button>
+      <a href="/" class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-comments me-1"></i> Chat</a>
+      <a href="/dashboard" class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-chart-simple me-1"></i> Dashboard</a>
+      <a href="/config" class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-gear me-1"></i> Config</a>
+      <button class="btn btn-sm btn-outline-secondary" onclick="toggleTheme()" title="Alternar tema"><i class="fa-solid fa-circle-half-stroke"></i></button>
     </div>
   </div>
 </nav>
@@ -53,11 +54,11 @@
       <div class="d-flex flex-wrap gap-2 align-items-end">
         <div class="flex-fill" style="min-width:280px">
           <label class="form-label small fw-semibold mb-1" style="font-size:.68rem; letter-spacing:.06em; text-transform:uppercase">Pergunta</label>
-          <textarea id="qInput" class="form-control" rows="2" placeholder="Ex: erro na impressora hp laser jet e52645" style="font-size:.88rem">o impeachment da dilma foi um golpe de estado ou legitimo ?</textarea>
+          <textarea id="qInput" class="form-control" rows="2" placeholder="Ex: erro na impressora com código E123" style="font-size:.88rem">o impeachment da dilma foi um golpe de estado ou legitimo ?</textarea>
           <div class="d-flex gap-1 mt-1">
-            <button class="btn btn-sm btn-outline-secondary" style="font-size:.68rem" onclick="setQ('erro na impressora hp laser jet e52645')">HP E52645</button>
+            <button class="btn btn-sm btn-outline-secondary" style="font-size:.68rem" onclick="setQ('erro na impressora com código E123')">Erro E123</button>
             <button class="btn btn-sm btn-outline-secondary" style="font-size:.68rem" onclick="setQ('o que é impressora multifuncional?')">Conceito</button>
-            <button class="btn btn-sm btn-outline-secondary" style="font-size:.68rem" onclick="setQ('compare hp e52645 com brother dcp-l2540')">Comparar</button>
+            <button class="btn btn-sm btn-outline-secondary" style="font-size:.68rem" onclick="setQ('compare impressora A com impressora B')">Comparar</button>
             <select id="modeSel" class="form-select form-select-sm ms-auto" style="width:auto; font-size:.72rem">
               <option value="auto" selected>auto</option>
               <option value="rag">rag</option>

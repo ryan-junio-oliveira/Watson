@@ -47,12 +47,12 @@ class TestCsvAdapter:
         with open(f, "w", newline="", encoding="utf-8") as fh:
             writer = csv_module.writer(fh)
             writer.writerow(["id", "nome"])
-            writer.writerow(["1", "HP E52645"])
+            writer.writerow(["1", "HP MODELO-X"])
         doc = CsvAdapter().extract(f)
         assert len(doc.tables) == 1
         assert doc.tables[0].headers == ["id", "nome"]
-        assert doc.tables[0].rows == [["1", "HP E52645"]]
-        assert "1 | HP E52645" in doc.content
+        assert doc.tables[0].rows == [["1", "HP MODELO-X"]]
+        assert "1 | HP MODELO-X" in doc.content
 
 
 class TestXlsxAdapter:
@@ -64,7 +64,7 @@ class TestXlsxAdapter:
         ws = wb.active
         ws.title = "Impressoras"
         ws.append(["modelo", "tipo"])
-        ws.append(["E52645", "printer"])
+        ws.append(["MODELO-X", "printer"])
         wb.save(f)
         wb.close()
 
@@ -215,9 +215,9 @@ class TestLoaderIdentity:
     def test_manufacturer_inferred_from_filename(self, tmp_path):
         from ingestion.loader import DocumentLoader
 
-        f = tmp_path / "HP_E52645_manual.txt"
+        f = tmp_path / "HP_MODELO-X_manual.txt"
         f.write_text("texto", encoding="utf-8")
         loader = DocumentLoader()
         doc = loader._load_single(f)
         assert doc.metadata.get("manufacturer") == "HP"
-        assert "E52645" in doc.metadata.get("model", "")
+        assert "MODELO-X" in doc.metadata.get("model", "")

@@ -141,7 +141,7 @@ Defaults: `min_total=0.35`, `min_text=0.15`, `min_chars=20`. Chunks abaixo do li
 
 ### `ingestion/identity.py` — Inferência de fabricante/modelo
 
-Infere fabricante (HP, CANON, EPSON, BROTHER, etc.) e modelo (ex.: `E52645`, `MFC-7860DW`) a partir do nome do arquivo.
+Infere fabricante (HP, CANON, EPSON, BROTHER, etc.) e modelo (ex.: `Modelo-X`, `MFC-7860DW`) a partir do nome do arquivo.
 
 ### `ingestion/drive_sync.py` — Sincronização do Google Drive
 

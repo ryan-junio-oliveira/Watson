@@ -29,6 +29,7 @@ class Evidence:
     version: str = ""
     chunk_id: str = ""
     document_id: str = ""
+    bbox: str = ""
     _cached_id: str = field(init=False, repr=False)
 
     def __post_init__(self):

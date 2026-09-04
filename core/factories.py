@@ -23,6 +23,7 @@ from rag.chatbot import ChatBot
 from rag.prompt import PromptBuilder
 from rag.reranker import Reranker as RagReranker
 from rag.retriever import Retriever
+from rag.semantic_cache import SemanticCache
 from rag.web_search import WebSearchProvider
 
 
@@ -62,6 +63,8 @@ def build_retriever(
         mmr_fetch_k=cfg.mmr_fetch_k,
         mmr_lambda=cfg.mmr_lambda,
         logger=logger,
+        use_hybrid=getattr(cfg, "use_hybrid", True),
+        hybrid_alpha=getattr(cfg, "hybrid_alpha", 0.5),
     )
 
 
@@ -164,6 +167,20 @@ def build_query_rewriter(cfg: Config, ollama_client: OllamaClient, logger: loggi
         return None
 
 
+def build_semantic_cache(cfg: Config, logger: logging.Logger = None) -> SemanticCache | None:
+    if not getattr(cfg, "cache_enabled", True):
+        return None
+    try:
+        return SemanticCache(
+            max_size=getattr(cfg, "cache_max_size", 100),
+            ttl_seconds=getattr(cfg, "cache_ttl_seconds", 3600),
+        )
+    except Exception as e:
+        if logger:
+            logger.warning(f"SemanticCache init failed: {e}")
+        return None
+
+
 def build_chatbot(cfg: Config, logger: logging.Logger = None) -> ChatBot:
     metrics = build_metrics(cfg, logger)
     emb_gen = build_embedding_generator(cfg, logger)
@@ -188,6 +205,7 @@ def build_chatbot(cfg: Config, logger: logging.Logger = None) -> ChatBot:
     analyst = build_analyst(cfg, retriever, ollama_client, logger)
     web_search = build_web_search(cfg, logger)
     query_rewriter = build_query_rewriter(cfg, ollama_client, logger)
+    semantic_cache = build_semantic_cache(cfg, logger)
     return ChatBot(
         retriever=retriever,
         prompt_builder=PromptBuilder(),
@@ -207,6 +225,7 @@ def build_chatbot(cfg: Config, logger: logging.Logger = None) -> ChatBot:
         enable_reranker_reasoning=cfg.enable_reranker_reasoning,
         web_search=web_search,
         query_rewriter=query_rewriter,
+        semantic_cache=semantic_cache,
     )
 
 

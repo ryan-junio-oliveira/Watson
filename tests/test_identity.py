@@ -2,10 +2,10 @@ from ingestion.identity import infer_identity
 
 
 class TestInferIdentity:
-    def test_hp_model(self):
-        manufacturer, model = infer_identity("HP_E52645_Service_Manual.pdf")
+    def test_impressora_model(self):
+        manufacturer, model = infer_identity("HP_MODELO-X_Service_Manual.pdf")
         assert manufacturer == "HP"
-        assert "E52645" in model
+        assert "MODELO-X" in model
 
     def test_brother(self):
         manufacturer, model = infer_identity("Brother_MFC-7860DW_Troubleshooting.pdf")

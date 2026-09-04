@@ -34,7 +34,7 @@ class TestChunkContract:
             content="procedimento",
             source_type="pdf",
             manufacturer="HP",
-            model="E52645",
+            model="MODELO-X",
             section="Troubleshooting",
             page_start=142,
             page_end=143,
@@ -46,7 +46,7 @@ class TestChunkContract:
         assert restored.chunk_id == "chunk_123"
         assert restored.document_id == "doc_456"
         assert restored.manufacturer == "HP"
-        assert restored.model == "E52645"
+        assert restored.model == "MODELO-X"
         assert restored.section == "Troubleshooting"
         assert restored.page_start == 142
         assert restored.error_codes == ["E123"]

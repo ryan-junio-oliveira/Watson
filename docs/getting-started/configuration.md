@@ -27,7 +27,7 @@ Selecione no chat (`⚡ Flash` · `⚖️ Plus` · `🧠 Pro`) ou via `.env` `WA
 - `.env` / `docker-compose`: `WATSON_PROFILE=plus` (default equilibrado). `flash` economiza LLM calls; `pro` ativa `qwen3:8b` se `ANALYST_MODEL` não setado (`core/config.py:344`).
 - Fallback: se `ANALYST_MODEL=qwen3:8b` não estiver baixado (`docker exec watson-ollama ollama list` só mostra `gemma3:4b`), `Pro` faz fallback automático para `gemma` sem quebrar (`rag/chatbot.py:510`).
 
-**Validado — Plus é necessário:** sem ele teríamos só Flash (rápido mas perde recall em consulta pobre como `"erro hp e52645"`) e Pro (lento). Plus cobre 80% das perguntas com `rewriter` + 5 queries RRF sem custo de reranker.
+**Validado — Plus removido:** `Flash` (rápido) falhava em consulta pobre como `"erro na impressora E123"` sem `rewriter`; `Pro` com `rewriter` + 5 queries cobre esses casos. `Flash` + `Pro` são suficientes.
 
 **API relacionada:**
 - `WATSON_PROFILE` (`core/config.py:290`), `TOP_K`, `ENABLE_QUERY_REWRITER`, `USE_RERANKER`, `ENABLE_REASONING`, `ANALYST_MODEL/THINK` — veja seções abaixo para overrides quando `profile=custom`.
@@ -154,7 +154,7 @@ Ordem no arquivo não importa; chaves são `UPPER_SNAKE_CASE`. Segredos (`*_KEY`
 
 | Variável | Padrão | Descrição |
 |---|---|---|
-| `ENABLE_QUERY_REWRITER` | `true` | Ativa `rag/query_rewriter.py:15` — transforma `erro hp e52645` (pobre) → 5 queries `HP e52645 códigos de erro / troubleshooting...` preservando `HP/LaserJet/E52645` + `entities{manufacturer,model}` + `intent=troubleshooting` → `RRF` + boost por entidade (`rag/chatbot.py:225`) |
+| `ENABLE_QUERY_REWRITER` | `true` | Ativa `rag/query_rewriter.py:15` — transforma `erro na impressora E123` (pobre) → 5 queries `código E123 troubleshooting / manual impressora ...` preservando `código de erro` + `entities` + `intent=troubleshooting` → `RRF` + boost por entidade (`rag/chatbot.py:225`) |
 | `QUERY_REWRITER_MODEL` | `` (vazio) | Modelo do rewriter. Vazio = usa `OLLAMA_MODEL`. Recomendado `gemma3:1b` leve (100ms) |
 | `QUERY_REWRITER_MAX_EXPANDED` | `5` | Máximo de queries expandidas (3-5) |
 

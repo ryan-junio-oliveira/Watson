@@ -14,7 +14,7 @@ MANUFACTURERS = (
     "AOC", "BENQ", "LG", "PHILIPS",
 )
 
-# Padrões de modelo comuns: E52645, MFC-7860DW, SC-1520, LaserJet Pro, P1102w...
+# Padrões de modelo comuns: Modelo-X, MFC-7860DW, SC-1520, LaserJet Pro, P1102w...
 _MODEL_PATTERNS = [
     re.compile(r"([A-Z]{1,3}[-]?\d{2,6}[A-Z]?(?:\s?[A-Z]{1,3})?)", re.IGNORECASE),
     re.compile(r"([A-Za-z]{2,}(?:Jet|MFC|SC-|Laser|DeskJet|WorkForce|Pixma|Bizhub|imageRUNNER|ecosys|Prologue|DocuPrint)[A-Za-z0-9 -]*)", re.IGNORECASE),

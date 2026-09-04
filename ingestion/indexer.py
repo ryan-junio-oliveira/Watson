@@ -466,7 +466,7 @@ class DocumentIndexer:
         """Reindexa apenas um subconjunto de fontes (§16).
 
         Filtra por tipo de fonte, fabricante, modelo ou padrão de nome de
-        arquivo (ex.: "somente PDFs", "somente HP", "somente E52645").
+        arquivo (ex.: "somente PDFs", "somente HP", "somente Modelo-X").
         """
         filtered = documents
         if source_type:

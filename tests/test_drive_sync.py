@@ -25,7 +25,7 @@ SAMPLE_HTML = """
 <div class="flip-entry" id="entry-FILE123" tabindex="0" role="link">
   <div class="flip-entry-info">
     <a href="https://drive.google.com/file/d/FILE123/view?usp=drive_web" target="_blank">
-      <div class="flip-entry-title">manual HP 52645.pdf</div>
+      <div class="flip-entry-title">manual Impressora.pdf</div>
     </a>
   </div>
   <div class="flip-entry-last-modified"><div>5/13/25</div></div>
@@ -62,7 +62,7 @@ class TestParseEntries:
         assert by_id["ROOTFOLDER"].is_folder is True
         assert by_id["ROOTFOLDER"].name == "Fabricante"
         assert by_id["FILE123"].is_folder is False
-        assert by_id["FILE123"].name == "manual HP 52645.pdf"
+        assert by_id["FILE123"].name == "manual Impressora.pdf"
         assert by_id["FILE123"].modified == "5/13/25"
 
     def test_parses_empty(self):
@@ -87,7 +87,7 @@ class TestWalk:
         files, folders = sync.walk("ROOT")
         paths = [p for p, _ in files]
         assert "Fabricante/nested.txt" in paths
-        assert "manual HP 52645.pdf" in paths
+        assert "manual Impressora.pdf" in paths
         assert folders == 1
 
 
@@ -119,7 +119,7 @@ class TestSync:
         assert result.downloaded == 2
         assert result.files_remote == 3
         assert result.skipped == 1
-        assert (tmp_path / "manual HP 52645.pdf").exists()
+        assert (tmp_path / "manual Impressora.pdf").exists()
         assert (tmp_path / "Fabricante" / "nested.txt").exists()
 
     def test_sync_is_incremental(self, mocker, tmp_path):
@@ -130,7 +130,7 @@ class TestSync:
         sync.download_file.reset_mock()
         sync.sync()
         assert sync.download_file.call_count == 0
-        assert (tmp_path / "manual HP 52645.pdf").read_bytes() == b"xxxxxxxxxx"
+        assert (tmp_path / "manual Impressora.pdf").read_bytes() == b"xxxxxxxxxx"
 
     def test_sync_force_redownloads(self, mocker, tmp_path):
         sync = GoogleDriveSync("ROOT", str(tmp_path), timeout=30)

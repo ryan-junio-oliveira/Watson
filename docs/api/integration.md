@@ -76,7 +76,7 @@ def upload_and_index(filename: str):
 
 # Exemplos de uso
 health()
-ask("Qual o erro E123 da E52645?")
+ask("Qual o erro E123 da Modelo-X?")
 ask_stream("Liste os servidores?")
 ```
 

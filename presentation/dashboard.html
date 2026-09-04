@@ -54,44 +54,24 @@
 </head>
 <body class="bg-body-tertiary">
 
-<nav class="navbar navbar-expand-lg bg-body border-bottom sticky-top shadow-sm">
-  <div class="container-fluid px-3 px-lg-4 py-1" style="max-width:1440px">
-    <a class="navbar-brand d-flex align-items-center gap-3" href="#">
-      <span class="rounded-3 d-flex align-items-center justify-content-center text-white shadow" style="width:42px;height:42px;background:linear-gradient(135deg,#0d6efd 0%,#6f42c1 100%)"><i class="fa-solid fa-bolt"></i></span>
-      <span class="d-flex flex-column lh-1">
-        <span class="d-flex align-items-center gap-2">
-          <span class="fw-bold" style="font-size:1.15rem;letter-spacing:-.03em">Watson</span>
-          <span class="badge text-bg-primary fw-bold border border-white border-opacity-10" style="font-size:.52rem;letter-spacing:.10em">AI PLATFORM</span>
-          <span class="badge rounded-pill text-bg-light border d-none d-md-inline-flex align-items-center gap-1 fw-semibold" style="font-size:.60rem"><span class="bg-success rounded-circle" style="width:6px;height:6px"></span> Enterprise</span>
-        </span>
-        <small class="text-body-secondary fw-medium" style="font-size:.68rem;letter-spacing:.02em">Sistema RAG &amp; Agente de IA · Command Center</small>
-      </span>
-    </a>
-    <button class="navbar-toggler border-0 shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#topNav"><span class="navbar-toggler-icon"></span></button>
-    <div class="collapse navbar-collapse" id="topNav">
-      <div class="ms-lg-4 d-none d-xl-flex align-items-center gap-2 small">
-        <span class="d-inline-flex align-items-center gap-2 text-body-secondary"><i class="bi bi-shield-check text-success"></i> Monitoramento em tempo real</span>
-        <span class="vr"></span>
-        <span id="header-doc-info" class="fw-semibold text-body">—</span>
-      </div>
-      <div class="ms-auto d-flex flex-wrap align-items-center gap-2 mt-3 mt-lg-0">
-        <span class="badge rounded-pill text-bg-light border d-inline-flex align-items-center gap-2 fw-normal px-3 py-2 shadow-sm">
-          <span class="pulse pulse-success"></span>
-          <span id="clock" class="font-mono small fw-semibold">--:--:--</span>
-          <span id="clock-date" class="text-body-secondary small d-none d-lg-inline border-start ps-2 ms-1">—</span>
-        </span>
-        <div class="btn-group btn-group-sm shadow-sm" role="group" id="headerRange">
-          <button type="button" class="btn btn-primary active fw-semibold px-3" data-range="6">6h</button>
-          <button type="button" class="btn btn-outline-secondary fw-medium px-3" data-range="24">24h</button>
-          <button type="button" class="btn btn-outline-secondary fw-medium px-3" data-range="72">3d</button>
-          <button type="button" class="btn btn-outline-secondary fw-medium px-3" data-range="168">7d</button>
-        </div>
-        <div class="btn-group btn-group-sm shadow-sm">
-          <button class="btn btn-outline-secondary" onclick="toggleTheme()" title="Alternar tema"><i class="fa-solid fa-circle-half-stroke"></i></button>
-          <button class="btn btn-outline-secondary d-none d-sm-inline-flex align-items-center fw-medium" onclick="toggleAutoRefresh()" id="autoBtn"><span class="bg-success rounded-circle me-2" style="width:7px;height:7px;display:inline-block" id="autoDot"></span> Auto</button>
-          <button class="btn btn-primary px-3" onclick="refresh()" id="refreshBtn" title="Atualizar (R)"><i class="fa-solid fa-rotate" id="refreshIcon"></i></button>
-        </div>
-      </div>
+<nav class="navbar bg-body border-bottom sticky-top">
+  <div class="container-fluid px-3" style="max-width:1440px">
+    <div class="d-flex align-items-center gap-2">
+      <a href="/" class="d-flex align-items-center gap-2 text-decoration-none">
+        <span class="rounded-2 d-flex align-items-center justify-content-center text-white" style="width:28px;height:28px;background:#111"><i class="fa-solid fa-bolt" style="font-size:.75rem"></i></span>
+        <span class="fw-semibold text-body" style="font-size:.92rem">Watson</span>
+        <span class="badge text-bg-dark" style="font-size:.48rem">DASHBOARD</span>
+      </a>
+      <span class="vr d-none d-md-block mx-1"></span>
+      <span class="text-body-secondary small d-none d-md-inline">Command Center</span>
+      <span id="healthOverall" class="ms-2 d-none d-md-inline-flex align-items-center gap-1.5" style="font-size:.7rem;color:#16A34A;font-weight:600"><span style="width:6px;height:6px;background:#16A34A;border-radius:50%;display:inline-block"></span> Online</span>
+    </div>
+    <div class="d-flex align-items-center gap-1">
+      <span id="clock" class="font-mono text-body-secondary small d-none d-lg-inline me-1" style="font-size:.75rem">--:--</span>
+      <a href="/" class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-comments me-1"></i> Chat</a>
+      <a href="/config" class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-gear me-1"></i> Config</a>
+      <a href="/docs" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-code me-1"></i> API</a>
+      <button class="btn btn-sm btn-outline-secondary" onclick="toggleTheme()" title="Alternar tema"><i class="fa-solid fa-circle-half-stroke"></i></button>
     </div>
   </div>
 </nav>
@@ -134,6 +114,54 @@
     <div class="col-12 col-sm-6 col-xl"><div class="card kpi-card c-info rounded-4"><div class="card-body p-4"><div class="placeholder-glow"><span class="placeholder col-5 rounded"></span><span class="placeholder col-4 float-end rounded"></span><div class="placeholder col-7 rounded mt-3" style="height:22px"></div></div></div></div></div>
     <div class="col-12 col-sm-6 col-xl"><div class="card kpi-card c-success rounded-4"><div class="card-body p-4"><div class="placeholder-glow"><span class="placeholder col-5 rounded"></span><span class="placeholder col-4 float-end rounded"></span><div class="placeholder col-7 rounded mt-3" style="height:22px"></div></div></div></div></div>
     <div class="col-12 col-sm-6 col-xl"><div class="card kpi-card c-warning rounded-4"><div class="card-body p-4"><div class="placeholder-glow"><span class="placeholder col-5 rounded"></span><span class="placeholder col-4 float-end rounded"></span><div class="placeholder col-7 rounded mt-3" style="height:22px"></div></div></div></div></div>
+  </div>
+
+  <div class="row g-3 g-lg-4 mb-4" id="efficiencyRow">
+    <div class="col-12 col-md-4">
+      <div class="card shadow-sm rounded-4 h-100" style="border-left:3px solid #0d6efd">
+        <div class="card-body p-3">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <span class="d-inline-flex align-items-center justify-content-center rounded-2" style="width:28px;height:28px;background:#eff6ff;color:#0d6efd"><i class="fa-solid fa-bolt" style="font-size:.75rem"></i></span>
+            <div><div class="fw-bold" style="font-size:.85rem">Cache Semântico</div><div class="small text-body-secondary" style="font-size:.7rem">Hit <50ms vs 30-110s LLM</div></div>
+            <span class="ms-auto badge text-bg-light border font-mono" id="cacheHitRate" style="font-size:.7rem">—</span>
+          </div>
+          <div class="d-flex align-items-baseline gap-2">
+            <span class="fw-bold font-mono" style="font-size:1.5rem" id="cacheHits">—</span>
+            <span class="small text-body-secondary">hits / <span id="cacheSize" class="font-mono">—</span> itens</span>
+            <span class="ms-auto small text-success fw-semibold" id="cacheSaved">—</span>
+          </div>
+          <div class="small text-body-secondary mt-1" style="font-size:.7rem" id="cacheHint">—</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-md-4">
+      <div class="card shadow-sm rounded-4 h-100" style="border-left:3px solid #198754">
+        <div class="card-body p-3">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <span class="d-inline-flex align-items-center justify-content-center rounded-2" style="width:28px;height:28px;background:#ecfdf5;color:#198754"><i class="fa-solid fa-thumbs-up" style="font-size:.75rem"></i></span>
+            <div><div class="fw-bold" style="font-size:.85rem">Feedback</div><div class="small text-body-secondary" style="font-size:.7rem">Up / Down 24h</div></div>
+            <span class="ms-auto badge text-bg-light border font-mono" id="feedbackRate" style="font-size:.7rem">—</span>
+          </div>
+          <div class="d-flex align-items-baseline gap-2">
+            <span class="fw-bold font-mono text-success" style="font-size:1.5rem" id="feedbackUp">—</span>
+            <span class="small text-body-secondary">/ <span id="feedbackDown" class="font-mono">—</span> down</span>
+            <span class="ms-auto small text-body-secondary" id="feedbackTotal">—</span>
+          </div>
+          <div class="small text-body-secondary mt-1" style="font-size:.7rem" id="feedbackHint">—</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-md-4">
+      <div class="card shadow-sm rounded-4 h-100" style="border-left:3px solid #6f42c1">
+        <div class="card-body p-3">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <span class="d-inline-flex align-items-center justify-content-center rounded-2" style="width:28px;height:28px;background:#f5f3ff;color:#6f42c1"><i class="fa-solid fa-layer-group" style="font-size:.75rem"></i></span>
+            <div><div class="fw-bold" style="font-size:.85rem">Por Perfil</div><div class="small text-body-secondary" style="font-size:.7rem">Flash vs Pro 24h</div></div>
+          </div>
+          <div id="byProfileBox" class="small" style="font-size:.78rem">—</div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="section-divider my-4">
@@ -390,12 +418,43 @@ async function loadDocs(){
     docsChart=new Chart(cvs,{type:'line',data:{labels:h.map(x=>timeStr(x.ts)),datasets:[{label:'Documentos',data:h.map(x=>x.documents),borderColor:'#0d6efd',backgroundColor:gD,fill:true,tension:.38,borderWidth:2,pointRadius:0},{label:'Chunks',data:h.map(x=>x.chunks),borderColor:'#6f42c1',backgroundColor:gC,fill:true,tension:.38,borderWidth:2,pointRadius:0}]},options:getChartDefaults()});
   }catch(e){ console.warn(e); }
 }
+async function loadCache(){
+  try{
+    const r=await fetch('/api/cache/stats'); const d=await r.json();
+    const elHits=document.getElementById('cacheHits'), elSize=document.getElementById('cacheSize'), elRate=document.getElementById('cacheHitRate'), elSaved=document.getElementById('cacheSaved'), elHint=document.getElementById('cacheHint');
+    if(elHits) elHits.textContent=fmtInt(d.hits||0);
+    if(elSize) elSize.textContent=fmtInt(d.size||0);
+    if(elRate) elRate.textContent=(d.hit_rate||0).toFixed(1)+'%';
+    if(elSaved) elSaved.textContent=d.hits?`~${fmt((d.hits||0)*2)}s economizados`:'—';
+    if(elHint) elHint.textContent=d.enabled===false?'Cache desabilitado':`${d.hits} hits / ${(d.hits||0)+(d.misses||0)} req · ${d.size} itens`;
+  }catch(e){ console.warn(e); }
+}
+async function loadFeedback(){
+  try{
+    const r=await fetch('/api/feedback/stats?hours='+range); const d=await r.json();
+    const elUp=document.getElementById('feedbackUp'), elDown=document.getElementById('feedbackDown'), elRate=document.getElementById('feedbackRate'), elTotal=document.getElementById('feedbackTotal'), elHint=document.getElementById('feedbackHint');
+    if(elUp) elUp.textContent=fmtInt(d.up||0);
+    if(elDown) elDown.textContent=fmtInt(d.down||0);
+    if(elRate) elRate.textContent=(d.up_rate||0).toFixed(0)+'% up';
+    if(elTotal) elTotal.textContent=`${d.total||0} total`;
+    if(elHint) elHint.textContent=d.total?`${d.up} 👍 / ${d.down} 👎 · ${(d.up_rate||0).toFixed(0)}% positivos`:'Sem feedback no período';
+  }catch(e){ console.warn(e); }
+}
+async function loadByProfile(){
+  try{
+    const r=await fetch('/api/metrics/by-profile?hours='+range); const d=await r.json();
+    const el=document.getElementById('byProfileBox'); if(!el) return;
+    const rows=d.by_profile||[];
+    if(!rows.length){ el.innerHTML='<div class="text-body-secondary small">Sem dados por perfil</div>'; return; }
+    el.innerHTML=rows.map(p=>`<div class="d-flex align-items-center justify-content-between py-1 border-bottom" style="font-size:.75rem"><span class="d-flex align-items-center gap-1.5"><i class="fa-solid ${p.profile==='pro'?'fa-brain text-success':p.profile==='flash'?'fa-bolt text-warning':'fa-layer-group text-primary'}" style="font-size:.7rem"></i><span class="fw-semibold">${esc(p.profile)}</span><span class="badge text-bg-light border font-mono" style="font-size:.6rem">${p.requests} req</span></span><span class="font-mono text-body-secondary">${(p.avg_ms/1000).toFixed(2)}s · ${p.cache_hits||0} cache</span></div>`).join('');
+  }catch(e){ console.warn(e); }
+}
 function emptyState(icon,title,subtitle){ return `<div class="text-center py-5 text-body-secondary"><i class="${icon} fs-2 opacity-50"></i><div class="fw-semibold mt-3" style="font-size:.92rem">${esc(title)}</div><div class="small">${esc(subtitle)}</div></div>`; }
 async function loadLlm(){ try{ const r=await fetch('/api/metrics/llm-calls?limit=10'); const d=await r.json(); const calls=d.calls||[]; const el=document.getElementById('llmTable'); const badge=document.getElementById('llmCount'); if(badge) badge.textContent=calls.length?`${calls.length} recentes`:'vazio'; if(!calls.length){ el.innerHTML=emptyState('fa-solid fa-terminal','Sem chamadas LLM','As chamadas ao Ollama aparecerão aqui'); return; } el.innerHTML='<table class="table table-hover align-middle mb-0"><thead class="table-light"><tr><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Hora</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Modelo</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">In</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Out</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Status</th></tr></thead><tbody>'+calls.map(c=>`<tr><td class="font-mono text-body-secondary" style="font-size:.80rem;white-space:nowrap">${esc(timeStr(c.ts))}</td><td class="fw-medium" style="white-space:normal;word-break:break-word;min-width:160px" title="${esc(c.model)}">${esc(c.model)}</td><td class="font-mono text-primary fw-semibold">${fmt(c.prompt_tokens)}</td><td class="font-mono text-warning fw-semibold">${fmt(c.completion_tokens)}</td><td><span class="badge ${c.success?'text-bg-success':'text-bg-danger'} rounded-pill px-2">${c.success?'ok':'err'}</span></td></tr>`).join('')+'</tbody></table>'; }catch(e){ document.getElementById('llmTable').innerHTML=emptyState('fa-solid fa-triangle-exclamation','Indisponível','Não foi possível carregar'); } }
 async function loadReqs(){ try{ const r=await fetch('/api/metrics/requests-log?limit=10'); const d=await r.json(); const reqs=d.requests||[]; const el=document.getElementById('reqTable'); const badge=document.getElementById('reqLogCount'); if(badge) badge.textContent=reqs.length?`${reqs.length} recentes`:'vazio'; if(!reqs.length){ el.innerHTML=emptyState('fa-solid fa-comments','Sem requisições','As perguntas ao agente aparecerão aqui'); return; } el.innerHTML='<table class="table table-hover align-middle mb-0"><thead class="table-light"><tr><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Hora</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Pergunta</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Evid.</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Tempo</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Status</th></tr></thead><tbody>'+reqs.map(c=>`<tr><td class="font-mono text-body-secondary" style="font-size:.80rem;white-space:nowrap">${esc(timeStr(c.ts))}</td><td style="white-space:normal;word-break:break-word;min-width:320px" title="${esc(c.question||'')}">${esc(c.question||'—')}</td><td class="font-mono text-info fw-semibold">${c.evidence_count??0}</td><td class="font-mono text-primary" style="font-size:.82rem;white-space:nowrap">${c.execution_ms?(c.execution_ms/1000).toFixed(1)+'s':'—'}</td><td><span class="badge ${c.success?'text-bg-success':'text-bg-danger'} rounded-pill px-2">${c.success?'ok':'err'}</span></td></tr>`).join('')+'</tbody></table>'; }catch(e){ document.getElementById('reqTable').innerHTML=emptyState('fa-solid fa-triangle-exclamation','Indisponível','Não foi possível carregar'); } }
 async function loadIdx(){ try{ const r=await fetch('/api/metrics/index-events?limit=10'); const d=await r.json(); const evs=d.events||[]; const el=document.getElementById('idxTable'); const badge=document.getElementById('idxCount'); if(badge) badge.textContent=evs.length?`${evs.length} eventos`:'vazio'; if(!evs.length){ el.innerHTML=emptyState('fa-solid fa-database','Sem eventos','Eventos de indexação aparecerão aqui'); return; } el.innerHTML='<table class="table table-hover align-middle mb-0"><thead class="table-light"><tr><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Hora</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Docs</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Chunks</th><th class="fw-bold" style="font-size:.64rem;letter-spacing:.07em">Status</th></tr></thead><tbody>'+evs.map(e=>`<tr><td class="font-mono text-body-secondary" style="font-size:.80rem;white-space:nowrap">${esc(timeStr(e.ts))}</td><td class="font-mono text-primary fw-semibold">${e.documents_processed??0}</td><td class="font-mono text-primary fw-semibold">${e.chunks_indexed??0}</td><td><span class="badge ${!e.error?'text-bg-success':'text-bg-danger'} rounded-pill px-2">${!e.error?'ok':'err'}</span></td></tr>`).join('')+'</tbody></table>'; }catch(e){ document.getElementById('idxTable').innerHTML=emptyState('fa-solid fa-triangle-exclamation','Indisponível','Não foi possível carregar'); } }
 async function loadHealth(){ try{ const r=await fetch('/api/health/ready'); const d=await r.json(); const overall=document.getElementById('healthOverall'); if(overall){ const isOk=d.status==='ok', isDeg=d.status==='degraded'; overall.className=isOk?'badge rounded-pill text-bg-success d-inline-flex align-items-center gap-2 px-3 py-2 fw-bold shadow-sm':isDeg?'badge rounded-pill text-bg-warning d-inline-flex align-items-center gap-2 px-3 py-2 fw-bold shadow-sm':'badge rounded-pill text-bg-danger d-inline-flex align-items-center gap-2 px-3 py-2 fw-bold shadow-sm'; overall.innerHTML=`<i class="bi bi-circle-fill" style="font-size:.42rem"></i> ${esc(d.status==='ok'?'Online':d.status)}`; } const checks=d.checks||{}; const setHeader=(id,key)=>{ const el=document.getElementById(id); if(!el) return; const v=(checks[key]||'').toLowerCase(); const ok=v==='ok'||v.startsWith('ok'); const isErr=v.includes('unavailable')||v.includes('error')||v==='missing'; el.className=ok?'text-success fw-semibold':isErr?'text-danger fw-semibold':'text-warning fw-semibold'; }; setHeader('healthRag','manifest'); setHeader('healthLlm','ollama'); setHeader('healthDb','vector_db_dir'); const staleEl=document.getElementById('healthStale'), staleText=document.getElementById('healthStaleText'); const n=d.stale||0; if(n>0){ if(staleText) staleText.textContent=n; if(staleEl) staleEl.classList.remove('d-none'); } else { if(staleEl) staleEl.classList.add('d-none'); } }catch(e){} }
-function refresh(){ const icon=document.getElementById('refreshIcon'); if(icon){ icon.animate([{transform:'rotate(0deg)'},{transform:'rotate(360deg)'}],{duration:600}); } countdown=15; const txt=document.getElementById('countdownText'); if(txt) txt.textContent='15s'; Promise.all([loadKpis(),loadTokens(),loadRequests(),loadModels(),loadDocs(),loadLlm(),loadReqs(),loadIdx(),loadHealth()]).finally(()=>{ const el=document.getElementById('lastUpdated'); if(el) el.textContent='Atualizado às '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }); }
+function refresh(){ const icon=document.getElementById('refreshIcon'); if(icon){ icon.animate([{transform:'rotate(0deg)'},{transform:'rotate(360deg)'}],{duration:600}); } countdown=15; const txt=document.getElementById('countdownText'); if(txt) txt.textContent='15s'; Promise.all([loadKpis(),loadTokens(),loadRequests(),loadModels(),loadDocs(),loadLlm(),loadReqs(),loadIdx(),loadHealth(),loadCache(),loadFeedback(),loadByProfile()]).finally(()=>{ const el=document.getElementById('lastUpdated'); if(el) el.textContent='Atualizado às '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }); }
 function bindRange(id,setter){ const root=document.getElementById(id); if(!root) return; root.querySelectorAll('[data-range]').forEach(b=>{ b.addEventListener('click',()=>{ const v=+b.dataset.range; setter(v); document.querySelectorAll('#headerRange [data-range]').forEach(x=>{ x.classList.toggle('btn-primary',+x.dataset.range===range); x.classList.toggle('btn-outline-secondary',+x.dataset.range!==range); x.classList.toggle('active',+x.dataset.range===range); }); root.querySelectorAll('[data-range]').forEach(x=>{ x.classList.toggle('btn-primary',+x.dataset.range===v); x.classList.toggle('btn-outline-secondary',+x.dataset.range!==v); x.classList.toggle('active',+x.dataset.range===v); }); }); }); }
 bindRange('headerRange', v=>{ range=v; loadKpis(); loadTokens(); loadModels(); });
 bindRange('tokensRangeBar', v=>{ range=v; document.querySelectorAll('#headerRange [data-range]').forEach(x=>{ x.classList.toggle('btn-primary',+x.dataset.range===v); x.classList.toggle('btn-outline-secondary',+x.dataset.range!==v); }); loadTokens(); loadKpis(); loadModels(); });

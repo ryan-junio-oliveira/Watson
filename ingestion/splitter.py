@@ -50,6 +50,7 @@ class Block:
     level: int = 0
     section: str = ""
     page: Optional[int] = None
+    bbox: Optional[str] = None  # "x0,y0,x1,y1:page" para grounding visual (placeholder page-based)
 
 
 def clean_heading(text: str) -> str:
@@ -234,6 +235,8 @@ class DocumentSplitter:
                 if current["page_start"] is None:
                     current["page_start"] = block.page
                 current["page_end"] = block.page
+                # bbox page-based para grounding visual (futuro: coordenadas reais do PyMuPDF)
+                current["bbox"] = f"page:{block.page}"
 
         flush()
 
@@ -254,6 +257,7 @@ class DocumentSplitter:
             "chars": 0,
             "page_start": None,
             "page_end": None,
+            "bbox": None,
             "section": section,
             "subsection": subsection,
         }
@@ -311,6 +315,9 @@ class DocumentSplitter:
             metadata=dict(doc.metadata),
         )
         metadata = contract.to_metadata()
+        # Grounding visual — bbox page-based (futuro: coordenadas reais)
+        if item.get("bbox"):
+            metadata["bbox"] = item["bbox"]
         # Chaves legadas usadas pelo indexer/retriever atuais
         metadata["source"] = doc.filepath
         metadata["file_type"] = doc.file_type

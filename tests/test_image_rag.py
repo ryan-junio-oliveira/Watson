@@ -46,7 +46,7 @@ def fake_image_evidence(content="Imagem sem texto detectado: images.jpg\n[Descri
         metadata={"source": "documents/images.jpg", "filename": "images.jpg", "chunk_id": "img1", "source_type": "image", "relevance_score": score}
     )
 
-def fake_text_evidence(content="Manual HP LaserJet E52645: erro E123", score=0.85):
+def fake_text_evidence(content="Manual HP LaserJet MODELO-X: erro E123", score=0.85):
     return Document(
         page_content=content,
         metadata={"source": "documents/manual.pdf", "filename": "manual.pdf", "chunk_id": "c2", "source_type": "pdf", "relevance_score": score}
@@ -90,7 +90,7 @@ def test_champions_image_low_score_but_overlap_kept():
 def test_factual_with_image_and_text_keeps_text():
     """Se há imagem e texto, pergunta factual deve priorizar texto de alta relevância."""
     bot, retr, oll = make_bot([fake_image_evidence(score=0.2), fake_text_evidence(score=0.85)], ollama_answer="Erro E123 está no manual.")
-    resp = bot.ask("como corrigir erro E123 na HP E52645?")
+    resp = bot.ask("como corrigir erro E123 na HP MODELO-X?")
     assert resp.evidences, "Deveria ter evidência"
     # Deve conter o texto de alta relevância (pdf)
     assert any(e.metadata.get("source_type") == "pdf" for e in resp.evidences), f"Deveria conter pdf, evidences={[e.metadata for e in resp.evidences]}"

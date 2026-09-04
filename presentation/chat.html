@@ -102,29 +102,26 @@
 </head>
 <body>
 <div id="app">
-<nav class="navbar sticky-top py-2" style="background:rgba(255,255,255,.82); backdrop-filter:saturate(180%) blur(16px); -webkit-backdrop-filter:saturate(180%) blur(16px); border-bottom:1px solid rgba(0,0,0,.06); box-shadow:0 1px 3px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.04)">
-  <div class="container-fluid px-3 px-lg-4" style="max-width:1600px">
-    <div class="d-flex align-items-center gap-3">
-      <button class="btn btn-sm d-lg-none border-0" data-bs-toggle="offcanvas" data-bs-target="#sidebarOffcanvas" style="width:32px;height:32px; background:var(--bs-tertiary-bg); border-radius:8px"><i class="fa-solid fa-bars" style="font-size:.8rem"></i></button>
-      <button class="btn btn-sm d-none d-lg-inline-flex border-0" id="sidebarToggle" onclick="toggleSidebar()" title="Expandir / ocultar ferramentas" style="width:32px;height:32px; background:var(--bs-tertiary-bg); border-radius:8px"><i class="fa-solid fa-angles-left" id="sidebarToggleIcon" style="font-size:.75rem"></i></button>
-      <a class="d-flex align-items-center gap-3 text-decoration-none" href="/">
-        <span class="d-flex align-items-center justify-content-center text-white shadow-sm" style="width:32px;height:32px; background:#111; border-radius:9px; font-size:.8rem"><i class="fa-solid fa-bolt"></i></span>
-        <span class="d-flex flex-column lh-1">
-          <span class="d-flex align-items-center gap-1.5"><span class="fw-bold text-body" style="font-size:.95rem;letter-spacing:-.025em">Watson</span><span class="badge rounded-pill" style="font-size:.5rem; letter-spacing:.07em; font-weight:700; background:#111; color:#fff; padding:.25em .5em">AI · RAG</span></span>
-          <small class="text-body-secondary" style="font-size:.63rem; font-weight:500; letter-spacing:.02em">Inteligência Documental</small>
-        </span>
-      </a>
-      <span class="vr d-none d-md-block mx-2" style="opacity:.12"></span>
-      <span id="healthBadge" class="d-none d-md-inline-flex align-items-center gap-1.5 px-2.5 py-1 fw-semibold" style="font-size:.66rem; background:#ECFDF5; color:#065F46; border:1px solid #A7F3D0; border-radius:999px"><span class="pulse pulse-success" style="width:6px;height:6px"></span> Online</span>
-    </div>
+<nav class="navbar bg-body border-bottom sticky-top">
+  <div class="container-fluid px-3" style="max-width:1600px">
     <div class="d-flex align-items-center gap-2">
-      <span id="clock" class="font-mono d-none d-xl-inline-flex align-items-center px-2.5 py-1" style="font-size:.68rem; font-weight:500; color:var(--bs-secondary-color); background:var(--bs-tertiary-bg); border:1px solid var(--bs-border-color-translucent); border-radius:8px; min-width:70px; justify-content:center">--:--</span>
-      <div class="d-flex align-items-center gap-1.5 ms-1">
-        <a class="btn btn-sm d-inline-flex align-items-center gap-1.5" href="/dashboard" style="font-size:.72rem; font-weight:500; padding:.35rem .7rem; background:var(--bs-body-bg); border:1px solid var(--bs-border-color-translucent); border-radius:8px"><i class="fa-solid fa-chart-simple" style="font-size:.68rem; opacity:.7"></i> Dashboard</a>
-        <a class="btn btn-sm d-inline-flex align-items-center gap-1.5" href="/config" style="font-size:.72rem; font-weight:500; padding:.35rem .7rem; background:var(--bs-body-bg); border:1px solid var(--bs-border-color-translucent); border-radius:8px"><i class="fa-solid fa-gear" style="font-size:.68rem; opacity:.7"></i> Config</a>
-        <a class="btn btn-sm d-none d-md-inline-flex align-items-center gap-1.5" href="/docs" target="_blank" style="font-size:.72rem; font-weight:500; padding:.35rem .7rem; background:var(--bs-body-bg); border:1px solid var(--bs-border-color-translucent); border-radius:8px"><i class="bi bi-code-square" style="font-size:.7rem; opacity:.7"></i> API</a>
-        <button class="btn btn-sm d-inline-flex align-items-center justify-content-center" onclick="toggleTheme()" title="Alternar tema" style="width:32px;height:32px; background:var(--bs-body-bg); border:1px solid var(--bs-border-color-translucent); border-radius:8px"><i class="fa-solid fa-circle-half-stroke" style="font-size:.75rem"></i></button>
-      </div>
+      <button class="btn btn-sm d-lg-none" data-bs-toggle="offcanvas" data-bs-target="#sidebarOffcanvas" style="width:32px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center"><i class="fa-solid fa-bars"></i></button>
+      <button class="btn btn-sm d-none d-lg-inline-flex" id="sidebarToggle" onclick="toggleSidebar()" title="Recolher" style="width:32px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center"><i class="fa-solid fa-angles-left" id="sidebarToggleIcon"></i></button>
+      <a class="d-flex align-items-center gap-2 text-decoration-none" href="/">
+        <span class="rounded-2 d-flex align-items-center justify-content-center text-white" style="width:28px;height:28px;background:#111"><i class="fa-solid fa-bolt" style="font-size:.75rem"></i></span>
+        <span class="fw-semibold text-body" style="font-size:.92rem">Watson</span>
+        <span class="badge text-bg-dark" style="font-size:.48rem">CHAT</span>
+      </a>
+      <span class="vr d-none d-md-block mx-1"></span>
+      <span class="text-body-secondary small d-none d-md-inline">Chat RAG · Streaming</span>
+      <span id="healthBadge" class="ms-2 d-none d-md-inline-flex align-items-center gap-1.5" style="font-size:.7rem;color:#16A34A;font-weight:600"><span style="width:6px;height:6px;background:#16A34A;border-radius:50%;display:inline-block"></span> Online</span>
+    </div>
+    <div class="d-flex align-items-center gap-1">
+      <span id="clock" class="font-mono text-body-secondary small d-none d-lg-inline me-1" style="font-size:.75rem">--:--</span>
+      <a href="/dashboard" class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-chart-simple me-1"></i> Dashboard</a>
+      <a href="/config" class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-gear me-1"></i> Config</a>
+      <a href="/docs" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-code me-1"></i> API</a>
+      <button class="btn btn-sm btn-outline-secondary" onclick="toggleTheme()" title="Alternar tema"><i class="fa-solid fa-circle-half-stroke"></i></button>
     </div>
   </div>
 </nav>
@@ -376,6 +373,17 @@ function switchMobilePanel(id, btn){
 
 function fillExample(t){ $('#prompt').value=t; $('#prompt').focus(); }
 function clearThread(){ historyMsgs=[]; $('#thread').innerHTML=''; const th=$('#tokenHint'); if(th) th.textContent='—'; const eh=$('#execHint'); if(eh) eh.textContent='—'; }
+async function sendFeedback(btn, rating, answer){
+  try{
+    const lastQ = [...historyMsgs].reverse().find(m=>m.role==='user')?.content || '';
+    const profile = $('#watsonProfile')?.value || localStorage.getItem('watson-profile') || 'flash';
+    const mode = document.querySelector('input[name=\"mode\"]:checked')?.value || 'auto';
+    btn.disabled = true;
+    btn.innerHTML = rating==='up' ? '<i class=\"fa-solid fa-check\"></i> Obrigado' : '<i class=\"fa-solid fa-check\"></i> Registrado';
+    await fetch('/api/feedback', {method:'POST', headers:{'Content-Type':'application/json', ...(localStorage.getItem('watson-token')?{'X-API-Token':localStorage.getItem('watson-token')}:{})}, body: JSON.stringify({question: lastQ, answer, rating, profile, mode})});
+    btn.classList.remove('btn-outline-secondary'); btn.classList.add(rating==='up'?'btn-success':'btn-warning');
+  }catch(e){ btn.disabled=false; }
+}
 $('#prompt').addEventListener('keydown', e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } });
 $('#prompt').addEventListener('input', function(){ this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,160)+'px'; });
 $('#fileInput').addEventListener('change', e=> handleFiles(e.target.files));
@@ -420,8 +428,14 @@ async function loadHealth(){
     const d=await api('/api/health/ready');
     const badge=$('#healthBadge');
     const isOk=d.status==='ok', isDeg=d.status==='degraded';
-    if(badge){ badge.className=isOk?'badge rounded-pill text-bg-success d-none d-md-inline-flex align-items-center gap-2 px-3 py-2 fw-bold':isDeg?'badge rounded-pill text-bg-warning d-none d-md-inline-flex align-items-center gap-2 px-3 py-2 fw-bold':'badge rounded-pill text-bg-danger d-none d-md-inline-flex align-items-center gap-2 px-3 py-2 fw-bold'; badge.innerHTML=`<span class="pulse pulse-success" style="width:7px;height:7px"></span> ${isOk?'Online':d.status}`; }
-  }catch(e){ const b=$('#healthBadge'); if(b){ b.className='badge rounded-pill text-bg-danger d-none d-md-inline-flex align-items-center gap-2 px-3 py-2 fw-bold'; b.textContent='offline'; } }
+    if(badge){
+      const color = isOk ? '#16A34A' : isDeg ? '#D97706' : '#DC2626';
+      const bg = isOk ? '#16A34A' : isDeg ? '#D97706' : '#DC2626';
+      badge.className='ms-2 d-none d-md-inline-flex align-items-center gap-1.5';
+      badge.style.cssText=`font-size:.7rem;font-weight:600;color:${color}`;
+      badge.innerHTML=`<span style="width:6px;height:6px;background:${bg};border-radius:50%;display:inline-block"></span> ${isOk?'Online':d.status}`;
+    }
+  }catch(e){ const b=$('#healthBadge'); if(b){ b.className='ms-2 d-none d-md-inline-flex align-items-center gap-1.5'; b.style.cssText='font-size:.7rem;font-weight:600;color:#DC2626'; b.innerHTML='<span style="width:6px;height:6px;background:#DC2626;border-radius:50%;display:inline-block"></span> offline'; } }
 }
 loadHealth(); setInterval(loadHealth,15000);
 
@@ -576,10 +590,12 @@ function addMessage(role, content, meta){
       }
       return `<span class="badge source-chip">${icon}${label}${s.page?` · p.${s.page}`:''}${s.section?` · ${esc(s.section)}`:''}</span>`;
     }).join(' ');
-    const metaLine=meta?`<div class="d-flex flex-wrap gap-2 text-body-secondary border-top pt-2 mt-2" style="font-size:.68rem"><span><i class="fa-solid fa-bullseye me-1"></i>conf ${(meta.confidence??0).toFixed(2)}</span><span>·</span><span><i class="fa-solid fa-layer-group me-1"></i>${meta.metadata?.evidence_count??0} evidências</span><span>·</span><span><i class="fa-solid fa-stopwatch me-1"></i>${((meta.metadata?.execution_time_ms??0)/1000).toFixed(2)}s</span><span class="badge ${meta.metadata?.verdict==='ok'?'text-bg-success':'text-bg-warning'}" style="font-size:.62rem">${esc(meta.metadata?.verdict||'')}</span></div>`:'';
+    const metaLine=meta?`<div class="d-flex flex-wrap gap-2 text-body-secondary border-top pt-2 mt-2" style="font-size:.68rem"><span><i class="fa-solid fa-bullseye me-1"></i>conf ${(meta.confidence??0).toFixed(2)}</span><span>·</span><span><i class="fa-solid fa-layer-group me-1"></i>${meta.metadata?.evidence_count??0} evidências</span><span>·</span><span><i class="fa-solid fa-stopwatch me-1"></i>${((meta.metadata?.execution_time_ms??0)/1000).toFixed(2)}s</span><span class="badge ${meta.metadata?.verdict==='ok'?'text-bg-success':'text-bg-warning'}" style="font-size:.62rem">${esc(meta.metadata?.verdict||'')}</span>${meta.metadata?.cached ? '<span class="badge text-bg-info" style="font-size:.6rem"><i class="fa-solid fa-bolt me-1"></i>cache</span>' : ''}</div>`:'';
+    const guardrail = meta?.metadata?.guardrail ? `<div class="alert alert-warning d-flex align-items-center gap-2 py-1 px-2 mt-2 mb-0" style="font-size:.68rem; border-radius:.5rem"><i class="fa-solid fa-triangle-exclamation"></i><span>Resposta com pouca evidência — verifique as fontes antes de agir</span><span class="font-mono ms-auto" style="font-size:.6rem">${esc(meta.metadata.guardrail_detail||'')}</span></div>` : '';
     const conclusions=(meta?.conclusions||[]).length?`<div class="mt-2" style="font-size:.76rem"><div class="fw-semibold small"><i class="fa-solid fa-check me-1"></i>Conclusões</div><ul class="mb-0 ps-3">${meta.conclusions.map(c=>`<li>${esc(c)}</li>`).join('')}</ul></div>`:'';
     const addInfo=(meta?.additional_info||[]).length?`<div class="mt-2" style="font-size:.76rem"><div class="fw-semibold small"><i class="fa-solid fa-circle-info text-info me-1"></i>Info adicional</div><ul class="mb-0 ps-3">${meta.additional_info.map(a=>`<li>${esc(a)}</li>`).join('')}</ul></div>`:'';
-    body=`<div class="msg-row"><div class="${bubbleClass}"><div class="markdown">${html}</div>${sources?`<div class="d-flex flex-wrap gap-1 mt-2">${sources}</div>`:''}${metaLine}${conclusions}${addInfo}</div></div>`;
+    const feedback = !isUser && content ? `<div class="d-flex gap-1 mt-2 pt-2 border-top justify-end"><span class="small text-body-secondary me-1" style="font-size:.65rem">Útil?</span><button class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:.65rem" onclick="sendFeedback(this,'up',\`${esc(content).replace(/`/g,'\'').slice(0,300)}\`)"><i class="fa-regular fa-thumbs-up me-1"></i>Sim</button><button class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:.65rem" onclick="sendFeedback(this,'down',\`${esc(content).replace(/`/g,'\'').slice(0,300)}\`)"><i class="fa-regular fa-thumbs-down me-1"></i>Não</button></div>` : '';
+    body=`<div class="msg-row"><div class="${bubbleClass}"><div class="markdown">${html}</div>${sources?`<div class="d-flex flex-wrap gap-1 mt-2">${sources}</div>`:''}${guardrail}${metaLine}${conclusions}${addInfo}${feedback}</div></div>`;
   }
   wrap.innerHTML=header+body;
   thread.appendChild(wrap);

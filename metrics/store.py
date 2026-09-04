@@ -46,7 +46,9 @@ CREATE TABLE IF NOT EXISTS requests (
     execution_ms REAL DEFAULT 0,
     analyze INTEGER DEFAULT 0,
     success INTEGER DEFAULT 1,
-    error TEXT
+    error TEXT,
+    profile TEXT DEFAULT 'flash',
+    cache_hit INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_req_ts ON requests(ts);
 
@@ -67,6 +69,20 @@ CREATE TABLE IF NOT EXISTS index_events (
     error TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_ie_ts ON index_events(ts);
+
+CREATE TABLE IF NOT EXISTS feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    question TEXT,
+    answer TEXT,
+    profile TEXT DEFAULT 'flash',
+    mode TEXT,
+    rating TEXT NOT NULL, -- up | down
+    reason TEXT,
+    request_id INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_fb_ts ON feedback(ts);
+CREATE INDEX IF NOT EXISTS idx_fb_rating ON feedback(rating);
 """
 
 
@@ -89,6 +105,21 @@ class MetricsStore:
                 conn = self._connect()
                 try:
                     conn.executescript(_SCHEMA)
+                    # Migração suave para DBs antigos sem profile/cache_hit
+                    try:
+                        cols = [r[1] for r in conn.execute("PRAGMA table_info(requests)").fetchall()]
+                        if "profile" not in cols:
+                            conn.execute("ALTER TABLE requests ADD COLUMN profile TEXT DEFAULT 'flash'")
+                        if "cache_hit" not in cols:
+                            conn.execute("ALTER TABLE requests ADD COLUMN cache_hit INTEGER DEFAULT 0")
+                        conn.commit()
+                    except Exception:
+                        pass
+                    try:
+                        conn.execute("CREATE INDEX IF NOT EXISTS idx_req_profile ON requests(profile)")
+                        conn.commit()
+                    except Exception:
+                        pass
                     conn.commit()
                 finally:
                     conn.close()
@@ -141,6 +172,8 @@ class MetricsStore:
         analyze: bool = False,
         success: bool = True,
         error: Optional[str] = None,
+        profile: str = "flash",
+        cache_hit: bool = False,
     ) -> None:
         try:
             with self._lock:
@@ -149,10 +182,11 @@ class MetricsStore:
                     conn.execute(
                         "INSERT INTO requests (ts, endpoint, question, mode, "
                         "provider, evidence_count, execution_ms, analyze, "
-                        "success, error) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        "success, error, profile, cache_hit) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                         (time.time(), endpoint, question, mode, provider,
                          int(evidence_count), float(execution_ms),
-                         1 if analyze else 0, 1 if success else 0, error),
+                         1 if analyze else 0, 1 if success else 0, error,
+                         profile or "flash", 1 if cache_hit else 0),
                     )
                     conn.commit()
                 finally:
@@ -160,6 +194,31 @@ class MetricsStore:
         except Exception as e:
             if self.logger:
                 self.logger.warning(f"record_request failed: {e}")
+
+    def record_feedback(
+        self,
+        question: str,
+        answer: str,
+        profile: str = "flash",
+        mode: str = "auto",
+        rating: str = "up",
+        reason: Optional[str] = None,
+        request_id: Optional[int] = None,
+    ) -> None:
+        try:
+            with self._lock:
+                conn = self._connect()
+                try:
+                    conn.execute(
+                        "INSERT INTO feedback (ts, question, answer, profile, mode, rating, reason, request_id) VALUES (?,?,?,?,?,?,?,?)",
+                        (time.time(), question, answer, profile or "flash", mode or "auto", rating, reason, request_id),
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"record_feedback failed: {e}")
 
     def record_documents(
         self,
@@ -229,6 +288,21 @@ class MetricsStore:
                     row = conn.execute(sql2, args2).fetchone()
                     return row[0] if row else 0
 
+                # Feedback e cache
+                try:
+                    fb_up = one("SELECT COUNT(*) FROM feedback WHERE rating='up'")
+                    fb_down = one("SELECT COUNT(*) FROM feedback WHERE rating='down'")
+                    cache_hits = one("SELECT COUNT(*) FROM requests WHERE cache_hit=1")
+                except Exception:
+                    fb_up = fb_down = cache_hits = 0
+                # Por perfil
+                by_profile = {}
+                try:
+                    rows = conn.execute("SELECT profile, COUNT(*) as cnt, AVG(execution_ms) as avg_ms, SUM(cache_hit) as hits FROM requests GROUP BY profile").fetchall()
+                    for r in rows:
+                        by_profile[r["profile"] or "flash"] = {"requests": r["cnt"] or 0, "avg_ms": r["avg_ms"] or 0, "cache_hits": r["hits"] or 0}
+                except Exception:
+                    by_profile = {}
                 return {
                     "llm_calls": one("SELECT COUNT(*) FROM llm_calls"),
                     "llm_success": one("SELECT COUNT(*) FROM llm_calls WHERE success=1"),
@@ -241,6 +315,11 @@ class MetricsStore:
                     "request_success": one("SELECT COUNT(*) FROM requests WHERE success=1"),
                     "request_errors": one("SELECT COUNT(*) FROM requests WHERE success=0"),
                     "avg_execution_ms": one("SELECT AVG(execution_ms) FROM requests WHERE success=1"),
+                    "cache_hits": cache_hits,
+                    "cache_hit_rate": (cache_hits / one("SELECT COUNT(*) FROM requests") * 100) if one("SELECT COUNT(*) FROM requests") else 0,
+                    "feedback_up": fb_up,
+                    "feedback_down": fb_down,
+                    "by_profile": by_profile,
                     "documents_indexed": self._latest_scalar("documents", "documents"),
                     "chunks_indexed": self._latest_scalar("documents", "chunks"),
                 }
@@ -317,6 +396,25 @@ class MetricsStore:
             finally:
                 conn.close()
 
+    def by_profile(self, hours: float = 24.0) -> List[Dict[str, Any]]:
+        since = time.time() - hours * 3600
+        with self._lock:
+            conn = self._connect()
+            try:
+                rows = conn.execute(
+                    "SELECT profile, COUNT(*) as requests, "
+                    "AVG(execution_ms) as avg_ms, SUM(cache_hit) as cache_hits, "
+                    "SUM(CASE WHEN success=1 THEN 1 ELSE 0 END) as ok "
+                    "FROM requests WHERE ts >= ? GROUP BY profile ORDER BY requests DESC",
+                    (since,),
+                ).fetchall()
+                return [
+                    {"profile": r["profile"] or "flash", "requests": r["requests"] or 0, "avg_ms": r["avg_ms"] or 0, "cache_hits": r["cache_hits"] or 0, "success": r["ok"] or 0}
+                    for r in rows
+                ]
+            finally:
+                conn.close()
+
     def recent_llm_calls(self, limit: int = 50) -> List[Dict[str, Any]]:
         with self._lock:
             conn = self._connect()
@@ -337,11 +435,42 @@ class MetricsStore:
             try:
                 rows = conn.execute(
                     "SELECT ts, endpoint, question, mode, provider, "
-                    "evidence_count, execution_ms, analyze, success, error "
+                    "evidence_count, execution_ms, analyze, success, error, profile, cache_hit "
                     "FROM requests ORDER BY id DESC LIMIT ?",
                     (limit,),
                 ).fetchall()
                 return [dict(r) for r in rows]
+            finally:
+                conn.close()
+
+    def recent_feedback(self, limit: int = 50) -> List[Dict[str, Any]]:
+        with self._lock:
+            conn = self._connect()
+            try:
+                rows = conn.execute(
+                    "SELECT ts, question, profile, mode, rating, reason FROM feedback ORDER BY id DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+                return [dict(r) for r in rows]
+            finally:
+                conn.close()
+
+    def feedback_stats(self, hours: float = 24.0) -> Dict[str, Any]:
+        since = time.time() - hours * 3600
+        with self._lock:
+            conn = self._connect()
+            try:
+                up = conn.execute("SELECT COUNT(*) FROM feedback WHERE rating='up' AND ts >= ?", (since,)).fetchone()[0] or 0
+                down = conn.execute("SELECT COUNT(*) FROM feedback WHERE rating='down' AND ts >= ?", (since,)).fetchone()[0] or 0
+                total = up + down
+                rate = (up / total * 100) if total else 0
+                by_prof = conn.execute("SELECT profile, rating, COUNT(*) as cnt FROM feedback WHERE ts >= ? GROUP BY profile, rating", (since,)).fetchall()
+                breakdown = {}
+                for r in by_prof:
+                    prof = r["profile"] or "flash"
+                    breakdown.setdefault(prof, {"up": 0, "down": 0})
+                    breakdown[prof][r["rating"]] = r["cnt"]
+                return {"up": up, "down": down, "total": total, "up_rate": rate, "by_profile": breakdown}
             finally:
                 conn.close()
 

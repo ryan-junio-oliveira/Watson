@@ -13,6 +13,8 @@ services:
     container_name: watson-searxng
     ports:
       - "0.0.0.0:8080:8080"
+    volumes:
+      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
     environment:
       - SEARXNG_BASE_URL=http://localhost:8080/
     restart: unless-stopped

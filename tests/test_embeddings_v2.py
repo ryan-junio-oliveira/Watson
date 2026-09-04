@@ -44,7 +44,7 @@ class TestEmbeddingFeatures:
         )
         with patch.object(gen, "_load_model", return_value=_mock_model_384()):
             gen._encode = MagicMock(return_value=[[0.1] * 384, [0.2] * 384])
-            texts = ["texto tecnico sobre impressoras HP", "erro E123 na E52645"]
+            texts = ["texto tecnico sobre impressoras HP", "erro E123 na MODELO-X"]
             first = gen.embed_documents(texts)
             second = gen.embed_documents(texts)
 

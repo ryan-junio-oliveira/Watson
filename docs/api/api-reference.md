@@ -97,7 +97,7 @@ Endpoint principal de perguntas e respostas.
 **Body:**
 ```json
 {
-  "question": "Como corrigir o erro E123 na impressora E52645?",
+  "question": "Como corrigir o erro E123 na impressora Modelo-X?",
   "history": [
     {"role": "user", "content": "Qual o total de clientes?"},
     {"role": "assistant", "content": "Temos 15 clientes ativos."}
@@ -122,13 +122,13 @@ Endpoint principal de perguntas e respostas.
   "confidence": 0.94,
   "sources": [
     {
-      "title": "HP LASER JET E52645.pdf",
+      "title": "Manual_Impressora.pdf",
       "url": "",
       "provider": "rag",
       "page": 142,
       "section": "Troubleshooting",
       "manufacturer": "HP",
-      "model": "E52645",
+      "model": "Modelo-X",
       "error_codes": ["E123"]
     }
   ],
@@ -404,7 +404,7 @@ Lista pastas e arquivos de um diretório do Google Drive.
 {
   "items": [
     {"id": "1Aa...", "name": "MANUAIS", "type": "folder"},
-    {"id": "2Bb...", "name": "manual-e52645.pdf", "type": "file", "modified": "2025-01-01"}
+    {"id": "2Bb...", "name": "manual-modelo-x.pdf", "type": "file", "modified": "2025-01-01"}
   ]
 }
 ```

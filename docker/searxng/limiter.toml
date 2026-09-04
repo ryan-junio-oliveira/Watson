@@ -1,0 +1,7 @@
+# Limiter desabilitado para Watson interno
+[botdetection]
+# desativa totalmente
+enabled = false
+
+[ui]
+# none

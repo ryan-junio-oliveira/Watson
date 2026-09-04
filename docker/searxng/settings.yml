@@ -1,0 +1,42 @@
+# SearXNG settings for Watson — fixed limiter 403 and enable JSON
+# See https://docs.searxng.org
+
+use_default_settings: true
+
+server:
+  base_url: http://localhost:8080/
+  secret_key: "watson-searxng-ultra-secret-key-2025-change-me-32-chars-12345678"
+  limiter: false
+  # desativa botdetection para uso interno via Watson (não exposto publicamente)
+  public_instance: false
+  # desativa redis limiter
+  redis_url: ~
+  # porta
+  port: 8080
+  bind_address: 0.0.0.0
+  workers: 1
+  # confiar em X-Forwarded-For do Watson
+  behind_proxy: true
+  x_for: 1
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  autocomplete_min: 4
+  ban_time_in_seconds: 3600
+  max_ban_time_in_seconds: 3600
+  formats:
+    - html
+    - json
+
+ui:
+  query_in_title: true
+  infinite_scroll: false
+  center_alignment: true
+  results_on_new_tab: false
+  advanced_search: true
+  query_url: false
+
+# Desativa limiter.toml faltante
+capability:
+  # none

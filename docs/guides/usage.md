@@ -34,14 +34,14 @@ python app.py
 - Comando **`aprofundar`** (ou `analisar`) após uma resposta ativa a análise proativa sobre a resposta anterior.
 
 ```
-> Qual o erro E123 da E52645?
+> Qual o erro E123 da impressora?
 
 Watson está analisando sua resposta...
 [resposta em tempo real]
 
 Sources
 -------
-  • HP LASER JET E52645.pdf
+  • Manual_Impressora.pdf
 
 Perguntas para aprofundar:
   1. Qual o procedimento de troca do fusor?

@@ -11,15 +11,15 @@ def rich_document():
     return Document(
         page_content="Procedimento para resolver o erro E123.",
         metadata={
-            "filename": "HP_E52645.pdf",
-            "source": "/docs/HP_E52645.pdf",
+            "filename": "HP_MODELO-X.pdf",
+            "source": "/docs/HP_MODELO-X.pdf",
             "relevance_score": 0.91,
             "chunk_id": "chunk_doc_1_5",
             "document_id": "doc_1",
             "source_id": "src_1",
             "source_type": "pdf",
             "manufacturer": "HP",
-            "model": "E52645",
+            "model": "MODELO-X",
             "device_type": "printer",
             "document_type": "service_manual",
             "section": "Troubleshooting",
@@ -35,7 +35,7 @@ class TestEvidenceRichContract:
     def test_normalizer_maps_rich_metadata(self):
         ev = EvidenceNormalizer.from_chroma_document(rich_document())
         assert ev.manufacturer == "HP"
-        assert ev.model == "E52645"
+        assert ev.model == "MODELO-X"
         assert ev.device_type == "printer"
         assert ev.document_type == "service_manual"
         assert ev.section == "Troubleshooting"
@@ -50,7 +50,7 @@ class TestEvidenceRichContract:
         ev = EvidenceNormalizer.from_chroma_document(rich_document())
         label = ev.context_label
         assert "HP" in label
-        assert "E52645" in label
+        assert "MODELO-X" in label
         assert "Troubleshooting" in label
         assert "142" in label
         assert "E123" in label
@@ -65,7 +65,7 @@ class TestPromptRichContext:
         ev = EvidenceNormalizer.from_chroma_document(rich_document())
         block = PromptBuilder._format_evidence_block(ev)
         assert "HP" in block
-        assert "E52645" in block
+        assert "MODELO-X" in block
         assert "Troubleshooting" in block
         assert "E123" in block
         assert "Procedimento para resolver o erro E123." in block
@@ -78,7 +78,7 @@ class TestSourceRichContext:
         assert src.page == 142
         assert src.section == "Troubleshooting"
         assert src.manufacturer == "HP"
-        assert src.model == "E52645"
+        assert src.model == "MODELO-X"
 
     def test_to_dict_includes_rich_fields(self):
         ev = EvidenceNormalizer.from_chroma_document(rich_document())
@@ -86,7 +86,7 @@ class TestSourceRichContext:
         assert d["page"] == 142
         assert d["section"] == "Troubleshooting"
         assert d["manufacturer"] == "HP"
-        assert d["model"] == "E52645"
+        assert d["model"] == "MODELO-X"
 
 
 class TestRetrieverFilter:
@@ -109,10 +109,10 @@ class TestRetrieverFilter:
             )
             retriever.retrieve(
                 "erro E123",
-                filter={"manufacturer": "HP", "model": "E52645"},
+                filter={"manufacturer": "HP", "model": "MODELO-X"},
             )
             instance.similarity_search_with_relevance_scores.assert_called_once_with(
-                "erro E123", k=5, filter={"manufacturer": "HP", "model": "E52645"}
+                "erro E123", k=5, filter={"manufacturer": "HP", "model": "MODELO-X"}
             )
 
     def test_retrieve_without_filter_no_filter_kwarg(self):

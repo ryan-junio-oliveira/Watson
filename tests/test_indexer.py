@@ -309,10 +309,10 @@ class TestIndex:
         assert fake_store.count() == 0
 
     def test_reindex_source_by_manufacturer_and_model(self, tmp_path, fake_store):
-        hp = LoadedDocument(
-            content="conteudo hp", filepath="/hp.pdf", filename="HP_E52645.pdf",
+        impressora = LoadedDocument(
+            content="conteudo impressora", filepath="/impressora.pdf", filename="HP_MODELO-X.pdf",
             file_type=".pdf", modified_at="t", file_size=1,
-            metadata={"manufacturer": "HP", "model": "E52645"},
+            metadata={"manufacturer": "HP", "model": "MODELO-X"},
         )
         epson = LoadedDocument(
             content="conteudo epson", filepath="/ep.pdf", filename="Epson_L380.pdf",
@@ -335,13 +335,13 @@ class TestIndex:
         embedding.embedding_version = "v"
 
         indexer = build_indexer(tmp_path, fake_store, splitter, embedding)
-        total = indexer.reindex_source([hp, epson, txt], manufacturer="HP", model="E52645")
-        assert indexer.manifest.get(hp.document_id) is not None
+        total = indexer.reindex_source([impressora, epson, txt], manufacturer="HP", model="MODELO-X")
+        assert indexer.manifest.get(impressora.document_id) is not None
         assert indexer.manifest.get(epson.document_id) is None
         assert indexer.manifest.get(txt.document_id) is None
 
         # por tipo
-        total2 = indexer.reindex_source([hp, epson, txt], source_type="txt")
+        total2 = indexer.reindex_source([impressora, epson, txt], source_type="txt")
         assert indexer.manifest.get(txt.document_id) is not None
 
 

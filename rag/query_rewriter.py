@@ -4,18 +4,18 @@ Transforma pergunta curta e pobre semanticamente em consultas ricas,
 preservando termos técnicos (fabricante, modelo, códigos) e detectando intent.
 
 Ex:
-  "erro na impressora hp laser jet e52645"
+  "erro na impressora hp laser jet modelo-x"
   →
   {
-    "original_query": "erro na impressora hp laser jet e52645",
-    "normalized_query": "Erros e códigos de erro da HP LaserJet Managed MFP E52645",
+    "original_query": "erro na impressora hp laser jet modelo-x",
+    "normalized_query": "Erros e códigos de erro da Impressora Managed MFP Modelo-X",
     "expanded_queries": [
-      "HP LaserJet Managed MFP E52645 códigos de erro",
-      "HP E52645 mensagem de erro solução",
-      "HP LaserJet E52645 troubleshooting",
+      "Impressora Managed MFP Modelo-X códigos de erro",
+      "HP Modelo-X mensagem de erro solução",
+      "Impressora Modelo-X troubleshooting",
       ...
     ],
-    "entities": {"manufacturer":"HP","model":"LaserJet Managed MFP E52645","device_type":"multifunction printer"},
+    "entities": {"manufacturer":"HP","model":"Impressora Modelo Modelo-X","device_type":"multifunction printer"},
     "intent": "troubleshooting"
   }
 
@@ -39,15 +39,15 @@ TAREFA: Receba a pergunta do usuário (curta e pobre) e retorne JSON ESTRITO com
 - intent: troubleshooting | factual | comparison | procedural | listing
 
 REGRAS CRÍTICAS:
-1. PRESERVE termos técnicos: HP, LaserJet, E52645, E123, fusor, toner, etc. NUNCA generalize "impressora HP" se modelo foi citado.
-2. NÃO embeleze: "erro na impressora hp e52645" NÃO pode virar "Como solucionar impressora HP?" — perderia recall.
+1. PRESERVE termos técnicos: HP, LaserJet, Modelo-X, E123, fusor, toner, etc. NUNCA generalize "impressora HP" se modelo foi citado.
+2. NÃO embeleze: "erro na impressora hp modelo-x" NÃO pode virar "Como solucionar impressora HP?" — perderia recall.
 3. Expansões devem variar ângulo: códigos de erro, mensagem de erro, troubleshooting, diagnóstico, procedimentos — sempre com modelo.
 4. Detecte intent: "erro"/"falha"/"código" → troubleshooting; "quais"/"liste" → listing; "como fazer" → procedural.
 5. Responda APENAS JSON válido, sem markdown, sem explicação.
 
-Exemplo input: "erro na impressora hp laser jet e52645"
+Exemplo input: "erro na impressora hp laser jet modelo-x"
 Exemplo output:
-{"original_query":"erro na impressora hp laser jet e52645","normalized_query":"Erros e códigos de erro da HP LaserJet Managed MFP E52645","expanded_queries":["HP LaserJet Managed MFP E52645 códigos de erro","HP E52645 mensagem de erro solução","HP LaserJet E52645 troubleshooting","HP E52645 falha de impressão diagnóstico","HP E52645 problemas de hardware e procedimentos de correção"],"entities":{"manufacturer":"HP","model":"LaserJet Managed MFP E52645","device_type":"multifunction printer"},"intent":"troubleshooting"}
+{"original_query":"erro na impressora hp laser jet modelo-x","normalized_query":"Erros e códigos de erro da Impressora Managed MFP Modelo-X","expanded_queries":["Impressora Managed MFP Modelo-X códigos de erro","HP Modelo-X mensagem de erro solução","Impressora Modelo-X troubleshooting","HP Modelo-X falha de impressão diagnóstico","HP Modelo-X problemas de hardware e procedimentos de correção"],"entities":{"manufacturer":"HP","model":"Impressora Modelo Modelo-X","device_type":"multifunction printer"},"intent":"troubleshooting"}
 """
 
 
@@ -184,7 +184,7 @@ class QueryRewriter:
                 manufacturer = m.upper() if m == "hp" else m.capitalize()
                 break
 
-        # Modelo: captura sequência com letras/números + E52645 etc
+        # Modelo: captura sequência com letras/números + Modelo-X etc
         m = re.search(r"(laserjet[\s\w-]*?e\d{4,5}|e\d{4,5}|dcp[-\s]?\w+|m\d{4}\w*|mfp[\s\w-]*\d+)", query, re.IGNORECASE)
         if m:
             model = m.group(0).strip()
@@ -194,7 +194,7 @@ class QueryRewriter:
 
         # Normalizada = query original limpa + capitalização leve
         normalized = query.strip()
-        # Se tem fabricante e modelo, garante formato "HP LaserJet ..."
+        # Se tem fabricante e modelo, garante formato "Impressora ..."
         if manufacturer and model:
             # Não sobrescreve se já está bom
             pass
@@ -265,7 +265,7 @@ class QueryRewriter:
 
     def _ensure_technical_terms(self, original: str, expanded: List[str]) -> List[str]:
         """Garante que termos técnicos do original não sejam perdidos nas expandidas."""
-        # Extrai tokens técnicos: códigos E123, modelos E52645, etc
+        # Extrai tokens técnicos: códigos E123, modelos Modelo-X, etc
         tech_terms = re.findall(r"\b(e\d{3,5}|[a-z]+\d{3,5}\w*)\b", original, re.IGNORECASE)
         tech_terms = [t for t in tech_terms if len(t) >= 4]
         if not tech_terms:

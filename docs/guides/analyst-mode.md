@@ -34,7 +34,7 @@ O **Analista** aprofunda a análise de uma resposta **quando solicitado** — n�
 
 ```json
 {
-  "question": "Qual o erro E123 da E52645?",
+  "question": "Qual o erro E123 da Modelo-X?",
   "analyze": true
 }
 ```
